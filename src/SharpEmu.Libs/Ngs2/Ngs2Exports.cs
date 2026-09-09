@@ -16,6 +16,7 @@ public static class Ngs2Exports
     private const int OrbisNgs2ErrorInvalidSystemHandle = unchecked((int)0x804A0230);
     private const int OrbisNgs2ErrorInvalidRackHandle = unchecked((int)0x804A0261);
     private const int OrbisNgs2ErrorInvalidVoiceHandle = unchecked((int)0x804A0300);
+    private const int OrbisNgs2ErrorInvalidVoiceControlAddress = unchecked((int)0x804A0309);
     private const ulong HandleStorageSize = 0x20;
     private const int RenderBufferInfoSize = 0x18;
     private const ulong MaximumRenderBufferSize = 16 * 1024 * 1024;
@@ -305,6 +306,11 @@ public static class Ngs2Exports
             {
                 return SetReturn(ctx, OrbisNgs2ErrorInvalidVoiceHandle);
             }
+        }
+
+        if (paramList == 0)
+        {
+            return SetReturn(ctx, OrbisNgs2ErrorInvalidVoiceControlAddress);
         }
 
         if (ShouldTrace())

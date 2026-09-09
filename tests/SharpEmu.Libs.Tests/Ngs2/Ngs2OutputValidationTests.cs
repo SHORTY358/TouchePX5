@@ -21,6 +21,7 @@ public sealed class Ngs2OutputValidationTests : IDisposable
     private const int InvalidNumGrainSamples = unchecked((int)0x804A0051);
     private const int InvalidOutAddress = unchecked((int)0x804A0053);
     private const int InvalidRackHandle = unchecked((int)0x804A0261);
+    private const int InvalidVoiceControlAddress = unchecked((int)0x804A0309);
     private const ulong MemoryBase = 0x2_0000_0000;
     private const ulong SystemHandleAddress = MemoryBase + 0x100;
     private const ulong RackHandleAddress = MemoryBase + 0x108;
@@ -92,6 +93,17 @@ public sealed class Ngs2OutputValidationTests : IDisposable
         _ctx[CpuRegister.Rsi] = grainSamples;
 
         Assert.Equal(expected, Ngs2Exports.Ngs2SystemSetGrainSamples(_ctx));
+    }
+
+    [Fact]
+    public void VoiceControl_RejectsNullParameterList()
+    {
+        var (_, _, voiceHandle) = CreateVoice();
+
+        _ctx[CpuRegister.Rdi] = voiceHandle;
+        _ctx[CpuRegister.Rsi] = 0;
+
+        Assert.Equal(InvalidVoiceControlAddress, Ngs2Exports.Ngs2VoiceControl(_ctx));
     }
 
     public void Dispose()
