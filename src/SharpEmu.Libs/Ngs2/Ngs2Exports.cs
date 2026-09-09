@@ -253,6 +253,11 @@ public static class Ngs2Exports
         var rackHandle = ctx[CpuRegister.Rdi];
         var voiceIndex = unchecked((uint)ctx[CpuRegister.Rsi]);
         var outHandleAddress = ctx[CpuRegister.Rdx];
+        if (outHandleAddress == 0)
+        {
+            return SetReturn(ctx, OrbisNgs2ErrorInvalidOutAddress);
+        }
+
         lock (StateGate)
         {
             if (!Racks.ContainsKey(rackHandle))
@@ -268,11 +273,6 @@ public static class Ngs2Exports
                     ? SetReturn(ctx, 0)
                     : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
             }
-        }
-
-        if (outHandleAddress == 0)
-        {
-            return SetReturn(ctx, OrbisNgs2ErrorInvalidOutAddress);
         }
 
         if (!TryCreateHandle(ctx, type: 4, rackHandle, out var handle) ||
@@ -1879,6 +1879,11 @@ public static class Ngs2Exports
         var voiceHandle = ctx[CpuRegister.Rdi];
         var stateAddress = ctx[CpuRegister.Rsi];
         var stateSize = (int)Math.Min(ctx[CpuRegister.Rdx], 0x400);
+        if (stateAddress == 0)
+        {
+            return SetReturn(ctx, OrbisNgs2ErrorInvalidOutAddress);
+        }
+
         uint stateFlags;
         lock (StateGate)
         {
@@ -1921,6 +1926,11 @@ public static class Ngs2Exports
     {
         var voiceHandle = ctx[CpuRegister.Rdi];
         var flagsAddress = ctx[CpuRegister.Rsi];
+        if (flagsAddress == 0)
+        {
+            return SetReturn(ctx, OrbisNgs2ErrorInvalidOutAddress);
+        }
+
         uint stateFlags;
         lock (StateGate)
         {
@@ -2012,6 +2022,31 @@ public static class Ngs2Exports
         }
 
         return true;
+    }
+
+    internal static void ResetForTests()
+    {
+        lock (StateGate)
+        {
+            Systems.Clear();
+            Racks.Clear();
+            Voices.Clear();
+            VoiceParamTraceFingerprints.Clear();
+            _nextUid = 0;
+            _renderCount = 0;
+            _unsupportedWaveformCount = 0;
+            _unresolvedWaveformDumpCount = 0;
+            _voiceEventTraceCount = 0;
+            _voiceReuseTraceCount = 0;
+            _waveformFormatTraceCount = 0;
+            _waveformBlockTraceCount = 0;
+            _streamingWaitTraceCount = 0;
+            _streamingArmTraceCount = 0;
+            _unreadableVoiceParamTraceCount = 0;
+            _waveformDumps = 0;
+            _renderInfoDumps = 0;
+            _voiceParamTraceDumps = 0;
+        }
     }
 
     private static void RemoveRackLocked(ulong rackHandle)
