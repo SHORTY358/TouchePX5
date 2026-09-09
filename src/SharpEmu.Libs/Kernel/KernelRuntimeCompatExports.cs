@@ -1228,7 +1228,19 @@ public static class KernelRuntimeCompatExports
         var handle = unchecked((int)ctx[CpuRegister.Rdi]);
         var argumentSize = ctx[CpuRegister.Rsi];
         var argumentAddress = ctx[CpuRegister.Rdx];
+        var flags = ctx[CpuRegister.Rcx];
+        var optionAddress = ctx[CpuRegister.R8];
         var resultAddress = ctx[CpuRegister.R9];
+        if (flags != 0 || optionAddress != 0)
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out _))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
+        }
+
         if (resultAddress != 0 && !TryWriteInt32(ctx, resultAddress, 0))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
@@ -1309,32 +1321,37 @@ public static class KernelRuntimeCompatExports
         var modulePathAddress = ctx[CpuRegister.Rdi];
         var argumentSize = ctx[CpuRegister.Rsi];
         var argumentAddress = ctx[CpuRegister.Rdx];
+        var flags = ctx[CpuRegister.Rcx];
+        var optionAddress = ctx[CpuRegister.R8];
         var resultAddress = ctx[CpuRegister.R9];
+        if (flags != 0 || optionAddress != 0 || modulePathAddress == 0)
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        if (!TryReadUtf8Z(ctx, modulePathAddress, 512, out var modulePath) ||
+            string.IsNullOrWhiteSpace(modulePath))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        if (!KernelModuleRegistry.TryFindByPathOrName(modulePath, out var moduleByPath))
+        {
+            var error = (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
+            if (resultAddress != 0 && !TryWriteInt32(ctx, resultAddress, error))
+            {
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            }
+
+            return error;
+        }
+
         if (resultAddress != 0 && !TryWriteInt32(ctx, resultAddress, 0))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
 
-        int handle = 0;
-        if (TryReadUtf8Z(ctx, modulePathAddress, 512, out var modulePath) &&
-            KernelModuleRegistry.TryFindByPathOrName(modulePath, out var moduleByPath))
-        {
-            handle = moduleByPath.Handle;
-        }
-        else if (!string.IsNullOrWhiteSpace(modulePath))
-        {
-            handle = KernelModuleRegistry.RegisterSyntheticModule(
-                Path.GetFileName(modulePath),
-                isSystemModule: false);
-        }
-        else if (KernelModuleRegistry.TryGetFirstModule(out var firstModule))
-        {
-            handle = firstModule.Handle;
-        }
-        else
-        {
-            handle = KernelModuleRegistry.RegisterSyntheticModule("module.sprx", isSystemModule: false);
-        }
+        var handle = moduleByPath.Handle;
 
         if (KernelModuleRegistry.TryBeginModuleStart(handle, out var moduleToStart))
         {
