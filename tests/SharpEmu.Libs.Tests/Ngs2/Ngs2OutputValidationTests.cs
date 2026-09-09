@@ -22,6 +22,7 @@ public sealed class Ngs2OutputValidationTests : IDisposable
     private const int InvalidOutAddress = unchecked((int)0x804A0053);
     private const int InvalidRackHandle = unchecked((int)0x804A0261);
     private const int InvalidVoiceControlAddress = unchecked((int)0x804A0309);
+    private const int InvalidVoiceStateSize = unchecked((int)0x804A0A06);
     private const ulong MemoryBase = 0x2_0000_0000;
     private const ulong SystemHandleAddress = MemoryBase + 0x100;
     private const ulong RackHandleAddress = MemoryBase + 0x108;
@@ -131,6 +132,18 @@ public sealed class Ngs2OutputValidationTests : IDisposable
         _ctx[CpuRegister.Rdx] = 1;
         _ctx[CpuRegister.Rcx] = 0;
         Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2CalcWaveformBlock(_ctx));
+    }
+
+    [Fact]
+    public void VoiceState_RejectsZeroSize()
+    {
+        var (_, _, voiceHandle) = CreateVoice();
+
+        _ctx[CpuRegister.Rdi] = voiceHandle;
+        _ctx[CpuRegister.Rsi] = MemoryBase + 0x200;
+        _ctx[CpuRegister.Rdx] = 0;
+
+        Assert.Equal(InvalidVoiceStateSize, Ngs2Exports.Ngs2VoiceGetState(_ctx));
     }
 
     public void Dispose()
