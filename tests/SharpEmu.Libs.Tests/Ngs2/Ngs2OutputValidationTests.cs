@@ -106,6 +106,18 @@ public sealed class Ngs2OutputValidationTests : IDisposable
         Assert.Equal(InvalidVoiceControlAddress, Ngs2Exports.Ngs2VoiceControl(_ctx));
     }
 
+    [Fact]
+    public void GeometryHelpers_RejectNullOutputs()
+    {
+        _ctx[CpuRegister.Rdi] = 0;
+        Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2PanInit(_ctx));
+        Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2GeomResetSourceParam(_ctx));
+        Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2GeomResetListenerParam(_ctx));
+
+        _ctx[CpuRegister.Rsi] = 0;
+        Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2GeomCalcListener(_ctx));
+    }
+
     public void Dispose()
     {
         Ngs2Exports.ResetForTests();
