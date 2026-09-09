@@ -1989,6 +1989,16 @@ public static class Ngs2Exports
         }
     }
 
+    private static int ValidateRack(CpuContext ctx)
+    {
+        lock (StateGate)
+        {
+            return SetReturn(
+                ctx,
+                Racks.ContainsKey(ctx[CpuRegister.Rdi]) ? 0 : OrbisNgs2ErrorInvalidRackHandle);
+        }
+    }
+
     private static bool TryCreateHandle(CpuContext ctx, uint type, ulong ownerHandle, out ulong handle)
     {
         handle = 0;
@@ -2119,14 +2129,14 @@ public static class Ngs2Exports
         ExportName = "sceNgs2RackLock",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libSceNgs2")]
-    public static int Ngs2RackLock(CpuContext ctx) => ctx.SetReturn(0);
+    public static int Ngs2RackLock(CpuContext ctx) => ValidateRack(ctx);
 
     [SysAbiExport(
         Nid = "++YZ7P9e87U",
         ExportName = "sceNgs2RackUnlock",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libSceNgs2")]
-    public static int Ngs2RackUnlock(CpuContext ctx) => ctx.SetReturn(0);
+    public static int Ngs2RackUnlock(CpuContext ctx) => ValidateRack(ctx);
 
     [SysAbiExport(
         Nid = "hyVLT2VlOYk",

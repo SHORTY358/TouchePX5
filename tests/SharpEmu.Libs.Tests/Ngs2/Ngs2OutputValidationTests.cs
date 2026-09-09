@@ -19,6 +19,7 @@ public sealed class Ngs2StateCollection
 public sealed class Ngs2OutputValidationTests : IDisposable
 {
     private const int InvalidOutAddress = unchecked((int)0x804A0053);
+    private const int InvalidRackHandle = unchecked((int)0x804A0261);
     private const ulong MemoryBase = 0x2_0000_0000;
     private const ulong SystemHandleAddress = MemoryBase + 0x100;
     private const ulong RackHandleAddress = MemoryBase + 0x108;
@@ -63,6 +64,19 @@ public sealed class Ngs2OutputValidationTests : IDisposable
         _ctx[CpuRegister.Rdx] = 0;
 
         Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2RackGetVoiceHandle(_ctx));
+    }
+
+    [Fact]
+    public void RackLocks_RejectDestroyedHandle()
+    {
+        var (_, rackHandle, _) = CreateVoice();
+
+        _ctx[CpuRegister.Rdi] = rackHandle;
+        Assert.Equal(0, Ngs2Exports.Ngs2RackLock(_ctx));
+        Assert.Equal(0, Ngs2Exports.Ngs2RackUnlock(_ctx));
+        Assert.Equal(0, Ngs2Exports.Ngs2RackDestroy(_ctx));
+        Assert.Equal(InvalidRackHandle, Ngs2Exports.Ngs2RackLock(_ctx));
+        Assert.Equal(InvalidRackHandle, Ngs2Exports.Ngs2RackUnlock(_ctx));
     }
 
     public void Dispose()
