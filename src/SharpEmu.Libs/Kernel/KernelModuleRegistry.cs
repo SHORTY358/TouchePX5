@@ -14,6 +14,8 @@ public static class KernelModuleRegistry
         NotStarted,
         Starting,
         Started,
+        Stopping,
+        Stopped,
     }
 
     private static readonly object _gate = new();
@@ -41,6 +43,7 @@ public static class KernelModuleRegistry
         ulong EndAddress,
         ulong EntryPoint,
         ulong InitEntryPoint,
+        ulong FiniEntryPoint,
         ulong EhFrameHeaderAddress,
         ulong EhFrameAddress,
         ulong EhFrameSize,
@@ -67,6 +70,7 @@ public static class KernelModuleRegistry
         ulong size,
         ulong entryPoint,
         ulong initEntryPoint,
+        ulong finiEntryPoint,
         ulong ehFrameHeaderAddress,
         ulong ehFrameAddress,
         ulong ehFrameSize,
@@ -86,6 +90,7 @@ public static class KernelModuleRegistry
                     EndAddress = ComputeEnd(baseAddress, size),
                     EntryPoint = entryPoint,
                     InitEntryPoint = initEntryPoint,
+                    FiniEntryPoint = finiEntryPoint,
                     EhFrameHeaderAddress = ehFrameHeaderAddress,
                     EhFrameAddress = ehFrameAddress,
                     EhFrameSize = ehFrameSize,
@@ -107,6 +112,7 @@ public static class KernelModuleRegistry
                 EndAddress: ComputeEnd(baseAddress, size),
                 EntryPoint: entryPoint,
                 InitEntryPoint: initEntryPoint,
+                FiniEntryPoint: finiEntryPoint,
                 EhFrameHeaderAddress: ehFrameHeaderAddress,
                 EhFrameAddress: ehFrameAddress,
                 EhFrameSize: ehFrameSize,
@@ -147,6 +153,7 @@ public static class KernelModuleRegistry
                 EndAddress: 0,
                 EntryPoint: 0,
                 InitEntryPoint: 0,
+                FiniEntryPoint: 0,
                 EhFrameHeaderAddress: 0,
                 EhFrameAddress: 0,
                 EhFrameSize: 0,
@@ -249,7 +256,7 @@ public static class KernelModuleRegistry
                 return false;
             }
 
-            if (module.StartState != ModuleStartState.NotStarted)
+            if (module.StartState is not (ModuleStartState.NotStarted or ModuleStartState.Stopped))
             {
                 return false;
             }
@@ -280,6 +287,46 @@ public static class KernelModuleRegistry
             _modulesByHandle[handle] = module with
             {
                 StartState = succeeded ? ModuleStartState.Started : ModuleStartState.NotStarted,
+            };
+        }
+    }
+
+    public static bool TryBeginModuleStop(int handle, out ModuleEntry module)
+    {
+        lock (_gate)
+        {
+            if (!_modulesByHandle.TryGetValue(handle, out module) ||
+                module.StartState != ModuleStartState.Started)
+            {
+                return false;
+            }
+
+            if (module.FiniEntryPoint < 0x10000)
+            {
+                module = module with { StartState = ModuleStartState.Stopped };
+                _modulesByHandle[handle] = module;
+                return false;
+            }
+
+            module = module with { StartState = ModuleStartState.Stopping };
+            _modulesByHandle[handle] = module;
+            return true;
+        }
+    }
+
+    public static void CompleteModuleStop(int handle, bool succeeded)
+    {
+        lock (_gate)
+        {
+            if (!_modulesByHandle.TryGetValue(handle, out var module) ||
+                module.StartState != ModuleStartState.Stopping)
+            {
+                return;
+            }
+
+            _modulesByHandle[handle] = module with
+            {
+                StartState = succeeded ? ModuleStartState.Stopped : ModuleStartState.Started,
             };
         }
     }

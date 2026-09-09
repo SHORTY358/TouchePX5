@@ -490,7 +490,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         for (var i = orderedModules.Count - 1; i >= 0; i--)
         {
             var module = orderedModules[i];
-            if (!module.StartAtBoot)
+            if (!KernelModuleRegistry.TryBeginModuleStop(module.Handle, out _))
             {
                 continue;
             }
@@ -503,6 +503,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
                 activeImportStubs,
                 activeRuntimeSymbols,
                 moduleName);
+            KernelModuleRegistry.CompleteModuleStop(module.Handle, result is null);
             if (result is not null)
             {
                 return result;
@@ -1174,6 +1175,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             size,
             image.EntryPoint,
             image.InitFunctionEntryPoint,
+            image.FinalizerFunctions.LastOrDefault(),
             ehFrameHeaderAddress,
             ehFrameAddress,
             ehFrameSize,

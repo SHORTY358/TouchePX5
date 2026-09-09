@@ -5896,6 +5896,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 					}
 					nativeReturn = CallNativeEntry(ptr);
 				}
+				context[CpuRegister.Rax] = unchecked((ulong)(long)nativeReturn);
 				if (ActiveGuestThreadYieldRequested)
 				{
 					reason = ActiveGuestThreadYieldReason ?? "guest thread blocked";

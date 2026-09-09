@@ -1225,10 +1225,55 @@ public static class KernelRuntimeCompatExports
         LibraryName = "libKernel")]
     public static int KernelStopUnloadModule(CpuContext ctx)
     {
+        var handle = unchecked((int)ctx[CpuRegister.Rdi]);
+        var argumentSize = ctx[CpuRegister.Rsi];
+        var argumentAddress = ctx[CpuRegister.Rdx];
         var resultAddress = ctx[CpuRegister.R9];
         if (resultAddress != 0 && !TryWriteInt32(ctx, resultAddress, 0))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        if (KernelModuleRegistry.TryBeginModuleStop(handle, out var moduleToStop))
+        {
+            var scheduler = GuestThreadExecution.Scheduler;
+            ulong moduleResult = 0;
+            string? stopError = null;
+            var stopped = scheduler is not null && scheduler.TryCallGuestFunction(
+                ctx,
+                moduleToStop.FiniEntryPoint,
+                argumentSize,
+                argumentAddress,
+                0,
+                0,
+                0,
+                $"sceKernelStopUnloadModule:{moduleToStop.Name}",
+                out moduleResult,
+                out stopError);
+            KernelModuleRegistry.CompleteModuleStop(handle, stopped);
+            if (!stopped)
+            {
+                Console.Error.WriteLine(
+                    $"[LOADER][ERROR] sceKernelStopUnloadModule failed to stop '{moduleToStop.Name}' " +
+                    $"at 0x{moduleToStop.FiniEntryPoint:X16}: {stopError ?? "guest scheduler unavailable"}");
+                var error = (int)OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP;
+                if (resultAddress != 0)
+                {
+                    _ = TryWriteInt32(ctx, resultAddress, error);
+                }
+
+                ctx[CpuRegister.Rax] = unchecked((ulong)(long)error);
+                return error;
+            }
+
+            if (resultAddress != 0)
+            {
+                _ = TryWriteInt32(ctx, resultAddress, unchecked((int)moduleResult));
+            }
+
+            Console.Error.WriteLine(
+                $"[LOADER][INFO] sceKernelStopUnloadModule stopped '{moduleToStop.Name}' " +
+                $"at 0x{moduleToStop.FiniEntryPoint:X16} result={unchecked((int)moduleResult)}");
         }
 
         ctx[CpuRegister.Rax] = 0;
@@ -1275,6 +1320,7 @@ public static class KernelRuntimeCompatExports
         if (KernelModuleRegistry.TryBeginModuleStart(handle, out var moduleToStart))
         {
             var scheduler = GuestThreadExecution.Scheduler;
+            ulong moduleResult = 0;
             string? startError = null;
             var started = scheduler is not null && scheduler.TryCallGuestFunction(
                 ctx,
@@ -1283,7 +1329,9 @@ public static class KernelRuntimeCompatExports
                 argumentAddress,
                 0,
                 0,
+                0,
                 $"sceKernelLoadStartModule:{moduleToStart.Name}",
+                out moduleResult,
                 out startError);
             KernelModuleRegistry.CompleteModuleStart(handle, started);
             if (!started)
@@ -1301,9 +1349,14 @@ public static class KernelRuntimeCompatExports
                 return error;
             }
 
+            if (resultAddress != 0)
+            {
+                _ = TryWriteInt32(ctx, resultAddress, unchecked((int)moduleResult));
+            }
+
             Console.Error.WriteLine(
                 $"[LOADER][INFO] sceKernelLoadStartModule started '{moduleToStart.Name}' " +
-                $"at 0x{moduleToStart.InitEntryPoint:X16}");
+                $"at 0x{moduleToStart.InitEntryPoint:X16} result={unchecked((int)moduleResult)}");
         }
 
         ctx[CpuRegister.Rax] = unchecked((uint)handle);
