@@ -1239,23 +1239,42 @@ public static class KernelRuntimeCompatExports
             var scheduler = GuestThreadExecution.Scheduler;
             ulong moduleResult = 0;
             string? stopError = null;
-            var stopped = scheduler is not null && scheduler.TryCallGuestFunction(
-                ctx,
-                moduleToStop.FiniEntryPoint,
-                argumentSize,
-                argumentAddress,
-                0,
-                0,
-                0,
-                $"sceKernelStopUnloadModule:{moduleToStop.Name}",
-                out moduleResult,
-                out stopError);
+            var stopped = scheduler is not null;
+            var failedAddress = moduleToStop.FiniEntryPoint;
+            for (var i = 0; i < moduleToStop.FinalizerFunctions.Count; i++)
+            {
+                var finalizerAddress = moduleToStop.FinalizerFunctions[i];
+                failedAddress = finalizerAddress;
+                Console.Error.WriteLine(
+                    $"[LOADER][INFO] sceKernelStopUnloadModule callback {i + 1}/{moduleToStop.FinalizerFunctions.Count} " +
+                    $"for '{moduleToStop.Name}' at 0x{finalizerAddress:X16}");
+                if (!stopped || !scheduler!.TryCallGuestFunction(
+                        ctx,
+                        finalizerAddress,
+                        argumentSize,
+                        argumentAddress,
+                        0,
+                        0,
+                        0,
+                        $"sceKernelStopUnloadModule:{moduleToStop.Name}",
+                        out var finalizerResult,
+                        out stopError))
+                {
+                    stopped = false;
+                    break;
+                }
+
+                if (finalizerAddress == moduleToStop.FiniEntryPoint)
+                {
+                    moduleResult = finalizerResult;
+                }
+            }
             KernelModuleRegistry.CompleteModuleStop(handle, stopped);
             if (!stopped)
             {
                 Console.Error.WriteLine(
                     $"[LOADER][ERROR] sceKernelStopUnloadModule failed to stop '{moduleToStop.Name}' " +
-                    $"at 0x{moduleToStop.FiniEntryPoint:X16}: {stopError ?? "guest scheduler unavailable"}");
+                    $"at 0x{failedAddress:X16}: {stopError ?? "guest scheduler unavailable"}");
                 var error = (int)OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP;
                 if (resultAddress != 0)
                 {
@@ -1322,23 +1341,42 @@ public static class KernelRuntimeCompatExports
             var scheduler = GuestThreadExecution.Scheduler;
             ulong moduleResult = 0;
             string? startError = null;
-            var started = scheduler is not null && scheduler.TryCallGuestFunction(
-                ctx,
-                moduleToStart.InitEntryPoint,
-                argumentSize,
-                argumentAddress,
-                0,
-                0,
-                0,
-                $"sceKernelLoadStartModule:{moduleToStart.Name}",
-                out moduleResult,
-                out startError);
+            var started = scheduler is not null;
+            var failedAddress = moduleToStart.InitEntryPoint;
+            for (var i = 0; i < moduleToStart.InitializerFunctions.Count; i++)
+            {
+                var initializerAddress = moduleToStart.InitializerFunctions[i];
+                failedAddress = initializerAddress;
+                Console.Error.WriteLine(
+                    $"[LOADER][INFO] sceKernelLoadStartModule callback {i + 1}/{moduleToStart.InitializerFunctions.Count} " +
+                    $"for '{moduleToStart.Name}' at 0x{initializerAddress:X16}");
+                if (!started || !scheduler!.TryCallGuestFunction(
+                        ctx,
+                        initializerAddress,
+                        argumentSize,
+                        argumentAddress,
+                        0,
+                        0,
+                        0,
+                        $"sceKernelLoadStartModule:{moduleToStart.Name}",
+                        out var initializerResult,
+                        out startError))
+                {
+                    started = false;
+                    break;
+                }
+
+                if (initializerAddress == moduleToStart.InitEntryPoint)
+                {
+                    moduleResult = initializerResult;
+                }
+            }
             KernelModuleRegistry.CompleteModuleStart(handle, started);
             if (!started)
             {
                 Console.Error.WriteLine(
                     $"[LOADER][ERROR] sceKernelLoadStartModule failed to start '{moduleToStart.Name}' " +
-                    $"at 0x{moduleToStart.InitEntryPoint:X16}: {startError ?? "guest scheduler unavailable"}");
+                    $"at 0x{failedAddress:X16}: {startError ?? "guest scheduler unavailable"}");
                 var error = (int)OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP;
                 if (resultAddress != 0)
                 {

@@ -1176,6 +1176,8 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             image.EntryPoint,
             image.InitFunctionEntryPoint,
             image.FinalizerFunctions.LastOrDefault(),
+            image.InitializerFunctions,
+            image.FinalizerFunctions,
             ehFrameHeaderAddress,
             ehFrameAddress,
             ehFrameSize,

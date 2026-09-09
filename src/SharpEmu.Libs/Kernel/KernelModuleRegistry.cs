@@ -44,6 +44,8 @@ public static class KernelModuleRegistry
         ulong EntryPoint,
         ulong InitEntryPoint,
         ulong FiniEntryPoint,
+        IReadOnlyList<ulong> InitializerFunctions,
+        IReadOnlyList<ulong> FinalizerFunctions,
         ulong EhFrameHeaderAddress,
         ulong EhFrameAddress,
         ulong EhFrameSize,
@@ -71,13 +73,19 @@ public static class KernelModuleRegistry
         ulong entryPoint,
         ulong initEntryPoint,
         ulong finiEntryPoint,
+        IReadOnlyList<ulong> initializerFunctions,
+        IReadOnlyList<ulong> finalizerFunctions,
         ulong ehFrameHeaderAddress,
         ulong ehFrameAddress,
         ulong ehFrameSize,
         bool isMain,
         bool isSystemModule = false)
     {
+        ArgumentNullException.ThrowIfNull(initializerFunctions);
+        ArgumentNullException.ThrowIfNull(finalizerFunctions);
         var normalizedPath = NormalizePath(modulePath);
+        var initializers = initializerFunctions.ToArray();
+        var finalizers = finalizerFunctions.ToArray();
         lock (_gate)
         {
             if (!string.IsNullOrWhiteSpace(normalizedPath) &&
@@ -91,6 +99,8 @@ public static class KernelModuleRegistry
                     EntryPoint = entryPoint,
                     InitEntryPoint = initEntryPoint,
                     FiniEntryPoint = finiEntryPoint,
+                    InitializerFunctions = initializers,
+                    FinalizerFunctions = finalizers,
                     EhFrameHeaderAddress = ehFrameHeaderAddress,
                     EhFrameAddress = ehFrameAddress,
                     EhFrameSize = ehFrameSize,
@@ -113,6 +123,8 @@ public static class KernelModuleRegistry
                 EntryPoint: entryPoint,
                 InitEntryPoint: initEntryPoint,
                 FiniEntryPoint: finiEntryPoint,
+                InitializerFunctions: initializers,
+                FinalizerFunctions: finalizers,
                 EhFrameHeaderAddress: ehFrameHeaderAddress,
                 EhFrameAddress: ehFrameAddress,
                 EhFrameSize: ehFrameSize,
@@ -154,6 +166,8 @@ public static class KernelModuleRegistry
                 EntryPoint: 0,
                 InitEntryPoint: 0,
                 FiniEntryPoint: 0,
+                InitializerFunctions: Array.Empty<ulong>(),
+                FinalizerFunctions: Array.Empty<ulong>(),
                 EhFrameHeaderAddress: 0,
                 EhFrameAddress: 0,
                 EhFrameSize: 0,
@@ -261,7 +275,7 @@ public static class KernelModuleRegistry
                 return false;
             }
 
-            if (module.InitEntryPoint < 0x10000)
+            if (module.InitializerFunctions.Count == 0)
             {
                 module = module with { StartState = ModuleStartState.Started };
                 _modulesByHandle[handle] = module;
@@ -301,7 +315,7 @@ public static class KernelModuleRegistry
                 return false;
             }
 
-            if (module.FiniEntryPoint < 0x10000)
+            if (module.FinalizerFunctions.Count == 0)
             {
                 module = module with { StartState = ModuleStartState.Stopped };
                 _modulesByHandle[handle] = module;

@@ -50,6 +50,8 @@ public sealed class KernelModuleRegistryTests
             entryPoint: 0x10100,
             initEntryPoint,
             finiEntryPoint,
+            initializerFunctions: initEntryPoint == 0 ? [] : [initEntryPoint],
+            finalizerFunctions: finiEntryPoint == 0 ? [] : [finiEntryPoint],
             ehFrameHeaderAddress: 0,
             ehFrameAddress: 0,
             ehFrameSize: 0,
