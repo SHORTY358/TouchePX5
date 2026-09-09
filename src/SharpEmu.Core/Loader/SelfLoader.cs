@@ -35,6 +35,7 @@ public sealed class SelfLoader : ISelfLoader
     private const uint SectionTypeRela = 4;
 
     private const long DtNull = 0;
+    private const long DtNeeded = 1;
     private const long DtPltRelSize = 0x02;
     private const long DtPltGot = 0x03;
     private const long DtStrTab = 0x05;
@@ -49,6 +50,8 @@ public sealed class SelfLoader : ISelfLoader
     private const long DtPreInitArray = 0x20;
     private const long DtPreInitArraySize = 0x21;
     private const long DtScePltGot = 0x61000027;
+    private const long DtSceModuleInfo = 0x6100000D;
+    private const long DtSceNeededModule = 0x6100000F;
     private const long DtSceJmpRel = 0x61000029;
     private const long DtScePltRelSize = 0x6100002D;
     private const long DtSceRela = 0x6100002F;
@@ -57,6 +60,8 @@ public sealed class SelfLoader : ISelfLoader
     private const long DtSceStrSize = 0x61000037;
     private const long DtSceSymTab = 0x61000039;
     private const long DtSceSymTabSize = 0x6100003F;
+    private const long DtSceModuleInfo1 = 0x61000043;
+    private const long DtSceNeededModule1 = 0x61000045;
 
     private const uint RelocationTypeNone = 0;
     private const uint RelocationTypeAbsolute64 = 1;
@@ -289,6 +294,12 @@ public sealed class SelfLoader : ISelfLoader
             out var initFunctionEntryPoint,
             out var preInitializerFunctions,
             out var initializerFunctions);
+        var moduleMetadata = ReadDynamicModuleMetadata(
+            imageData,
+            loadContext,
+            programHeaders,
+            virtualMemory,
+            imageBase);
         var procParamAddress = ResolveProcParamAddress(programHeaders, imageBase);
 
         Console.WriteLine($"[LOADER] ELF e_entry: 0x{elfHeader.EntryPoint:X16}");
@@ -332,7 +343,9 @@ public sealed class SelfLoader : ISelfLoader
             applicationInfo.Version,
             tlsModuleId,
             tlsInfo.MemorySize,
-            tlsInfo.StaticOffset);
+            tlsInfo.StaticOffset,
+            moduleMetadata.NeededModules,
+            moduleMetadata.ModuleNames);
     }
 
     private static (string? Title, string? TitleId, string? Version) TryLoadParamJson(
@@ -1863,6 +1876,9 @@ public sealed class SelfLoader : ISelfLoader
         ulong initArraySize = 0;
         ulong preInitArrayOffset = 0;
         ulong preInitArraySize = 0;
+        var neededNameOffsets = new List<ulong>();
+        var sceNeededModuleValues = new List<ulong>();
+        var sceModuleInfoValues = new List<ulong>();
 
         for (var offset = 0; offset + DynamicEntrySize <= dynamicTable.Length; offset += DynamicEntrySize)
         {
@@ -1875,6 +1891,9 @@ public sealed class SelfLoader : ISelfLoader
 
             switch (tag)
             {
+                case DtNeeded:
+                    neededNameOffsets.Add(value);
+                    break;
                 case DtStrTab:
                     if (strTabOffset == 0)
                     {
@@ -1993,6 +2012,14 @@ public sealed class SelfLoader : ISelfLoader
                 case DtScePltGot:
                     pltGotOffset = value;
                     break;
+                case DtSceNeededModule:
+                case DtSceNeededModule1:
+                    sceNeededModuleValues.Add(value);
+                    break;
+                case DtSceModuleInfo:
+                case DtSceModuleInfo1:
+                    sceModuleInfoValues.Add(value);
+                    break;
             }
         }
 
@@ -2010,7 +2037,74 @@ public sealed class SelfLoader : ISelfLoader
             initArrayOffset,
             initArraySize,
             preInitArrayOffset,
-            preInitArraySize);
+            preInitArraySize,
+            neededNameOffsets,
+            sceNeededModuleValues,
+            sceModuleInfoValues);
+    }
+
+    private static DynamicModuleMetadata ReadDynamicModuleMetadata(
+        ReadOnlySpan<byte> imageData,
+        LoadContext loadContext,
+        IReadOnlyList<ProgramHeader> programHeaders,
+        IVirtualMemory virtualMemory,
+        ulong imageBase)
+    {
+        if (!TryGetProgramHeader(programHeaders, ProgramHeaderType.Dynamic, out var dynamicHeader, out var dynamicHeaderIndex) ||
+            dynamicHeader.FileSize == 0 ||
+            !TryLoadDynamicTableBytes(
+                imageData,
+                loadContext,
+                virtualMemory,
+                imageBase,
+                dynamicHeader,
+                dynamicHeaderIndex,
+                out var dynamicTable))
+        {
+            return DynamicModuleMetadata.Empty;
+        }
+
+        var dynamicInfo = ParseDynamicInfo(dynamicTable, GetSceDynlibDataVirtualAddress(programHeaders));
+        if (dynamicInfo.StrTabSize == 0 ||
+            !TryLoadMetadataTableBytes(
+                imageData,
+                loadContext,
+                programHeaders,
+                virtualMemory,
+                imageBase,
+                dynamicInfo.StrTabOffset,
+                dynamicInfo.StrTabSize,
+                out var stringTable))
+        {
+            return DynamicModuleMetadata.Empty;
+        }
+
+        var neededModules = ReadDynamicNames(
+            stringTable,
+            dynamicInfo.NeededNameOffsets.Concat(dynamicInfo.SceNeededModuleValues.Select(value => value & uint.MaxValue)));
+        var moduleNames = ReadDynamicNames(
+            stringTable,
+            dynamicInfo.SceModuleInfoValues.Select(value => value & uint.MaxValue));
+        return new DynamicModuleMetadata(neededModules, moduleNames);
+    }
+
+    private static IReadOnlyList<string> ReadDynamicNames(
+        ReadOnlySpan<byte> stringTable,
+        IEnumerable<ulong> offsets)
+    {
+        var names = new List<string>();
+        foreach (var offset in offsets)
+        {
+            if (offset <= uint.MaxValue &&
+                TryReadNullTerminatedAscii(stringTable, (uint)offset, out var name) &&
+                !string.IsNullOrWhiteSpace(name) &&
+                !names.Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.Count == 0 ? Array.Empty<string>() : names;
     }
 
     private static ulong? GetSceDynlibDataVirtualAddress(IReadOnlyList<ProgramHeader> programHeaders)
@@ -2853,13 +2947,24 @@ public sealed class SelfLoader : ISelfLoader
         ulong InitArrayOffset,
         ulong InitArraySize,
         ulong PreInitArrayOffset,
-        ulong PreInitArraySize)
+        ulong PreInitArraySize,
+        IReadOnlyList<ulong> NeededNameOffsets,
+        IReadOnlyList<ulong> SceNeededModuleValues,
+        IReadOnlyList<ulong> SceModuleInfoValues)
     {
         public bool HasImportMetadata =>
             StrTabOffset != 0 &&
             StrTabSize != 0 &&
             SymTabOffset != 0 &&
             (RelaSize != 0 || JmpRelSize != 0);
+    }
+
+    private readonly record struct DynamicModuleMetadata(
+        IReadOnlyList<string> NeededModules,
+        IReadOnlyList<string> ModuleNames)
+    {
+        public static DynamicModuleMetadata Empty { get; } =
+            new(Array.Empty<string>(), Array.Empty<string>());
     }
 
     private readonly record struct ElfSectionHeader(

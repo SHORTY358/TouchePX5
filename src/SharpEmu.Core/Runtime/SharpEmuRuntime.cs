@@ -500,9 +500,10 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         IReadOnlyDictionary<ulong, string> activeImportStubs,
         IReadOnlyDictionary<string, ulong> activeRuntimeSymbols)
     {
-        for (var i = 0; i < loadedModuleImages.Count; i++)
+        var orderedModules = OrderModulesByDependencies(loadedModuleImages);
+        for (var i = 0; i < orderedModules.Count; i++)
         {
-            var loadedModule = loadedModuleImages[i];
+            var loadedModule = orderedModules[i];
             if (!loadedModule.StartAtBoot)
             {
                 continue;
@@ -547,6 +548,91 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<LoadedModuleImage> OrderModulesByDependencies(
+        IReadOnlyList<LoadedModuleImage> modules)
+    {
+        if (modules.Count < 2)
+        {
+            return modules;
+        }
+
+        var moduleByAlias = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < modules.Count; i++)
+        {
+            var fileName = Path.GetFileName(modules[i].Path);
+            AddModuleAlias(moduleByAlias, fileName, i);
+            AddModuleAlias(moduleByAlias, Path.GetFileNameWithoutExtension(fileName), i);
+            foreach (var moduleName in modules[i].Image.ModuleNames)
+            {
+                AddModuleAlias(moduleByAlias, moduleName, i);
+            }
+        }
+
+        var states = new byte[modules.Count];
+        var ordered = new List<LoadedModuleImage>(modules.Count);
+        for (var i = 0; i < modules.Count; i++)
+        {
+            VisitModule(i);
+        }
+
+        return ordered;
+
+        void VisitModule(int index)
+        {
+            if (states[index] == 2)
+            {
+                return;
+            }
+
+            if (states[index] == 1)
+            {
+                Console.Error.WriteLine(
+                    $"[RUNTIME] Module dependency cycle includes {Path.GetFileName(modules[index].Path)}; breaking the cycle at this module.");
+                return;
+            }
+
+            states[index] = 1;
+            foreach (var dependency in modules[index].Image.NeededModules)
+            {
+                if (TryFindModuleByDependency(moduleByAlias, dependency, out var dependencyIndex) &&
+                    dependencyIndex != index)
+                {
+                    VisitModule(dependencyIndex);
+                }
+            }
+
+            states[index] = 2;
+            ordered.Add(modules[index]);
+        }
+    }
+
+    private static void AddModuleAlias(IDictionary<string, int> aliases, string? alias, int index)
+    {
+        if (!string.IsNullOrWhiteSpace(alias) && !aliases.ContainsKey(alias))
+        {
+            aliases[alias] = index;
+        }
+    }
+
+    private static bool TryFindModuleByDependency(
+        IReadOnlyDictionary<string, int> aliases,
+        string dependency,
+        out int index)
+    {
+        if (aliases.TryGetValue(dependency, out index))
+        {
+            return true;
+        }
+
+        var dependencyFileName = Path.GetFileName(dependency);
+        if (aliases.TryGetValue(dependencyFileName, out index))
+        {
+            return true;
+        }
+
+        return aliases.TryGetValue(Path.GetFileNameWithoutExtension(dependencyFileName), out index);
     }
 
     private OrbisGen2Result? RunImageInitializers(

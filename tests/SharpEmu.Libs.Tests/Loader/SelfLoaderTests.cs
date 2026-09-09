@@ -138,6 +138,8 @@ public sealed class SelfLoaderTests
 
         var import = Assert.Single(image.ImportStubs);
         Assert.Equal("HoLVWNanBBc", import.Value);
+        Assert.Equal(["libFixtureDependency"], image.NeededModules);
+        Assert.Equal(["libFixtureConsumer"], image.ModuleNames);
 
         Span<byte> patchedSlot = stackalloc byte[sizeof(ulong)];
         Assert.True(memory.TryRead(0x0000_0008_0000_0300, patchedSlot));
@@ -205,9 +207,9 @@ public sealed class SelfLoaderTests
         const int loadSize = 0x600;
         const int dynamicOffset = 0x400;
         const int dynlibOffset = 0x800;
-        const int dynlibSize = 0x70;
-        const int symbolOffset = 0x20;
-        const int jumpRelocationOffset = 0x50;
+        const int dynlibSize = 0x88;
+        const int symbolOffset = 0x40;
+        const int jumpRelocationOffset = 0x70;
         const int relocationTarget = 0x300;
         var image = new byte[0x1000];
         WriteMinimalElfHeader(image);
@@ -216,7 +218,7 @@ public sealed class SelfLoaderTests
         BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(0x38), 3);
 
         WriteProgramHeader(image.AsSpan(0x40), 1, 7, 0, 0, loadSize, loadSize, 0x1000);
-        WriteProgramHeader(image.AsSpan(0x78), 2, 6, dynamicOffset, dynamicOffset, 0xA0, 0xA0, 8);
+        WriteProgramHeader(image.AsSpan(0x78), 2, 6, dynamicOffset, dynamicOffset, 0xC0, 0xC0, 8);
         WriteProgramHeader(
             image.AsSpan(0xB0),
             0x61000000,
@@ -227,7 +229,7 @@ public sealed class SelfLoaderTests
             dynlibSize,
             8);
 
-        var importName = Encoding.ASCII.GetBytes("\0HoLVWNanBBc#B#B\0");
+        var importName = Encoding.ASCII.GetBytes("\0HoLVWNanBBc#B#B\0libFixtureDependency\0libFixtureConsumer\0");
         importName.CopyTo(image.AsSpan(dynlibOffset));
         var symbol = image.AsSpan(dynlibOffset + symbolOffset + 24, 24);
         BinaryPrimitives.WriteUInt32LittleEndian(symbol, 1);
@@ -248,6 +250,8 @@ public sealed class SelfLoaderTests
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100002B, 7);
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x61000029, jumpRelocationOffset);
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100002D, 24);
+        WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100000F, 0x0001_0101_0000_0011);
+        WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100000D, 0x0001_0101_0000_0026);
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0, 0);
         return image;
     }
@@ -273,12 +277,12 @@ public sealed class SelfLoaderTests
         BinaryPrimitives.WriteUInt16LittleEndian(selfHeader[0x1A..], 0x32);
 
         WriteSelfSegment(image.AsSpan(0x20), 0, loadPayloadOffset, 0x600);
-        WriteSelfSegment(image.AsSpan(0x40), 1, dynamicPayloadOffset, 0xA0);
-        WriteSelfSegment(image.AsSpan(0x60), 2, dynlibPayloadOffset, 0x70);
+        WriteSelfSegment(image.AsSpan(0x40), 1, dynamicPayloadOffset, 0xC0);
+        WriteSelfSegment(image.AsSpan(0x60), 2, dynlibPayloadOffset, 0x88);
         elf.AsSpan(0, 0xE8).CopyTo(image.AsSpan(embeddedElfOffset));
         elf.AsSpan(0, 0x600).CopyTo(image.AsSpan(loadPayloadOffset));
-        elf.AsSpan(0x400, 0xA0).CopyTo(image.AsSpan(dynamicPayloadOffset));
-        elf.AsSpan(0x800, 0x70).CopyTo(image.AsSpan(dynlibPayloadOffset));
+        elf.AsSpan(0x400, 0xC0).CopyTo(image.AsSpan(dynamicPayloadOffset));
+        elf.AsSpan(0x800, 0x88).CopyTo(image.AsSpan(dynlibPayloadOffset));
         return image;
     }
 
