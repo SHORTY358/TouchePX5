@@ -144,6 +144,23 @@ public sealed class SelfLoaderTests
         Assert.Equal(import.Key, BinaryPrimitives.ReadUInt64LittleEndian(patchedSlot));
     }
 
+    [Fact]
+    public void Load_ResolvesSceImportTablesFromSelfSegmentMappings()
+    {
+        var imageData = WrapElfImportFixtureInSelf(CreateElfWithSceDynlibImport());
+        var memory = new VirtualMemory();
+
+        var image = new SelfLoader().Load(imageData, memory);
+
+        Assert.True(image.IsSelf);
+        var import = Assert.Single(image.ImportStubs);
+        Assert.Equal("HoLVWNanBBc", import.Value);
+
+        Span<byte> patchedSlot = stackalloc byte[sizeof(ulong)];
+        Assert.True(memory.TryRead(0x0000_0008_0000_0300, patchedSlot));
+        Assert.Equal(import.Key, BinaryPrimitives.ReadUInt64LittleEndian(patchedSlot));
+    }
+
     private static byte[] CreateSelfImage(uint magic, byte version, uint keyType, ushort flags)
     {
         var imageData = new byte[SelfHeaderSize + ElfHeaderSize];
@@ -233,6 +250,50 @@ public sealed class SelfLoaderTests
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100002D, 24);
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0, 0);
         return image;
+    }
+
+    private static byte[] WrapElfImportFixtureInSelf(byte[] elf)
+    {
+        const int segmentCount = 3;
+        const int embeddedElfOffset = SelfHeaderSize + (segmentCount * 0x20);
+        const int loadPayloadOffset = 0x200;
+        const int dynamicPayloadOffset = 0x800;
+        const int dynlibPayloadOffset = 0x900;
+        var image = new byte[0x1000];
+        var selfHeader = image.AsSpan(0, SelfHeaderSize);
+        BinaryPrimitives.WriteUInt32BigEndian(selfHeader, Ps5SelfMagic);
+        selfHeader[0x04] = 0x10;
+        selfHeader[0x05] = 0x01;
+        selfHeader[0x06] = 0x01;
+        selfHeader[0x07] = 0x12;
+        BinaryPrimitives.WriteUInt32LittleEndian(selfHeader[0x08..], 0x1000_0101);
+        BinaryPrimitives.WriteUInt16LittleEndian(selfHeader[0x0C..], embeddedElfOffset);
+        BinaryPrimitives.WriteUInt64LittleEndian(selfHeader[0x10..], (ulong)image.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(selfHeader[0x18..], segmentCount);
+        BinaryPrimitives.WriteUInt16LittleEndian(selfHeader[0x1A..], 0x32);
+
+        WriteSelfSegment(image.AsSpan(0x20), 0, loadPayloadOffset, 0x600);
+        WriteSelfSegment(image.AsSpan(0x40), 1, dynamicPayloadOffset, 0xA0);
+        WriteSelfSegment(image.AsSpan(0x60), 2, dynlibPayloadOffset, 0x70);
+        elf.AsSpan(0, 0xE8).CopyTo(image.AsSpan(embeddedElfOffset));
+        elf.AsSpan(0, 0x600).CopyTo(image.AsSpan(loadPayloadOffset));
+        elf.AsSpan(0x400, 0xA0).CopyTo(image.AsSpan(dynamicPayloadOffset));
+        elf.AsSpan(0x800, 0x70).CopyTo(image.AsSpan(dynlibPayloadOffset));
+        return image;
+    }
+
+    private static void WriteSelfSegment(
+        Span<byte> destination,
+        int programHeaderIndex,
+        ulong physicalOffset,
+        ulong size)
+    {
+        BinaryPrimitives.WriteUInt64LittleEndian(
+            destination,
+            0x800UL | ((ulong)programHeaderIndex << 20));
+        BinaryPrimitives.WriteUInt64LittleEndian(destination[8..], physicalOffset);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination[16..], size);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination[24..], size);
     }
 
     private static void WriteProgramHeader(
