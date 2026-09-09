@@ -1088,7 +1088,7 @@ public static class KernelRuntimeCompatExports
         return KernelGetModuleListCore(
             ctx,
             handlesAddress: ctx[CpuRegister.Rdi],
-            capacity: ctx[CpuRegister.Rsi],
+            bufferSize: ctx[CpuRegister.Rsi],
             outCountAddress: ctx[CpuRegister.Rdx],
             includeSystemModules: true);
     }
@@ -1103,7 +1103,7 @@ public static class KernelRuntimeCompatExports
         return KernelGetModuleListCore(
             ctx,
             handlesAddress: ctx[CpuRegister.Rdi],
-            capacity: ctx[CpuRegister.Rsi],
+            bufferSize: ctx[CpuRegister.Rsi],
             outCountAddress: ctx[CpuRegister.Rdx],
             includeSystemModules: false);
     }
@@ -1763,7 +1763,7 @@ public static class KernelRuntimeCompatExports
     private static int KernelGetModuleListCore(
         CpuContext ctx,
         ulong handlesAddress,
-        ulong capacity,
+        ulong bufferSize,
         ulong outCountAddress,
         bool includeSystemModules)
     {
@@ -1778,13 +1778,14 @@ public static class KernelRuntimeCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
 
-        if (handlesAddress == 0 || capacity == 0 || handles.Length == 0)
+        if (handlesAddress == 0 || bufferSize == 0 || handles.Length == 0)
         {
             ctx[CpuRegister.Rax] = 0;
             return (int)OrbisGen2Result.ORBIS_GEN2_OK;
         }
 
-        var writableCount = (int)Math.Min(Math.Min(capacity, (ulong)int.MaxValue), (ulong)handles.Length);
+        var handleCapacity = bufferSize / sizeof(int);
+        var writableCount = (int)Math.Min(Math.Min(handleCapacity, (ulong)int.MaxValue), (ulong)handles.Length);
         for (var i = 0; i < writableCount; i++)
         {
             if (!TryWriteInt32(ctx, handlesAddress + (ulong)(i * sizeof(int)), handles[i]))
@@ -1793,7 +1794,7 @@ public static class KernelRuntimeCompatExports
             }
         }
 
-        if ((ulong)handles.Length > capacity)
+        if ((ulong)handles.Length > handleCapacity)
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }

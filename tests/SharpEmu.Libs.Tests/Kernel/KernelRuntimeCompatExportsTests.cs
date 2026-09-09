@@ -252,4 +252,51 @@ public sealed class KernelRuntimeCompatExportsTests
         Assert.Equal(0, KernelRuntimeCompatExports.ElfPhdrMatchAddr(context));
         Assert.Equal(0UL, context[CpuRegister.Rax]);
     }
+
+    [Fact]
+    public void GetModuleList_InterpretsBufferSizeInBytes()
+    {
+        const ulong handlesAddress = GuestMemoryBase + 0x100;
+        const ulong countAddress = GuestMemoryBase + 0x200;
+        var memory = new FakeCpuMemory(GuestMemoryBase, 0x1000);
+        var context = new CpuContext(memory, Generation.Gen5);
+        KernelModuleRegistry.Reset();
+        var first = RegisterModuleForList("first.sprx", GuestMemoryBase + 0x400);
+        var second = RegisterModuleForList("second.sprx", GuestMemoryBase + 0x600);
+        context[CpuRegister.Rdi] = handlesAddress;
+        context[CpuRegister.Rsi] = sizeof(int);
+        context[CpuRegister.Rdx] = countAddress;
+
+        Assert.Equal(
+            (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT,
+            KernelRuntimeCompatExports.KernelGetModuleList2(context));
+        Assert.True(context.TryReadUInt64(countAddress, out var reportedCount));
+        Assert.Equal(2UL, reportedCount);
+        Assert.True(context.TryReadUInt32(handlesAddress, out var firstWritten));
+        Assert.Equal(unchecked((uint)first), firstWritten);
+        Assert.True(context.TryReadUInt32(handlesAddress + sizeof(int), out var untouched));
+        Assert.Equal(0U, untouched);
+
+        context[CpuRegister.Rsi] = 2 * sizeof(int);
+        Assert.Equal(0, KernelRuntimeCompatExports.KernelGetModuleList2(context));
+        Assert.True(context.TryReadUInt32(handlesAddress + sizeof(int), out var secondWritten));
+        Assert.Equal(unchecked((uint)second), secondWritten);
+    }
+
+    private static int RegisterModuleForList(string path, ulong baseAddress)
+    {
+        return KernelModuleRegistry.RegisterModule(
+            path,
+            baseAddress,
+            size: 0x100,
+            entryPoint: baseAddress,
+            initEntryPoint: 0,
+            finiEntryPoint: 0,
+            initializerFunctions: [],
+            finalizerFunctions: [],
+            ehFrameHeaderAddress: 0,
+            ehFrameAddress: 0,
+            ehFrameSize: 0,
+            isMain: false);
+    }
 }
