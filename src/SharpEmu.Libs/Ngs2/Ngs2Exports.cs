@@ -1383,7 +1383,22 @@ public static class Ngs2Exports
         ExportName = "sceNgs2VoiceRunCommands",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libSceNgs2")]
-    public static int Ngs2VoiceRunCommands(CpuContext ctx) => Ngs2VoiceControl(ctx);
+    public static int Ngs2VoiceRunCommands(CpuContext ctx)
+    {
+        var voiceHandle = ctx[CpuRegister.Rdi];
+        var commandCount = unchecked((uint)ctx[CpuRegister.Rdx]);
+        lock (StateGate)
+        {
+            if (!Voices.ContainsKey(voiceHandle))
+            {
+                return SetReturn(ctx, OrbisNgs2ErrorInvalidVoiceHandle);
+            }
+        }
+
+        // An empty command batch is a valid no-op and does not require a command address.
+        // Non-empty batches retain the existing parameter processing path.
+        return commandCount == 0 ? SetReturn(ctx, 0) : Ngs2VoiceControl(ctx);
+    }
 
     [SysAbiExport(
         Nid = "i0VnXM-C9fc",
