@@ -6,6 +6,15 @@ using Xunit;
 
 namespace SharpEmu.Libs.Tests.Kernel;
 
+[CollectionDefinition(KernelModuleRegistryCollection.Name, DisableParallelization = true)]
+public sealed class KernelModuleRegistryCollection;
+
+internal static class KernelModuleRegistryCollection
+{
+    public const string Name = "KernelModuleRegistryState";
+}
+
+[Collection(KernelModuleRegistryCollection.Name)]
 public sealed class KernelModuleRegistryTests
 {
     [Fact]
@@ -25,6 +34,8 @@ public sealed class KernelModuleRegistryTests
 
         Assert.True(KernelModuleRegistry.TryGetModuleByHandle(handle, out var stopped));
         Assert.Equal(KernelModuleRegistry.ModuleStartState.Stopped, stopped.StartState);
+        Assert.DoesNotContain(handle, KernelModuleRegistry.GetModuleHandles(includeSystemModules: true));
+        Assert.False(KernelModuleRegistry.TryGetModuleByAddress(0x10100, out _));
         Assert.False(KernelModuleRegistry.TryBeginModuleStop(handle, out _));
         Assert.True(KernelModuleRegistry.TryBeginModuleStart(handle, out _));
     }

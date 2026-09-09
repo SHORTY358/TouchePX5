@@ -1239,7 +1239,8 @@ public static class KernelRuntimeCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
 
-        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out _))
+        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out var requestedModule) ||
+            requestedModule.StartState == KernelModuleRegistry.ModuleStartState.Stopped)
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
         }
@@ -1705,7 +1706,8 @@ public static class KernelRuntimeCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
 
-        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out var module))
+        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out var module) ||
+            module.StartState == KernelModuleRegistry.ModuleStartState.Stopped)
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
         }
@@ -1736,7 +1738,8 @@ public static class KernelRuntimeCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
 
-        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out var module))
+        if (!KernelModuleRegistry.TryGetModuleByHandle(handle, out var module) ||
+            module.StartState == KernelModuleRegistry.ModuleStartState.Stopped)
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
         }

@@ -11,6 +11,7 @@ namespace SharpEmu.Libs.Tests.Kernel;
 // sceKernelGetTscFrequency must describe the same clock that sceKernelReadTsc returns. ReadTsc
 // only returns the CPU's RDTSC when the host RDTSC reader is available (64-bit Windows) and
 // otherwise falls back to the QPC-based Stopwatch, so the frequency selection has to follow suit.
+[Collection(KernelModuleRegistryCollection.Name)]
 public sealed class KernelRuntimeCompatExportsTests
 {
     private const ulong GuestMemoryBase = 0x1_0000_0000;

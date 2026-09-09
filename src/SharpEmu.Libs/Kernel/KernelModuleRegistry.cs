@@ -229,6 +229,11 @@ public static class KernelModuleRegistry
             ModuleEntry? best = null;
             foreach (var entry in _modulesByHandle.Values)
             {
+                if (entry.StartState == ModuleStartState.Stopped)
+                {
+                    continue;
+                }
+
                 var containsAddress = false;
                 if (entry.Segments.Count > 0)
                 {
@@ -439,6 +444,7 @@ public static class KernelModuleRegistry
         lock (_gate)
         {
             return _modulesByHandle.Values
+                .Where(entry => entry.StartState != ModuleStartState.Stopped)
                 .Where(entry => includeSystemModules || !entry.IsSystemModule)
                 .OrderBy(entry => entry.Handle)
                 .Select(entry => entry.Handle)
