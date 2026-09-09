@@ -48,6 +48,7 @@ public sealed class SelfLoader : ISelfLoader
     private const long DtInitArraySize = 0x1B;
     private const long DtPreInitArray = 0x20;
     private const long DtPreInitArraySize = 0x21;
+    private const long DtScePltGot = 0x61000027;
     private const long DtSceJmpRel = 0x61000029;
     private const long DtScePltRelSize = 0x6100002D;
     private const long DtSceRela = 0x6100002F;
@@ -605,7 +606,7 @@ public sealed class SelfLoader : ISelfLoader
 
         var elfData = imageData;
 
-        var dynamicInfo = ParseDynamicInfo(dynamicTable);
+        var dynamicInfo = ParseDynamicInfo(dynamicTable, GetSceDynlibDataVirtualAddress(programHeaders));
 
         Console.WriteLine($"[LOADER] Dynamic Info: StrTab=0x{dynamicInfo.StrTabOffset:X}, StrTabSize=0x{dynamicInfo.StrTabSize:X}");
         Console.WriteLine($"[LOADER] Dynamic Info: SymTab=0x{dynamicInfo.SymTabOffset:X}, SymTabSize=0x{dynamicInfo.SymTabSize:X}");
@@ -618,13 +619,29 @@ public sealed class SelfLoader : ISelfLoader
         var relocations = new List<ElfRelocation>(512);
 
         if (dynamicInfo.RelaSize != 0 &&
-            TryLoadTableBytes(elfData, virtualMemory, imageBase, dynamicInfo.RelaOffset, dynamicInfo.RelaSize, out var relaBytes))
+            TryLoadMetadataTableBytes(
+                elfData,
+                loadContext,
+                programHeaders,
+                virtualMemory,
+                imageBase,
+                dynamicInfo.RelaOffset,
+                dynamicInfo.RelaSize,
+                out var relaBytes))
         {
             CollectRelocations(relaBytes, relocations);
         }
 
         if (dynamicInfo.JmpRelSize != 0 &&
-            TryLoadTableBytes(elfData, virtualMemory, imageBase, dynamicInfo.JmpRelOffset, dynamicInfo.JmpRelSize, out var jmpRelBytes))
+            TryLoadMetadataTableBytes(
+                elfData,
+                loadContext,
+                programHeaders,
+                virtualMemory,
+                imageBase,
+                dynamicInfo.JmpRelOffset,
+                dynamicInfo.JmpRelSize,
+                out var jmpRelBytes))
         {
             CollectRelocations(jmpRelBytes, relocations);
         }
@@ -668,8 +685,10 @@ public sealed class SelfLoader : ISelfLoader
         byte[] symbolTable = Array.Empty<byte>();
         if (maxSymbolIndex != 0)
         {
-            if (!TryLoadTableBytes(
+            if (!TryLoadMetadataTableBytes(
                     elfData,
+                    loadContext,
+                    programHeaders,
                     virtualMemory,
                     imageBase,
                     dynamicInfo.StrTabOffset,
@@ -682,8 +701,10 @@ public sealed class SelfLoader : ISelfLoader
             var symTableSize = dynamicInfo.SymTabSize != 0
                 ? dynamicInfo.SymTabSize
                 : checked(((ulong)maxSymbolIndex + 1) * ElfSymbolSize);
-            if (!TryLoadTableBytes(
+            if (!TryLoadMetadataTableBytes(
                     elfData,
+                    loadContext,
+                    programHeaders,
                     virtualMemory,
                     imageBase,
                     dynamicInfo.SymTabOffset,
@@ -1293,7 +1314,7 @@ public sealed class SelfLoader : ISelfLoader
             return;
         }
 
-        var dynamicInfo = ParseDynamicInfo(dynamicTable);
+        var dynamicInfo = ParseDynamicInfo(dynamicTable, GetSceDynlibDataVirtualAddress(programHeaders));
         var preInitializers = new List<ulong>(4);
         var initializers = new List<ulong>(8);
         initFunctionEntryPoint = ResolveMappedAddressOrFallback(virtualMemory, dynamicInfo.InitOffset, imageBase);
@@ -1524,14 +1545,16 @@ public sealed class SelfLoader : ISelfLoader
             return 0;
         }
 
-        var dynamicInfo = ParseDynamicInfo(dynamicTable);
+        var dynamicInfo = ParseDynamicInfo(dynamicTable, GetSceDynlibDataVirtualAddress(programHeaders));
         if (dynamicInfo.SymTabOffset == 0 || dynamicInfo.StrTabOffset == 0)
         {
             return 0;
         }
 
-        if (!TryLoadTableBytes(
+        if (!TryLoadMetadataTableBytes(
                 imageData,
+                loadContext,
+                programHeaders,
                 virtualMemory,
                 imageBase,
                 dynamicInfo.StrTabOffset,
@@ -1548,8 +1571,10 @@ public sealed class SelfLoader : ISelfLoader
             return 0;
         }
 
-        if (!TryLoadTableBytes(
+        if (!TryLoadMetadataTableBytes(
                 imageData,
+                loadContext,
+                programHeaders,
                 virtualMemory,
                 imageBase,
                 dynamicInfo.SymTabOffset,
@@ -1822,7 +1847,7 @@ public sealed class SelfLoader : ISelfLoader
         return false;
     }
 
-    private static DynamicInfo ParseDynamicInfo(ReadOnlySpan<byte> dynamicTable)
+    private static DynamicInfo ParseDynamicInfo(ReadOnlySpan<byte> dynamicTable, ulong? sceDynlibDataVirtualAddress)
     {
         ulong strTabOffset = 0;
         ulong strTabSize = 0;
@@ -1942,28 +1967,31 @@ public sealed class SelfLoader : ISelfLoader
 
                     break;
                 case DtSceStrTab:
-                    strTabOffset = value;
+                    strTabOffset = ResolveSceDynamicDataLocation(value, sceDynlibDataVirtualAddress);
                     break;
                 case DtSceStrSize:
                     strTabSize = value;
                     break;
                 case DtSceSymTab:
-                    symTabOffset = value;
+                    symTabOffset = ResolveSceDynamicDataLocation(value, sceDynlibDataVirtualAddress);
                     break;
                 case DtSceSymTabSize:
                     symTabSize = value;
                     break;
                 case DtSceRela:
-                    relaOffset = value;
+                    relaOffset = ResolveSceDynamicDataLocation(value, sceDynlibDataVirtualAddress);
                     break;
                 case DtSceRelaSize:
                     relaSize = value;
                     break;
                 case DtSceJmpRel:
-                    jmpRelOffset = value;
+                    jmpRelOffset = ResolveSceDynamicDataLocation(value, sceDynlibDataVirtualAddress);
                     break;
                 case DtScePltRelSize:
                     jmpRelSize = value;
+                    break;
+                case DtScePltGot:
+                    pltGotOffset = value;
                     break;
             }
         }
@@ -1983,6 +2011,30 @@ public sealed class SelfLoader : ISelfLoader
             initArraySize,
             preInitArrayOffset,
             preInitArraySize);
+    }
+
+    private static ulong? GetSceDynlibDataVirtualAddress(IReadOnlyList<ProgramHeader> programHeaders)
+    {
+        return TryGetProgramHeader(programHeaders, ProgramHeaderType.SceDynLibData, out var header, out _)
+            ? header.VirtualAddress
+            : null;
+    }
+
+    private static ulong ResolveSceDynamicDataLocation(ulong offset, ulong? sceDynlibDataVirtualAddress)
+    {
+        if (sceDynlibDataVirtualAddress is not { } baseAddress)
+        {
+            return offset;
+        }
+
+        try
+        {
+            return checked(baseAddress + offset);
+        }
+        catch (OverflowException ex)
+        {
+            throw new InvalidDataException("SCE dynamic-data offset exceeds the guest address space.", ex);
+        }
     }
 
     private static bool IsSupportedRelocationType(uint relocationType)
@@ -2166,6 +2218,46 @@ public sealed class SelfLoader : ISelfLoader
         }
 
         return hasBase ? imageBase : 0;
+    }
+
+    private static bool TryLoadMetadataTableBytes(
+        ReadOnlySpan<byte> elfData,
+        LoadContext loadContext,
+        IReadOnlyList<ProgramHeader> programHeaders,
+        IVirtualMemory virtualMemory,
+        ulong imageBase,
+        ulong location,
+        ulong size,
+        out byte[] tableBytes)
+    {
+        if (TryGetProgramHeader(
+                programHeaders,
+                ProgramHeaderType.SceDynLibData,
+                out var dynlibHeader,
+                out var dynlibHeaderIndex) &&
+            location >= dynlibHeader.VirtualAddress)
+        {
+            var relativeOffset = location - dynlibHeader.VirtualAddress;
+            if (relativeOffset <= dynlibHeader.FileSize &&
+                size <= dynlibHeader.FileSize - relativeOffset)
+            {
+                var segmentFileOffset = ResolvePhysicalSegmentOffset(
+                    elfData.Length,
+                    loadContext,
+                    dynlibHeader,
+                    dynlibHeaderIndex);
+                var tableFileOffset = checked(segmentFileOffset + relativeOffset);
+                if (TrySlice(elfData, tableFileOffset, size, out var fileBytes))
+                {
+                    tableBytes = fileBytes.ToArray();
+                    Console.Error.WriteLine(
+                        $"[LOADER] Metadata table loaded from PT_OS_DYNLIBDATA file offset 0x{tableFileOffset:X}");
+                    return true;
+                }
+            }
+        }
+
+        return TryLoadTableBytes(elfData, virtualMemory, imageBase, location, size, out tableBytes);
     }
 
     private static bool TryLoadTableBytes(
