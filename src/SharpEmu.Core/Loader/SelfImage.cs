@@ -29,7 +29,8 @@ public sealed class SelfImage
         ulong tlsMemorySize = 0,
         ulong tlsStaticOffset = 0,
         IReadOnlyList<string>? neededModules = null,
-        IReadOnlyList<string>? moduleNames = null)
+        IReadOnlyList<string>? moduleNames = null,
+        IReadOnlyList<ulong>? finalizerFunctions = null)
     {
         ArgumentNullException.ThrowIfNull(programHeaders);
         ArgumentNullException.ThrowIfNull(mappedRegions);
@@ -54,6 +55,7 @@ public sealed class SelfImage
         TlsStaticOffset = tlsStaticOffset;
         NeededModules = neededModules ?? Array.Empty<string>();
         ModuleNames = moduleNames ?? Array.Empty<string>();
+        FinalizerFunctions = finalizerFunctions ?? Array.Empty<ulong>();
     }
 
     public bool IsSelf { get; }
@@ -96,4 +98,6 @@ public sealed class SelfImage
     public IReadOnlyList<string> NeededModules { get; }
 
     public IReadOnlyList<string> ModuleNames { get; }
+
+    public IReadOnlyList<ulong> FinalizerFunctions { get; }
 }

@@ -191,6 +191,28 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
 
         Console.Error.WriteLine($"[RUNTIME] DispatchEntry returned: {result}");
         Console.Error.WriteLine($"[RUNTIME] Dispatch result: {result}");
+        var mainExecutionTrace = _cpuDispatcher.LastImportResolutionTrace;
+        var mainMilestoneLog = _cpuDispatcher.LastMilestoneLog;
+        var mainSessionSummary = _cpuDispatcher.LastSessionSummary;
+        var mainBasicBlockTrace = _cpuDispatcher.LastBasicBlockTrace;
+        var finalizerFailed = false;
+
+        if (result == OrbisGen2Result.ORBIS_GEN2_OK && !HostSessionControl.IsShutdownRequested)
+        {
+            var finalizerResult = RunAllFinalizers(
+                image,
+                loadedModuleImages,
+                generation,
+                activeImportStubs,
+                activeRuntimeSymbols,
+                processImageName);
+            if (finalizerResult is { } failedFinalizerResult)
+            {
+                finalizerFailed = true;
+                result = failedFinalizerResult;
+                Console.Error.WriteLine($"[RUNTIME] Finalizer dispatch failed: {result}");
+            }
+        }
 
         // Stop is a host operation, not an emulation failure. The detailed
         // trace and session-summary builders can traverse a partially torn
@@ -201,10 +223,10 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             return result;
         }
 
-        LastExecutionTrace = _cpuDispatcher.LastImportResolutionTrace;
-        LastMilestoneLog = _cpuDispatcher.LastMilestoneLog;
-        LastSessionSummary = BuildSessionSummary(_cpuDispatcher.LastSessionSummary);
-        LastBasicBlockTrace = _cpuDispatcher.LastBasicBlockTrace;
+        LastExecutionTrace = finalizerFailed ? _cpuDispatcher.LastImportResolutionTrace : mainExecutionTrace;
+        LastMilestoneLog = finalizerFailed ? _cpuDispatcher.LastMilestoneLog : mainMilestoneLog;
+        LastSessionSummary = BuildSessionSummary(finalizerFailed ? _cpuDispatcher.LastSessionSummary : mainSessionSummary);
+        LastBasicBlockTrace = finalizerFailed ? _cpuDispatcher.LastBasicBlockTrace : mainBasicBlockTrace;
         if (result == OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP && _cpuDispatcher.LastTrapInfo is { } trapInfo)
         {
             var opcodeBytes = ReadOpcodePreview(trapInfo.InstructionPointer, 8);
@@ -441,6 +463,79 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         // On current PS5 dumps DT_INIT commonly resolves to imageBase+0x10, which is inside
         // the mapped ELF header rather than a callable guest routine. Startup must remain
         // guest-driven until the PS5 init/module ABI is identified precisely.
+        return null;
+    }
+
+    private OrbisGen2Result? RunAllFinalizers(
+        SelfImage mainImage,
+        IReadOnlyList<LoadedModuleImage> loadedModuleImages,
+        Generation generation,
+        IReadOnlyDictionary<ulong, string> activeImportStubs,
+        IReadOnlyDictionary<string, ulong> activeRuntimeSymbols,
+        string processImageName)
+    {
+        var result = RunFinalizerList(
+            "main",
+            mainImage.FinalizerFunctions,
+            generation,
+            activeImportStubs,
+            activeRuntimeSymbols,
+            processImageName);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        var orderedModules = OrderModulesByDependencies(loadedModuleImages);
+        for (var i = orderedModules.Count - 1; i >= 0; i--)
+        {
+            var module = orderedModules[i];
+            if (!module.StartAtBoot)
+            {
+                continue;
+            }
+
+            var moduleName = Path.GetFileName(module.Path);
+            result = RunFinalizerList(
+                moduleName,
+                module.Image.FinalizerFunctions,
+                generation,
+                activeImportStubs,
+                activeRuntimeSymbols,
+                moduleName);
+            if (result is not null)
+            {
+                return result;
+            }
+        }
+
+        return null;
+    }
+
+    private OrbisGen2Result? RunFinalizerList(
+        string label,
+        IReadOnlyList<ulong> functions,
+        Generation generation,
+        IReadOnlyDictionary<ulong, string> activeImportStubs,
+        IReadOnlyDictionary<string, ulong> activeRuntimeSymbols,
+        string processImageName)
+    {
+        for (var i = 0; i < functions.Count; i++)
+        {
+            Console.Error.WriteLine($"[RUNTIME] Finalizing {label}[{i}] -> 0x{functions[i]:X16}");
+            var result = _cpuDispatcher.DispatchModuleInitializer(
+                functions[i],
+                generation,
+                activeImportStubs,
+                activeRuntimeSymbols,
+                processImageName,
+                _cpuExecutionOptions);
+            if (result != OrbisGen2Result.ORBIS_GEN2_OK)
+            {
+                return result;
+            }
+        }
+
         return null;
     }
 

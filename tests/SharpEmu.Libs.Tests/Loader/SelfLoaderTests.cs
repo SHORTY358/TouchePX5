@@ -163,6 +163,17 @@ public sealed class SelfLoaderTests
         Assert.Equal(import.Key, BinaryPrimitives.ReadUInt64LittleEndian(patchedSlot));
     }
 
+    [Fact]
+    public void Load_CollectsFinalizerArrayInReverseOrderBeforeFiniFunction()
+    {
+        var image = new SelfLoader().Load(CreateElfWithLifecycleFunctions(), new VirtualMemory());
+        var imageBase = image.EntryPoint - image.ElfHeader.EntryPoint;
+
+        Assert.Equal(
+            [imageBase + 0x252, imageBase + 0x251, imageBase + 0x250, imageBase + 0x260],
+            image.FinalizerFunctions);
+    }
+
     private static byte[] CreateSelfImage(uint magic, byte version, uint keyType, ushort flags)
     {
         var imageData = new byte[SelfHeaderSize + ElfHeaderSize];
@@ -252,6 +263,32 @@ public sealed class SelfLoaderTests
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100002D, 24);
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100000F, 0x0001_0101_0000_0011);
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0x6100000D, 0x0001_0101_0000_0026);
+        WriteDynamicEntry(dynamic, ref dynamicIndex, 0, 0);
+        return image;
+    }
+
+    private static byte[] CreateElfWithLifecycleFunctions()
+    {
+        const int loadSize = 0x600;
+        const int dynamicOffset = 0x400;
+        var image = new byte[loadSize];
+        WriteMinimalElfHeader(image);
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(0x10), 0xFE10);
+        BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(0x18), 0x200);
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(0x38), 2);
+
+        WriteProgramHeader(image.AsSpan(0x40), 1, 7, 0, 0, loadSize, loadSize, 0x1000);
+        WriteProgramHeader(image.AsSpan(0x78), 2, 6, dynamicOffset, dynamicOffset, 0x90, 0x90, 8);
+
+        BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(0x340), 0x250);
+        BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(0x348), 0x251);
+        BinaryPrimitives.WriteUInt64LittleEndian(image.AsSpan(0x350), 0x252);
+
+        var dynamic = image.AsSpan(dynamicOffset);
+        var dynamicIndex = 0;
+        WriteDynamicEntry(dynamic, ref dynamicIndex, 0x0D, 0x260);
+        WriteDynamicEntry(dynamic, ref dynamicIndex, 0x1A, 0x340);
+        WriteDynamicEntry(dynamic, ref dynamicIndex, 0x1C, 3 * sizeof(ulong));
         WriteDynamicEntry(dynamic, ref dynamicIndex, 0, 0);
         return image;
     }

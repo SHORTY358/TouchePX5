@@ -43,10 +43,13 @@ public sealed class SelfLoader : ISelfLoader
     private const long DtRela = 0x07;
     private const long DtRelaSize = 0x08;
     private const long DtInit = 0x0C;
+    private const long DtFini = 0x0D;
     private const long DtStrSize = 0x0A;
     private const long DtJmpRel = 0x17;
     private const long DtInitArray = 0x19;
     private const long DtInitArraySize = 0x1B;
+    private const long DtFiniArray = 0x1A;
+    private const long DtFiniArraySize = 0x1C;
     private const long DtPreInitArray = 0x20;
     private const long DtPreInitArraySize = 0x21;
     private const long DtScePltGot = 0x61000027;
@@ -285,7 +288,7 @@ public sealed class SelfLoader : ISelfLoader
         var finalizedRuntimeSymbols = runtimeSymbols.Count == 0
             ? EmptyRuntimeSymbols
             : runtimeSymbols;
-        CollectInitializerFunctions(
+        CollectLifecycleFunctions(
             imageData,
             loadContext,
             programHeaders,
@@ -293,7 +296,8 @@ public sealed class SelfLoader : ISelfLoader
             imageBase,
             out var initFunctionEntryPoint,
             out var preInitializerFunctions,
-            out var initializerFunctions);
+            out var initializerFunctions,
+            out var finalizerFunctions);
         var moduleMetadata = ReadDynamicModuleMetadata(
             imageData,
             loadContext,
@@ -345,7 +349,8 @@ public sealed class SelfLoader : ISelfLoader
             tlsInfo.MemorySize,
             tlsInfo.StaticOffset,
             moduleMetadata.NeededModules,
-            moduleMetadata.ModuleNames);
+            moduleMetadata.ModuleNames,
+            finalizerFunctions);
     }
 
     private static (string? Title, string? TitleId, string? Version) TryLoadParamJson(
@@ -1295,7 +1300,7 @@ public sealed class SelfLoader : ISelfLoader
         }
     }
 
-    private static void CollectInitializerFunctions(
+    private static void CollectLifecycleFunctions(
         ReadOnlySpan<byte> imageData,
         LoadContext loadContext,
         IReadOnlyList<ProgramHeader> programHeaders,
@@ -1303,11 +1308,13 @@ public sealed class SelfLoader : ISelfLoader
         ulong imageBase,
         out ulong initFunctionEntryPoint,
         out IReadOnlyList<ulong> preInitializerFunctions,
-        out IReadOnlyList<ulong> initializerFunctions)
+        out IReadOnlyList<ulong> initializerFunctions,
+        out IReadOnlyList<ulong> finalizerFunctions)
     {
         initFunctionEntryPoint = 0;
         preInitializerFunctions = EmptyInitializerFunctions;
         initializerFunctions = EmptyInitializerFunctions;
+        finalizerFunctions = EmptyInitializerFunctions;
 
         if (!TryGetProgramHeader(programHeaders, ProgramHeaderType.Dynamic, out var dynamicHeader, out var dynamicHeaderIndex) ||
             dynamicHeader.FileSize == 0)
@@ -1330,6 +1337,7 @@ public sealed class SelfLoader : ISelfLoader
         var dynamicInfo = ParseDynamicInfo(dynamicTable, GetSceDynlibDataVirtualAddress(programHeaders));
         var preInitializers = new List<ulong>(4);
         var initializers = new List<ulong>(8);
+        var finalizers = new List<ulong>(8);
         initFunctionEntryPoint = ResolveMappedAddressOrFallback(virtualMemory, dynamicInfo.InitOffset, imageBase);
         if (initFunctionEntryPoint < 0x10000)
         {
@@ -1352,6 +1360,15 @@ public sealed class SelfLoader : ISelfLoader
             imageBase,
             dynamicInfo.InitArrayOffset,
             dynamicInfo.InitArraySize);
+        AppendInitializerArrayEntries(
+            finalizers,
+            imageData,
+            virtualMemory,
+            imageBase,
+            dynamicInfo.FiniArrayOffset,
+            dynamicInfo.FiniArraySize,
+            reverse: true);
+        AppendResolvedInitializer(finalizers, dynamicInfo.FiniOffset, virtualMemory, imageBase);
 
         if (preInitializers.Count != 0)
         {
@@ -1363,10 +1380,15 @@ public sealed class SelfLoader : ISelfLoader
             initializerFunctions = initializers;
         }
 
-        if (preInitializers.Count != 0 || initializers.Count != 0)
+        if (finalizers.Count != 0)
+        {
+            finalizerFunctions = finalizers;
+        }
+
+        if (preInitializers.Count != 0 || initializers.Count != 0 || finalizers.Count != 0)
         {
             Console.Error.WriteLine(
-                $"[LOADER] Initializers discovered: preinit={preInitializers.Count}, init={initializers.Count}");
+                $"[LOADER] Lifecycle functions discovered: preinit={preInitializers.Count}, init={initializers.Count}, fini={finalizers.Count}");
         }
     }
 
@@ -1376,7 +1398,8 @@ public sealed class SelfLoader : ISelfLoader
         IVirtualMemory virtualMemory,
         ulong imageBase,
         ulong arrayOffset,
-        ulong arraySize)
+        ulong arraySize,
+        bool reverse = false)
     {
         if (arrayOffset == 0 || arraySize < sizeof(ulong))
         {
@@ -1391,7 +1414,8 @@ public sealed class SelfLoader : ISelfLoader
         var entryCount = arrayBytes.Length / sizeof(ulong);
         for (var i = 0; i < entryCount; i++)
         {
-            var entryOffset = i * sizeof(ulong);
+            var entryIndex = reverse ? entryCount - i - 1 : i;
+            var entryOffset = entryIndex * sizeof(ulong);
             var entryAddress = BinaryPrimitives.ReadUInt64LittleEndian(arrayBytes.AsSpan(entryOffset, sizeof(ulong)));
             AppendResolvedInitializer(destination, entryAddress, virtualMemory, imageBase);
         }
@@ -1876,6 +1900,9 @@ public sealed class SelfLoader : ISelfLoader
         ulong initArraySize = 0;
         ulong preInitArrayOffset = 0;
         ulong preInitArraySize = 0;
+        ulong finiOffset = 0;
+        ulong finiArrayOffset = 0;
+        ulong finiArraySize = 0;
         var neededNameOffsets = new List<ulong>();
         var sceNeededModuleValues = new List<ulong>();
         var sceModuleInfoValues = new List<ulong>();
@@ -1936,6 +1963,13 @@ public sealed class SelfLoader : ISelfLoader
                     }
 
                     break;
+                case DtFini:
+                    if (finiOffset == 0)
+                    {
+                        finiOffset = value;
+                    }
+
+                    break;
                 case DtJmpRel:
                     if (jmpRelOffset == 0)
                     {
@@ -1954,6 +1988,20 @@ public sealed class SelfLoader : ISelfLoader
                     if (initArraySize == 0)
                     {
                         initArraySize = value;
+                    }
+
+                    break;
+                case DtFiniArray:
+                    if (finiArrayOffset == 0)
+                    {
+                        finiArrayOffset = value;
+                    }
+
+                    break;
+                case DtFiniArraySize:
+                    if (finiArraySize == 0)
+                    {
+                        finiArraySize = value;
                     }
 
                     break;
@@ -2038,6 +2086,9 @@ public sealed class SelfLoader : ISelfLoader
             initArraySize,
             preInitArrayOffset,
             preInitArraySize,
+            finiOffset,
+            finiArrayOffset,
+            finiArraySize,
             neededNameOffsets,
             sceNeededModuleValues,
             sceModuleInfoValues);
@@ -2948,6 +2999,9 @@ public sealed class SelfLoader : ISelfLoader
         ulong InitArraySize,
         ulong PreInitArrayOffset,
         ulong PreInitArraySize,
+        ulong FiniOffset,
+        ulong FiniArrayOffset,
+        ulong FiniArraySize,
         IReadOnlyList<ulong> NeededNameOffsets,
         IReadOnlyList<ulong> SceNeededModuleValues,
         IReadOnlyList<ulong> SceModuleInfoValues)
