@@ -214,4 +214,42 @@ public sealed class KernelRuntimeCompatExportsTests
         Assert.Equal(0, result);
         Assert.Equal(0UL, context[CpuRegister.Rax]);
     }
+
+    [Fact]
+    public void ElfPhdrMatchAddr_RequiresAddressAndHandleToBelongToSameModule()
+    {
+        const ulong moduleInfoAddress = GuestMemoryBase + 0x100;
+        const ulong moduleBase = GuestMemoryBase + 0x800;
+        var memory = new FakeCpuMemory(GuestMemoryBase, 0x1000);
+        var context = new CpuContext(memory, Generation.Gen5);
+        KernelModuleRegistry.Reset();
+        var handle = KernelModuleRegistry.RegisterModule(
+            "fixture.sprx",
+            moduleBase,
+            size: 0x100,
+            entryPoint: moduleBase,
+            initEntryPoint: 0,
+            finiEntryPoint: 0,
+            initializerFunctions: [],
+            finalizerFunctions: [],
+            ehFrameHeaderAddress: 0,
+            ehFrameAddress: 0,
+            ehFrameSize: 0,
+            isMain: false);
+        Assert.True(context.TryWriteUInt32(moduleInfoAddress + 0x108, unchecked((uint)handle)));
+        context[CpuRegister.Rdi] = moduleInfoAddress;
+        context[CpuRegister.Rsi] = moduleBase + 0x20;
+
+        Assert.Equal(0, KernelRuntimeCompatExports.ElfPhdrMatchAddr(context));
+        Assert.Equal(1UL, context[CpuRegister.Rax]);
+
+        context[CpuRegister.Rsi] = moduleBase + 0x200;
+        Assert.Equal(0, KernelRuntimeCompatExports.ElfPhdrMatchAddr(context));
+        Assert.Equal(0UL, context[CpuRegister.Rax]);
+
+        Assert.True(context.TryWriteUInt32(moduleInfoAddress + 0x108, unchecked((uint)(handle + 1))));
+        context[CpuRegister.Rsi] = moduleBase + 0x20;
+        Assert.Equal(0, KernelRuntimeCompatExports.ElfPhdrMatchAddr(context));
+        Assert.Equal(0UL, context[CpuRegister.Rax]);
+    }
 }

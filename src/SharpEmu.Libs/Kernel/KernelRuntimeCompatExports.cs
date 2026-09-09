@@ -1116,14 +1116,17 @@ public static class KernelRuntimeCompatExports
     public static int ElfPhdrMatchAddr(CpuContext ctx)
     {
         var moduleInfoAddress = ctx[CpuRegister.Rdi];
-        _ = ctx[CpuRegister.Rsi]; // dtor virtual address
-        if (moduleInfoAddress == 0)
+        var destructorAddress = ctx[CpuRegister.Rsi];
+        if (moduleInfoAddress == 0 ||
+            !ctx.TryReadUInt32(moduleInfoAddress + ModuleInfoExHandleOffset, out var rawHandle))
         {
             ctx[CpuRegister.Rax] = 0;
             return (int)OrbisGen2Result.ORBIS_GEN2_OK;
         }
 
-        ctx[CpuRegister.Rax] = 1;
+        var matches = KernelModuleRegistry.TryGetModuleByAddress(destructorAddress, out var module) &&
+            module.Handle == unchecked((int)rawHandle);
+        ctx[CpuRegister.Rax] = matches ? 1UL : 0UL;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
