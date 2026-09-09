@@ -11,6 +11,7 @@ namespace SharpEmu.Libs.Ngs2;
 
 public static class Ngs2Exports
 {
+    private const int OrbisNgs2ErrorInvalidNumGrainSamples = unchecked((int)0x804A0051);
     private const int OrbisNgs2ErrorInvalidOutAddress = unchecked((int)0x804A0053);
     private const int OrbisNgs2ErrorInvalidSystemHandle = unchecked((int)0x804A0230);
     private const int OrbisNgs2ErrorInvalidRackHandle = unchecked((int)0x804A0261);
@@ -1839,10 +1840,12 @@ public static class Ngs2Exports
                 return SetReturn(ctx, OrbisNgs2ErrorInvalidSystemHandle);
             }
 
-            if (grain > 0 && grain <= 8192)
+            if (grain <= 0 || grain > 8192)
             {
-                system.GrainSamples = grain;
+                return SetReturn(ctx, OrbisNgs2ErrorInvalidNumGrainSamples);
             }
+
+            system.GrainSamples = grain;
         }
 
         return SetReturn(ctx, 0);

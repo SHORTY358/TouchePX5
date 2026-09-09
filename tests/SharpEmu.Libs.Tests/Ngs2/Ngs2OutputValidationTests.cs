@@ -18,6 +18,7 @@ public sealed class Ngs2StateCollection
 [Collection(Ngs2StateCollection.Name)]
 public sealed class Ngs2OutputValidationTests : IDisposable
 {
+    private const int InvalidNumGrainSamples = unchecked((int)0x804A0051);
     private const int InvalidOutAddress = unchecked((int)0x804A0053);
     private const int InvalidRackHandle = unchecked((int)0x804A0261);
     private const ulong MemoryBase = 0x2_0000_0000;
@@ -77,6 +78,20 @@ public sealed class Ngs2OutputValidationTests : IDisposable
         Assert.Equal(0, Ngs2Exports.Ngs2RackDestroy(_ctx));
         Assert.Equal(InvalidRackHandle, Ngs2Exports.Ngs2RackLock(_ctx));
         Assert.Equal(InvalidRackHandle, Ngs2Exports.Ngs2RackUnlock(_ctx));
+    }
+
+    [Theory]
+    [InlineData(0u, InvalidNumGrainSamples)]
+    [InlineData(8192u, 0)]
+    [InlineData(8193u, InvalidNumGrainSamples)]
+    public void SystemGrainSize_ValidatesSupportedRange(uint grainSamples, int expected)
+    {
+        var (systemHandle, _, _) = CreateVoice();
+
+        _ctx[CpuRegister.Rdi] = systemHandle;
+        _ctx[CpuRegister.Rsi] = grainSamples;
+
+        Assert.Equal(expected, Ngs2Exports.Ngs2SystemSetGrainSamples(_ctx));
     }
 
     public void Dispose()
