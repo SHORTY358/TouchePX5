@@ -46,12 +46,15 @@ public static class KernelModuleRegistry
         ulong FiniEntryPoint,
         IReadOnlyList<ulong> InitializerFunctions,
         IReadOnlyList<ulong> FinalizerFunctions,
+        IReadOnlyList<ModuleSegment> Segments,
         ulong EhFrameHeaderAddress,
         ulong EhFrameAddress,
         ulong EhFrameSize,
         ModuleStartState StartState,
         bool IsMain,
         bool IsSystemModule);
+
+    public readonly record struct ModuleSegment(ulong Address, ulong Size, int Protection);
 
     public static void Reset()
     {
@@ -79,13 +82,15 @@ public static class KernelModuleRegistry
         ulong ehFrameAddress,
         ulong ehFrameSize,
         bool isMain,
-        bool isSystemModule = false)
+        bool isSystemModule = false,
+        IReadOnlyList<ModuleSegment>? segments = null)
     {
         ArgumentNullException.ThrowIfNull(initializerFunctions);
         ArgumentNullException.ThrowIfNull(finalizerFunctions);
         var normalizedPath = NormalizePath(modulePath);
         var initializers = initializerFunctions.ToArray();
         var finalizers = finalizerFunctions.ToArray();
+        var mappedSegments = segments?.ToArray() ?? Array.Empty<ModuleSegment>();
         lock (_gate)
         {
             if (!string.IsNullOrWhiteSpace(normalizedPath) &&
@@ -101,6 +106,7 @@ public static class KernelModuleRegistry
                     FiniEntryPoint = finiEntryPoint,
                     InitializerFunctions = initializers,
                     FinalizerFunctions = finalizers,
+                    Segments = mappedSegments,
                     EhFrameHeaderAddress = ehFrameHeaderAddress,
                     EhFrameAddress = ehFrameAddress,
                     EhFrameSize = ehFrameSize,
@@ -125,6 +131,7 @@ public static class KernelModuleRegistry
                 FiniEntryPoint: finiEntryPoint,
                 InitializerFunctions: initializers,
                 FinalizerFunctions: finalizers,
+                Segments: mappedSegments,
                 EhFrameHeaderAddress: ehFrameHeaderAddress,
                 EhFrameAddress: ehFrameAddress,
                 EhFrameSize: ehFrameSize,
@@ -168,6 +175,7 @@ public static class KernelModuleRegistry
                 FiniEntryPoint: 0,
                 InitializerFunctions: Array.Empty<ulong>(),
                 FinalizerFunctions: Array.Empty<ulong>(),
+                Segments: Array.Empty<ModuleSegment>(),
                 EhFrameHeaderAddress: 0,
                 EhFrameAddress: 0,
                 EhFrameSize: 0,
@@ -221,17 +229,27 @@ public static class KernelModuleRegistry
             ModuleEntry? best = null;
             foreach (var entry in _modulesByHandle.Values)
             {
-                if (entry.BaseAddress == 0 || entry.EndAddress <= entry.BaseAddress)
+                var containsAddress = false;
+                if (entry.Segments.Count > 0)
                 {
-                    continue;
+                    foreach (var segment in entry.Segments)
+                    {
+                        if (segment.Size > 0 &&
+                            address >= segment.Address &&
+                            address - segment.Address < segment.Size)
+                        {
+                            containsAddress = true;
+                            break;
+                        }
+                    }
+                }
+                else if (entry.BaseAddress != 0 && entry.EndAddress > entry.BaseAddress)
+                {
+                    containsAddress = address >= entry.BaseAddress && address < entry.EndAddress;
                 }
 
-                if (address < entry.BaseAddress || address >= entry.EndAddress)
-                {
-                    continue;
-                }
-
-                if (best is null || (entry.EndAddress - entry.BaseAddress) < (best.Value.EndAddress - best.Value.BaseAddress))
+                if (containsAddress &&
+                    (best is null || (entry.EndAddress - entry.BaseAddress) < (best.Value.EndAddress - best.Value.BaseAddress)))
                 {
                     best = entry;
                 }

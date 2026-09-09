@@ -1182,11 +1182,48 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             ehFrameAddress,
             ehFrameSize,
             isMain,
-            isSystemModule);
+            isSystemModule,
+            BuildModuleSegments(image));
         KernelModuleRegistry.RegisterModuleSymbols(handle, image.RuntimeSymbols);
         Console.Error.WriteLine(
             $"[RUNTIME] Registered module handle={handle} name={Path.GetFileName(modulePath)} base=0x{baseAddress:X16} size=0x{size:X16}");
         return handle;
+    }
+
+    private static IReadOnlyList<KernelModuleRegistry.ModuleSegment> BuildModuleSegments(SelfImage image)
+    {
+        var imageBase = image.EntryPoint >= image.ElfHeader.EntryPoint
+            ? image.EntryPoint - image.ElfHeader.EntryPoint
+            : 0UL;
+        var segments = new List<KernelModuleRegistry.ModuleSegment>();
+        foreach (var header in image.ProgramHeaders)
+        {
+            if (header.HeaderType != ProgramHeaderType.Load || header.MemorySize == 0)
+            {
+                continue;
+            }
+
+            var protection = 0;
+            if ((header.Flags & ProgramHeaderFlags.Read) != 0)
+            {
+                protection |= 1;
+            }
+            if ((header.Flags & ProgramHeaderFlags.Write) != 0)
+            {
+                protection |= 2;
+            }
+            if ((header.Flags & ProgramHeaderFlags.Execute) != 0)
+            {
+                protection |= 4;
+            }
+
+            segments.Add(new KernelModuleRegistry.ModuleSegment(
+                unchecked(imageBase + header.VirtualAddress),
+                header.MemorySize,
+                protection));
+        }
+
+        return segments;
     }
 
     private static bool TryComputeImageRange(SelfImage image, out ulong baseAddress, out ulong size)

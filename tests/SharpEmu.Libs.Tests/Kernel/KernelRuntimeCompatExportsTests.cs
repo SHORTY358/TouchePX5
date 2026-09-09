@@ -283,6 +283,49 @@ public sealed class KernelRuntimeCompatExportsTests
         Assert.Equal(unchecked((uint)second), secondWritten);
     }
 
+    [Fact]
+    public void GetModuleInfo_ReportsIndividualLoadSegmentsAndProtections()
+    {
+        const ulong infoAddress = GuestMemoryBase + 0x100;
+        const ulong codeAddress = GuestMemoryBase + 0x600;
+        const ulong dataAddress = GuestMemoryBase + 0x900;
+        var memory = new FakeCpuMemory(GuestMemoryBase, 0x1000);
+        var context = new CpuContext(memory, Generation.Gen5);
+        KernelModuleRegistry.Reset();
+        var handle = KernelModuleRegistry.RegisterModule(
+            "segmented.sprx",
+            codeAddress,
+            size: 0x380,
+            entryPoint: codeAddress,
+            initEntryPoint: 0,
+            finiEntryPoint: 0,
+            initializerFunctions: [],
+            finalizerFunctions: [],
+            ehFrameHeaderAddress: 0,
+            ehFrameAddress: 0,
+            ehFrameSize: 0,
+            isMain: false,
+            segments:
+            [
+                new KernelModuleRegistry.ModuleSegment(codeAddress, 0x80, 5),
+                new KernelModuleRegistry.ModuleSegment(dataAddress, 0x80, 3),
+            ]);
+        Assert.True(context.TryWriteUInt64(infoAddress, 0x160));
+        context[CpuRegister.Rdi] = unchecked((uint)handle);
+        context[CpuRegister.Rsi] = infoAddress;
+
+        Assert.Equal(0, KernelRuntimeCompatExports.KernelGetModuleInfo(context));
+        Span<byte> info = stackalloc byte[0x160];
+        Assert.True(memory.TryRead(infoAddress, info));
+        Assert.Equal(codeAddress, BinaryPrimitives.ReadUInt64LittleEndian(info[0x108..]));
+        Assert.Equal(0x80U, BinaryPrimitives.ReadUInt32LittleEndian(info[0x110..]));
+        Assert.Equal(5, BinaryPrimitives.ReadInt32LittleEndian(info[0x114..]));
+        Assert.Equal(dataAddress, BinaryPrimitives.ReadUInt64LittleEndian(info[0x118..]));
+        Assert.Equal(0x80U, BinaryPrimitives.ReadUInt32LittleEndian(info[0x120..]));
+        Assert.Equal(3, BinaryPrimitives.ReadInt32LittleEndian(info[0x124..]));
+        Assert.Equal(2U, BinaryPrimitives.ReadUInt32LittleEndian(info[0x148..]));
+    }
+
     private static int RegisterModuleForList(string path, ulong baseAddress)
     {
         return KernelModuleRegistry.RegisterModule(

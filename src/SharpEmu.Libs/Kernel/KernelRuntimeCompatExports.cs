@@ -1811,8 +1811,8 @@ public static class KernelRuntimeCompatExports
         var payload = new byte[ModuleInfoSize];
         BinaryPrimitives.WriteUInt64LittleEndian(payload, ModuleInfoSize);
         WriteModuleName(payload, module.Name);
-        WriteModuleSegment(payload, 0x108, module);
-        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x148), 1);
+        var segmentCount = WriteModuleSegments(payload, 0x108, module);
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x148), unchecked((uint)segmentCount));
         return ctx.Memory.TryWrite(outInfoAddress, payload);
     }
 
@@ -1830,10 +1830,10 @@ public static class KernelRuntimeCompatExports
         BinaryPrimitives.WriteUInt64LittleEndian(
             payload.AsSpan((int)ModuleInfoExInitProcOffset),
             module.EntryPoint);
-        WriteModuleSegment(payload, (int)ModuleInfoExSegmentsOffset, module);
+        var segmentCount = WriteModuleSegments(payload, (int)ModuleInfoExSegmentsOffset, module);
         BinaryPrimitives.WriteUInt32LittleEndian(
             payload.AsSpan((int)ModuleInfoExSegmentCountOffset),
-            1);
+            unchecked((uint)segmentCount));
         return ctx.Memory.TryWrite(outInfoAddress, payload);
     }
 
@@ -1872,19 +1872,44 @@ public static class KernelRuntimeCompatExports
         }
     }
 
-    private static void WriteModuleSegment(
+    private static int WriteModuleSegments(
         Span<byte> payload,
         int offset,
         KernelModuleRegistry.ModuleEntry module)
     {
+        const int maxSegments = 4;
+        if (module.Segments.Count == 0)
+        {
+            WriteModuleSegment(
+                payload,
+                offset,
+                new KernelModuleRegistry.ModuleSegment(
+                    module.BaseAddress,
+                    module.EndAddress - module.BaseAddress,
+                    5));
+            return 1;
+        }
+
+        var count = Math.Min(module.Segments.Count, maxSegments);
+        for (var i = 0; i < count; i++)
+        {
+            WriteModuleSegment(payload, offset + (i * ModuleInfoSegmentSize), module.Segments[i]);
+        }
+
+        return count;
+    }
+
+    private static void WriteModuleSegment(
+        Span<byte> payload,
+        int offset,
+        KernelModuleRegistry.ModuleSegment segment)
+    {
         Debug.Assert(offset >= 0 && offset + ModuleInfoSegmentSize <= payload.Length);
-        BinaryPrimitives.WriteUInt64LittleEndian(payload.Slice(offset), module.BaseAddress);
+        BinaryPrimitives.WriteUInt64LittleEndian(payload.Slice(offset), segment.Address);
         BinaryPrimitives.WriteUInt32LittleEndian(
             payload.Slice(offset + sizeof(ulong)),
-            (uint)Math.Min(module.EndAddress - module.BaseAddress, uint.MaxValue));
-        // Loaded modules are represented as a single aggregate readable and
-        // executable range until per-program-header registry data is exposed.
-        BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(offset + 12), 5);
+            (uint)Math.Min(segment.Size, uint.MaxValue));
+        BinaryPrimitives.WriteInt32LittleEndian(payload.Slice(offset + 12), segment.Protection);
     }
 
     private static bool TryReadUtf8Z(CpuContext ctx, ulong address, int maxLength, out string value)
