@@ -118,6 +118,21 @@ public sealed class Ngs2OutputValidationTests : IDisposable
         Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2GeomCalcListener(_ctx));
     }
 
+    [Fact]
+    public void WaveformHelpers_RejectNullOutputs()
+    {
+        _ctx[CpuRegister.Rdi] = MemoryBase + 0x200;
+        _ctx[CpuRegister.Rsi] = 16;
+        _ctx[CpuRegister.Rdx] = 0;
+        Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2ParseWaveformData(_ctx));
+
+        _ctx[CpuRegister.Rdi] = MemoryBase + 0x200;
+        _ctx[CpuRegister.Rsi] = 0;
+        _ctx[CpuRegister.Rdx] = 1;
+        _ctx[CpuRegister.Rcx] = 0;
+        Assert.Equal(InvalidOutAddress, Ngs2Exports.Ngs2CalcWaveformBlock(_ctx));
+    }
+
     public void Dispose()
     {
         Ngs2Exports.ResetForTests();

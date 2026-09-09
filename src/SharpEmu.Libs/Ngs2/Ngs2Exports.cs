@@ -2171,7 +2171,11 @@ public static class Ngs2Exports
         var dataAddress = ctx[CpuRegister.Rdi];
         var dataSize = ctx[CpuRegister.Rsi];
         var outInfoAddress = ctx[CpuRegister.Rdx];
-        if (dataAddress == 0 || dataSize == 0 || outInfoAddress == 0)
+        if (outInfoAddress == 0)
+        {
+            return ctx.SetReturn(OrbisNgs2ErrorInvalidOutAddress);
+        }
+        if (dataAddress == 0 || dataSize == 0)
         {
             return ctx.SetReturn((int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
@@ -2242,7 +2246,11 @@ public static class Ngs2Exports
         var samplePosition = unchecked((uint)ctx[CpuRegister.Rsi]);
         var sampleCount = unchecked((uint)ctx[CpuRegister.Rdx]);
         var blockAddress = ctx[CpuRegister.Rcx];
-        if (formatAddress == 0 || blockAddress == 0)
+        if (blockAddress == 0)
+        {
+            return SetReturn(ctx, OrbisNgs2ErrorInvalidOutAddress);
+        }
+        if (formatAddress == 0)
         {
             return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
