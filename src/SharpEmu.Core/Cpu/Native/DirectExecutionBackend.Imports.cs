@@ -2142,13 +2142,25 @@ public sealed partial class DirectExecutionBackend
 			return OrbisGen2Result.ORBIS_GEN2_OK;
 		}
 		var moduleHandle = unchecked((int)cpuContext[CpuRegister.Rdi]);
+		if (!KernelModuleRegistry.TryGetModuleByHandle(moduleHandle, out var module) ||
+			module.StartState == KernelModuleRegistry.ModuleStartState.Stopped)
+		{
+			_ = TryWriteUInt64Compat(outputAddress, 0);
+			cpuContext[CpuRegister.Rax] = ulong.MaxValue;
+			return OrbisGen2Result.ORBIS_GEN2_OK;
+		}
+		// Synthetic system modules have no guest image; retain their HLE fallback.
+		// A concrete guest module must never resolve another image's symbols.
+		var allowRuntimeFallback = module.IsSystemModule && module.BaseAddress == 0;
 		if (!TryResolveModuleSymbolAddress(moduleHandle, symbolName, out var resolvedAddress) &&
-			!TryResolveRuntimeSymbolAddress(symbolName, out resolvedAddress) &&
+			(!allowRuntimeFallback ||
+			(!TryResolveRuntimeSymbolAddress(symbolName, out resolvedAddress) &&
 			!TryResolveRuntimeSymbolAddress(ComputePsNid(symbolName), out resolvedAddress) &&
-			!TryResolveRuntimeSymbolAlias(symbolName, out resolvedAddress))
+			!TryResolveRuntimeSymbolAlias(symbolName, out resolvedAddress))))
 		{
 			Console.Error.WriteLine(
 				$"[LOADER][WARN] sceKernelDlsym failed: handle=0x{cpuContext[CpuRegister.Rdi]:X} symbol='{symbolName}'");
+			_ = TryWriteUInt64Compat(outputAddress, 0);
 			cpuContext[CpuRegister.Rax] = 18446744073709551615uL;
 			return OrbisGen2Result.ORBIS_GEN2_OK;
 		}

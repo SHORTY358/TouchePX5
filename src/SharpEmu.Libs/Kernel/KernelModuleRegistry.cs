@@ -404,7 +404,9 @@ public static class KernelModuleRegistry
 
         lock (_gate)
         {
-            return _symbolsByHandle.TryGetValue(handle, out var symbols) &&
+            return _modulesByHandle.TryGetValue(handle, out var module) &&
+                   module.StartState != ModuleStartState.Stopped &&
+                   _symbolsByHandle.TryGetValue(handle, out var symbols) &&
                    symbols.TryGetValue(symbolName, out address) &&
                    address >= 0x10000;
         }
