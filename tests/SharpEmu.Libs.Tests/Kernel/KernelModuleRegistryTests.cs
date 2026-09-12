@@ -50,6 +50,39 @@ public sealed class KernelModuleRegistryTests
         Assert.Equal(KernelModuleRegistry.ModuleStartState.Stopped, stopped.StartState);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedStart_RestoresPreviousVisibilityAndAllowsRetry(bool restarting)
+    {
+        KernelModuleRegistry.Reset();
+        var handle = RegisterModule(0x20000, 0x30000);
+        KernelModuleRegistry.RegisterModuleSymbols(handle,
+            new Dictionary<string, ulong> { ["probe"] = 0x10100 });
+        if (restarting)
+        {
+            Assert.True(KernelModuleRegistry.TryBeginModuleStart(handle, out _));
+            KernelModuleRegistry.CompleteModuleStart(handle, true);
+            Assert.True(KernelModuleRegistry.TryBeginModuleStop(handle, out _));
+            KernelModuleRegistry.CompleteModuleStop(handle, true);
+        }
+
+        Assert.True(KernelModuleRegistry.TryBeginModuleStart(handle, out _));
+        Assert.False(KernelModuleRegistry.TryBeginModuleStart(handle, out _));
+        KernelModuleRegistry.CompleteModuleStart(handle, false);
+        Assert.True(KernelModuleRegistry.TryGetModuleByHandle(handle, out var failed));
+        Assert.Equal(restarting ? KernelModuleRegistry.ModuleStartState.Stopped
+            : KernelModuleRegistry.ModuleStartState.NotStarted, failed.StartState);
+        Assert.Equal(!restarting, KernelModuleRegistry.TryResolveModuleSymbol(handle, "probe", out _));
+        Assert.Equal(!restarting, KernelModuleRegistry.TryGetModuleByAddress(0x10100, out _));
+        Assert.Equal(!restarting, KernelModuleRegistry.GetModuleHandles(true).Contains(handle));
+
+        Assert.True(KernelModuleRegistry.TryBeginModuleStart(handle, out _));
+        KernelModuleRegistry.CompleteModuleStart(handle, true);
+        Assert.True(KernelModuleRegistry.TryResolveModuleSymbol(handle, "probe", out var address));
+        Assert.Equal(0x10100UL, address);
+    }
+
     private static int RegisterModule(ulong initEntryPoint, ulong finiEntryPoint)
     {
         return KernelModuleRegistry.RegisterModule(

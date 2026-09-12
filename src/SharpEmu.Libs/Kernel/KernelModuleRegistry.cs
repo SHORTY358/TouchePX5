@@ -52,7 +52,10 @@ public static class KernelModuleRegistry
         ulong EhFrameSize,
         ModuleStartState StartState,
         bool IsMain,
-        bool IsSystemModule);
+        bool IsSystemModule)
+    {
+        internal ModuleStartState StartRollbackState { get; init; }
+    }
 
     public readonly record struct ModuleSegment(ulong Address, ulong Size, int Protection);
 
@@ -305,7 +308,11 @@ public static class KernelModuleRegistry
                 return false;
             }
 
-            module = module with { StartState = ModuleStartState.Starting };
+            module = module with
+            {
+                StartRollbackState = module.StartState,
+                StartState = ModuleStartState.Starting,
+            };
             _modulesByHandle[handle] = module;
             return true;
         }
@@ -323,7 +330,7 @@ public static class KernelModuleRegistry
 
             _modulesByHandle[handle] = module with
             {
-                StartState = succeeded ? ModuleStartState.Started : ModuleStartState.NotStarted,
+                StartState = succeeded ? ModuleStartState.Started : module.StartRollbackState,
             };
         }
     }
