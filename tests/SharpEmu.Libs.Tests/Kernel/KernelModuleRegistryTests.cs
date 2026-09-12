@@ -7,9 +7,7 @@ using Xunit;
 namespace SharpEmu.Libs.Tests.Kernel;
 
 [CollectionDefinition(KernelModuleRegistryCollection.Name, DisableParallelization = true)]
-public sealed class KernelModuleRegistryCollection;
-
-internal static class KernelModuleRegistryCollection
+public sealed class KernelModuleRegistryCollection
 {
     public const string Name = "KernelModuleRegistryState";
 }
