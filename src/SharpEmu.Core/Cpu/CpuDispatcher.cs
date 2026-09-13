@@ -314,6 +314,21 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
             return nativeResult;
         }
 
+        // A backend may have run the guest and reported a concrete execution
+        // failure. Do not replace that evidence with "backend unavailable".
+        if (nativeResult is not (OrbisGen2Result.ORBIS_GEN2_OK or OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_IMPLEMENTED))
+        {
+            debugHook?.OnFrameExit(debugFrame!, nativeResult);
+            LastMilestoneLog = string.Concat(
+                LastMilestoneLog,
+                Environment.NewLine,
+                $"Native execution failed: {_nativeCpuBackend.LastError}");
+            Console.Error.WriteLine($"[DISPATCHER] Native execution failed: {nativeResult}: {_nativeCpuBackend.LastError}");
+            return FailEarly(nativeResult, nativeResult == OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP
+                ? CpuExitReason.CpuTrap
+                : CpuExitReason.UnhandledException);
+        }
+
         debugHook?.OnFrameExit(debugFrame!, OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_IMPLEMENTED);
 
         var backendName = string.IsNullOrWhiteSpace(_nativeCpuBackend.BackendName)
