@@ -605,13 +605,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
                 continue;
             }
 
-            var initEntryPoint = loadedModule.Image.InitFunctionEntryPoint;
-            if (initEntryPoint < 0x10000)
-            {
-                continue;
-            }
-
-            if (!KernelModuleRegistry.TryBeginModuleStart(loadedModule.Handle, out _))
+            if (!KernelModuleRegistry.TryBeginModuleStart(loadedModule.Handle, out var moduleToStart))
             {
                 continue;
             }
@@ -623,15 +617,23 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             }
 
             Console.Error.WriteLine(
-                $"[RUNTIME] Starting module {moduleName}: dt_init=0x{initEntryPoint:X16}");
+                $"[RUNTIME] Starting module {moduleName}: callbacks={moduleToStart.InitializerFunctions.Count}");
 
-            var result = _cpuDispatcher.DispatchModuleInitializer(
-                initEntryPoint,
-                generation,
-                activeImportStubs,
-                activeRuntimeSymbols,
-                moduleName,
-                _cpuExecutionOptions);
+            var result = OrbisGen2Result.ORBIS_GEN2_OK;
+            foreach (var initEntryPoint in moduleToStart.InitializerFunctions)
+            {
+                result = _cpuDispatcher.DispatchModuleInitializer(
+                    initEntryPoint,
+                    generation,
+                    activeImportStubs,
+                    activeRuntimeSymbols,
+                    moduleName,
+                    _cpuExecutionOptions);
+                if (result != OrbisGen2Result.ORBIS_GEN2_OK)
+                {
+                    break;
+                }
+            }
             KernelModuleRegistry.CompleteModuleStart(
                 loadedModule.Handle,
                 result == OrbisGen2Result.ORBIS_GEN2_OK);
