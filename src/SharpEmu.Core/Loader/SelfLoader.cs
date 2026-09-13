@@ -273,6 +273,7 @@ public sealed class SelfLoader : ISelfLoader
             ? new Dictionary<ulong, string>()
             : new Dictionary<ulong, string>(importStubs);
         var runtimeSymbols = new Dictionary<string, ulong>(StringComparer.Ordinal);
+        var exportedSymbols = new Dictionary<string, ulong>(StringComparer.Ordinal);
         RegisterRuntimeSymbolsAndHooks(
             imageData,
             loadContext,
@@ -281,7 +282,8 @@ public sealed class SelfLoader : ISelfLoader
             virtualMemory,
             imageBase,
             effectiveImportStubs,
-            runtimeSymbols);
+            runtimeSymbols,
+            exportedSymbols);
         var finalizedImportStubs = effectiveImportStubs.Count == 0
             ? EmptyImportStubs
             : effectiveImportStubs;
@@ -350,7 +352,8 @@ public sealed class SelfLoader : ISelfLoader
             tlsInfo.StaticOffset,
             moduleMetadata.NeededModules,
             moduleMetadata.ModuleNames,
-            finalizerFunctions);
+            finalizerFunctions,
+            exportedSymbols);
     }
 
     private static (string? Title, string? TitleId, string? Version) TryLoadParamJson(
@@ -1281,7 +1284,8 @@ public sealed class SelfLoader : ISelfLoader
         IVirtualMemory virtualMemory,
         ulong imageBase,
         IDictionary<ulong, string> importStubs,
-        IDictionary<string, ulong> runtimeSymbols)
+        IDictionary<string, ulong> runtimeSymbols,
+        IDictionary<string, ulong> exportedSymbols)
     {
         var sectionSymbols = RegisterSectionRuntimeSymbols(imageData, loadContext, elfHeader, imageBase, importStubs, runtimeSymbols);
         var dynamicSymbols = RegisterDynamicRuntimeSymbols(
@@ -1291,7 +1295,8 @@ public sealed class SelfLoader : ISelfLoader
             virtualMemory,
             imageBase,
             importStubs,
-            runtimeSymbols);
+            runtimeSymbols,
+            exportedSymbols);
 
         if (sectionSymbols > 0 || dynamicSymbols > 0)
         {
@@ -1558,7 +1563,8 @@ public sealed class SelfLoader : ISelfLoader
         IVirtualMemory virtualMemory,
         ulong imageBase,
         IDictionary<ulong, string> importStubs,
-        IDictionary<string, ulong> runtimeSymbols)
+        IDictionary<string, ulong> runtimeSymbols,
+        IDictionary<string, ulong> exportedSymbols)
     {
         if (!TryGetProgramHeader(programHeaders, ProgramHeaderType.Dynamic, out var dynamicHeader, out var dynamicHeaderIndex))
         {
@@ -1627,7 +1633,6 @@ public sealed class SelfLoader : ISelfLoader
         for (uint symbolIndex = 0; symbolIndex < symbolCount; symbolIndex++)
         {
             if (!TryReadSymbol(symbolTable, symbolIndex, out var symbol) ||
-                symbol.Value == 0 ||
                 symbol.NameOffset == 0 ||
                 !TryReadNullTerminatedAscii(stringTable, symbol.NameOffset, out var symbolName))
             {
@@ -1642,9 +1647,31 @@ public sealed class SelfLoader : ISelfLoader
                 continue;
             }
 
-            if (RegisterRuntimeSymbol(runtimeSymbols, importStubs, symbolName, symbolAddress))
+            if (symbol.Value != 0 && RegisterRuntimeSymbol(runtimeSymbols, importStubs, symbolName, symbolAddress))
             {
                 added++;
+            }
+
+            // ELF global/weak definitions with default/protected visibility can be
+            // named by other modules. TLS offsets and resolver functions need their
+            // own lookup paths and must not be returned as ordinary addresses.
+            var binding = symbol.Info >> 4;
+            var type = symbol.Info & 0xF;
+            var visibility = symbol.Other & 0x7;
+            if ((binding is 1 or 2) && (visibility is 0 or 3) &&
+                (type is 0 or 1 or 2) && symbol.SectionIndex != 0 &&
+                (symbol.SectionIndex < 0xFF00 || symbol.SectionIndex == 0xFFF1))
+            {
+                var exportAddress = symbol.SectionIndex == 0xFFF1 ? symbol.Value : symbolAddress;
+                if (exportAddress >= 0x10000)
+                {
+                    exportedSymbols.TryAdd(symbolName, exportAddress);
+                    var nid = ExtractNid(symbolName);
+                    if (!string.IsNullOrWhiteSpace(nid))
+                    {
+                        exportedSymbols.TryAdd(nid, exportAddress);
+                    }
+                }
             }
         }
 

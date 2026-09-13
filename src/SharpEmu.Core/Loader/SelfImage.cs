@@ -30,7 +30,8 @@ public sealed class SelfImage
         ulong tlsStaticOffset = 0,
         IReadOnlyList<string>? neededModules = null,
         IReadOnlyList<string>? moduleNames = null,
-        IReadOnlyList<ulong>? finalizerFunctions = null)
+        IReadOnlyList<ulong>? finalizerFunctions = null,
+        IReadOnlyDictionary<string, ulong>? exportedSymbols = null)
     {
         ArgumentNullException.ThrowIfNull(programHeaders);
         ArgumentNullException.ThrowIfNull(mappedRegions);
@@ -41,6 +42,7 @@ public sealed class SelfImage
         MappedRegions = mappedRegions;
         ImportStubs = importStubs ?? new Dictionary<ulong, string>();
         RuntimeSymbols = runtimeSymbols ?? new Dictionary<string, ulong>(StringComparer.Ordinal);
+        ExportedSymbols = exportedSymbols ?? new Dictionary<string, ulong>(StringComparer.Ordinal);
         ImportedRelocations = importedRelocations ?? Array.Empty<ImportedSymbolRelocation>();
         PreInitializerFunctions = preInitializerFunctions ?? Array.Empty<ulong>();
         InitializerFunctions = initializerFunctions ?? Array.Empty<ulong>();
@@ -69,6 +71,9 @@ public sealed class SelfImage
     public IReadOnlyDictionary<ulong, string> ImportStubs { get; }
 
     public IReadOnlyDictionary<string, ulong> RuntimeSymbols { get; }
+
+    /// <summary>Public dynamic definitions, separate from diagnostic and private runtime symbols.</summary>
+    public IReadOnlyDictionary<string, ulong> ExportedSymbols { get; }
 
     public IReadOnlyList<ImportedSymbolRelocation> ImportedRelocations { get; }
 

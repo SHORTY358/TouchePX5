@@ -1186,7 +1186,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             isMain,
             isSystemModule,
             BuildModuleSegments(image));
-        KernelModuleRegistry.RegisterModuleSymbols(handle, image.RuntimeSymbols);
+        KernelModuleRegistry.RegisterModuleSymbols(handle, image.ExportedSymbols);
         Console.Error.WriteLine(
             $"[RUNTIME] Registered module handle={handle} name={Path.GetFileName(modulePath)} base=0x{baseAddress:X16} size=0x{size:X16}");
         return handle;

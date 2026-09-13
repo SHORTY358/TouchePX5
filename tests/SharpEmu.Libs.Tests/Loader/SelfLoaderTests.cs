@@ -174,6 +174,46 @@ public sealed class SelfLoaderTests
             image.FinalizerFunctions);
     }
 
+    [Theory]
+    [InlineData(0x12, 0, 1, 0x200UL, true)] // global function
+    [InlineData(0x22, 0, 1, 0x200UL, true)] // weak function
+    [InlineData(0x12, 3, 1, 0x200UL, true)] // protected function
+    [InlineData(0x11, 0, 1, 0x300UL, true)] // data object
+    [InlineData(0x12, 0, 1, 0UL, true)] // valid definition at image base
+    [InlineData(0x12, 0, 0xFFF1, 0x20000UL, true)] // absolute address
+    [InlineData(0x02, 0, 1, 0x200UL, false)] // local
+    [InlineData(0x12, 1, 1, 0x200UL, false)] // internal
+    [InlineData(0x12, 2, 1, 0x200UL, false)] // hidden
+    [InlineData(0x12, 0, 0, 0x200UL, false)] // undefined, even with a nonzero value
+    [InlineData(0x16, 0, 1, 0x200UL, false)] // TLS offset is not an address
+    [InlineData(0x12, 0, 0xFFF2, 0x200UL, false)] // unallocated common
+    public void Load_IndexesOnlyPublicDynamicAddresses(
+        byte info, byte visibility, ushort section, ulong value, bool exported)
+    {
+        var bytes = CreateElfWithSceDynlibImport();
+        var symbol = bytes.AsSpan(0x858, 24);
+        symbol[4] = info;
+        symbol[5] = visibility;
+        BinaryPrimitives.WriteUInt16LittleEndian(symbol[6..], section);
+        BinaryPrimitives.WriteUInt64LittleEndian(symbol[8..], value);
+        // This fixture now contains a definition; disable its original import relocation.
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(0x488), 0);
+
+        var image = new SelfLoader().Load(bytes, new VirtualMemory());
+        Assert.Equal(exported, image.ExportedSymbols.TryGetValue("HoLVWNanBBc#B#B", out var address));
+        Assert.Equal(exported, image.ExportedSymbols.TryGetValue("HoLVWNanBBc", out var nidAddress));
+        if (exported)
+        {
+            var imageBase = image.EntryPoint - image.ElfHeader.EntryPoint;
+            Assert.Equal(section == 0xFFF1 ? value : imageBase + value, address);
+            Assert.Equal(address, nidAddress);
+        }
+        else
+        {
+            Assert.Empty(image.ExportedSymbols);
+        }
+    }
+
     private static byte[] CreateSelfImage(uint magic, byte version, uint keyType, ushort flags)
     {
         var imageData = new byte[SelfHeaderSize + ElfHeaderSize];
