@@ -47,6 +47,7 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
     private readonly IVirtualMemory _virtualMemory;
     private readonly IModuleManager _moduleManager;
     private INativeCpuBackend? _nativeCpuBackend;
+    private ulong _primaryThreadTlsBase;
 
     public CpuDispatcher(
         IVirtualMemory virtualMemory,
@@ -59,6 +60,11 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
     }
 
     public ulong? LastEntryPoint { get; private set; }
+
+    public void ResetProcessState()
+    {
+        _primaryThreadTlsBase = 0;
+    }
 
     public CpuTrapInfo? LastTrapInfo { get; private set; }
 
@@ -175,7 +181,8 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
             return FailEarly(OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
 
-        var tlsBase = TryMapTlsRegion();
+        var initializeTls = _primaryThreadTlsBase == 0;
+        var tlsBase = initializeTls ? TryMapTlsRegion() : _primaryThreadTlsBase;
         if (tlsBase == 0)
         {
             return FailEarly(OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
@@ -207,10 +214,11 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
             return FailEarly(OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
 
-        if (!InitializeTls(context, tlsBase))
+        if (initializeTls && !InitializeTls(context, tlsBase))
         {
             return FailEarly(OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
+        _primaryThreadTlsBase = tlsBase;
 
         var effectiveImportStubs = importStubs is null
             ? new Dictionary<ulong, string>()

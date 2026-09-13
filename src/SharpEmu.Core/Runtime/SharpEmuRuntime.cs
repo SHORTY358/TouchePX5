@@ -126,6 +126,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
 
         var mountRoot = Path.GetDirectoryName(fullPath);
 
+        _cpuDispatcher.ResetProcessState();
         return _selfLoader.Load(bytes.AsSpan(), _virtualMemory, _moduleManager, _fileSystem, mountRoot);
     }
 

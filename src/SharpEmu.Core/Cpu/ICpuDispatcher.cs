@@ -7,6 +7,9 @@ namespace SharpEmu.Core.Cpu;
 
 public interface ICpuDispatcher
 {
+    /// <summary>Starts a new process lifetime before its image and TLS templates are loaded.</summary>
+    void ResetProcessState() { }
+
     CpuTrapInfo? LastTrapInfo { get; }
 
     CpuMemoryFaultInfo? LastMemoryFaultInfo { get; }

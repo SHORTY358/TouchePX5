@@ -49,4 +49,49 @@ public sealed class CpuDispatcherFailureTests
             return false;
         }
     }
+
+    [Fact]
+    public void Dispatch_PreservesPrimaryThreadTlsUntilNextProcess()
+    {
+        var memory = new VirtualMemory();
+        var backend = new TlsCheckingBackend();
+        using var dispatcher = new CpuDispatcher(memory, new ModuleManager(), backend);
+        Assert.Equal(OrbisGen2Result.ORBIS_GEN2_OK,
+            dispatcher.DispatchModuleInitializer(0x800200120, Generation.Gen5));
+        var threadPointer = backend.ThreadPointer;
+        Assert.Equal(OrbisGen2Result.ORBIS_GEN2_OK,
+            dispatcher.DispatchModuleInitializer(0x800200140, Generation.Gen5));
+        Assert.Equal(OrbisGen2Result.ORBIS_GEN2_OK,
+            dispatcher.DispatchEntry(0x800200160, Generation.Gen5));
+        Assert.Equal(threadPointer, backend.ThreadPointer);
+
+        dispatcher.ResetProcessState();
+        memory.Clear();
+        backend.ExpectFreshThread = true;
+        Assert.Equal(OrbisGen2Result.ORBIS_GEN2_OK,
+            dispatcher.DispatchModuleInitializer(0x800200120, Generation.Gen5));
+    }
+
+    private sealed class TlsCheckingBackend : INativeCpuBackend
+    {
+        public string BackendName => "TLS test";
+        public string? LastError => null;
+        public bool ExpectFreshThread { get; set; } = true;
+        public ulong ThreadPointer { get; private set; }
+
+        public bool TryExecute(CpuContext context, ulong entryPoint, Generation generation,
+            IReadOnlyDictionary<ulong, string> importStubs, IReadOnlyDictionary<string, ulong> runtimeSymbols,
+            CpuExecutionOptions executionOptions, out OrbisGen2Result result)
+        {
+            // Unused TCB slot isolates this check from process-wide ELF TLS templates.
+            Assert.True(context.TryReadUInt64(context.FsBase + 0x40, out var value));
+            Assert.Equal(ExpectFreshThread ? 0UL : 0x12345678UL, value);
+            if (!ExpectFreshThread) { Assert.Equal(ThreadPointer, context.FsBase); }
+            ThreadPointer = context.FsBase;
+            Assert.True(context.TryWriteUInt64(context.FsBase + 0x40, 0x12345678));
+            ExpectFreshThread = false;
+            result = OrbisGen2Result.ORBIS_GEN2_OK;
+            return true;
+        }
+    }
 }
