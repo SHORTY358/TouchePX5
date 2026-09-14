@@ -207,6 +207,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 	private readonly IModuleManager _moduleManager;
 
 	private nint _tlsHandlerAddress;
+	private readonly List<nint> _tlsCodeRegions = new();
 
 	private nint _tlsBaseAddress;
 
@@ -2323,8 +2324,13 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		_importHandlerTrampolines.Clear();
 	}
 
-	private unsafe void CreateTlsHandler()
+	private unsafe void CreateTlsHandler(bool forceNewRegion = false)
 	{
+		var distance = (Int128)_tlsHandlerAddress - (Int128)_entryPoint;
+		if (!forceNewRegion && _tlsHandlerAddress != 0 && distance > -0x40000000 && distance < 0x40000000)
+		{
+			return;
+		}
 		_tlsHandlerAddress = (nint)TryAllocateNearEntry(TlsHandlerRegionSize);
 		if (_tlsHandlerAddress == 0)
 		{
@@ -2334,6 +2340,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		{
 			throw new OutOfMemoryException("Failed to allocate TLS handler");
 		}
+		_tlsCodeRegions.Add(_tlsHandlerAddress);
 		// The handler runs in place of a patched guest `mov reg, fs:[0]`,
 		// which preserves every register and the flags. TlsGetValue (and the
 		// Win64 ABI in general) clobbers rcx/rdx/r8-r11 and the arithmetic
@@ -3407,10 +3414,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			return 0;
 		}
 		int num = (size + 15) & -16;
+		if (num > TlsHandlerRegionSize - 128) { return 0; }
 		if (_tlsPatchStubOffset + num > TlsHandlerRegionSize)
 		{
-			Console.Error.WriteLine("[LOADER][WARNING] TLS patch stub region exhausted.");
-			return 0;
+			CreateTlsHandler(forceNewRegion: true);
 		}
 		nint result = _tlsHandlerAddress + _tlsPatchStubOffset;
 		_tlsPatchStubOffset += num;
@@ -7099,9 +7106,15 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 			_tlsModuleBases.Clear();
 		}
-		if (_tlsHandlerAddress != 0)
+		if (_tlsCodeRegions.Count != 0)
 		{
-			VirtualFree((void*)_tlsHandlerAddress, 0u, 32768u);
+			var released = 0;
+			foreach (var region in _tlsCodeRegions)
+			{
+				if (VirtualFree((void*)region, 0u, 32768u)) { released++; }
+			}
+			Console.Error.WriteLine($"[LOADER][INFO] Released TLS code regions: {released}/{_tlsCodeRegions.Count}");
+			_tlsCodeRegions.Clear();
 			_tlsHandlerAddress = 0;
 		}
 		if (_hostRspSlotStorage != 0)
