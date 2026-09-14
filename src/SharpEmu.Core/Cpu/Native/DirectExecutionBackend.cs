@@ -783,7 +783,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private nint _selfHandlePtr;
 
-	private const int MinTlsPatchInstructionBytes = 9;
+	private const int MinTlsPatchInstructionBytes = 8;
 
 	private delegate ulong ImportGatewayDelegate(nint backendHandle, int importIndex, nint argPackPtr);
 	private delegate int RawExceptionHandlerDelegate(void* exceptionInfo);
@@ -3331,105 +3331,20 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private unsafe bool TryPatchTlsLoadInstruction(nint address, byte* source, int availableLength)
 	{
-		if (availableLength < MinTlsPatchInstructionBytes)
+		if (!TlsLoadInstruction.TryDecode(new ReadOnlySpan<byte>(source, availableLength), out var instruction))
 		{
 			return false;
 		}
-
-		var offset = 0;
-		while (offset < availableLength && source[offset] == 0x66)
-		{
-			offset++;
-		}
-
-		if (offset >= availableLength || source[offset] != 0x64)
-		{
-			return false;
-		}
-
-		offset++;
-		if (offset >= availableLength)
-		{
-			return false;
-		}
-
-		var rex = (byte)0;
-		if (source[offset] >= 0x40 && source[offset] <= 0x4F)
-		{
-			rex = source[offset];
-			offset++;
-		}
-
-		if (offset + 7 > availableLength || source[offset] != 0x8B)
-		{
-			return false;
-		}
-
-		var modRm = source[offset + 1];
-		var sib = source[offset + 2];
-		if ((modRm >> 6) != 0 || (modRm & 7) != 4 || sib != 0x25)
-		{
-			return false;
-		}
-
-		var displacement = *(int*)(source + offset + 3);
-		if (displacement != 0)
-		{
-			return false;
-		}
-
-		var destinationRegister = ((modRm >> 3) & 7) | (((rex & 4) != 0) ? 8 : 0);
-		var instructionLength = offset + 7;
-		if (instructionLength < MinTlsPatchInstructionBytes)
-		{
-			return false;
-		}
-
-		return PatchTlsLoadInstruction(address, instructionLength, destinationRegister);
+		var helper = AllocateTlsPatchStub(32);
+		if (helper == 0) { return false; }
+		var code = instruction.CreateHelperBytes((ulong)helper, (ulong)_tlsHandlerAddress);
+		if (code is null) { return false; }
+		code.AsSpan().CopyTo(new Span<byte>((void*)helper, code.Length));
+		uint oldProtection;
+		if (!VirtualProtect((void*)helper, (nuint)code.Length, 32u, &oldProtection)) { return false; }
+		FlushInstructionCache(GetCurrentProcess(), (void*)helper, (nuint)code.Length);
+		return PatchCallSite(address, instruction.Length, helper);
 	}
-
-	private unsafe bool PatchTlsLoadInstruction(nint address, int instructionLength, int destinationRegister)
-	{
-		uint flNewProtect = default(uint);
-		if (!VirtualProtect((void*)address, (nuint)instructionLength, 64u, &flNewProtect))
-		{
-			return false;
-		}
-		try
-		{
-			*(sbyte*)address = -24;
-			long num = _tlsHandlerAddress;
-			long num2 = address + 5;
-			long num3 = num - num2;
-			if (num3 < int.MinValue || num3 > int.MaxValue)
-			{
-				Console.Error.WriteLine($"[LOADER][WARNING] TLS patch out of rel32 range at 0x{address:X16}");
-				return false;
-			}
-
-			*(int*)(address + 1) = (int)num3;
-			var offset = 5;
-			if (destinationRegister != 0)
-			{
-				*(byte*)(address + offset++) = (byte)(0x48 | (destinationRegister >= 8 ? 1 : 0));
-				*(byte*)(address + offset++) = 0x89;
-				*(byte*)(address + offset++) = (byte)(0xC0 | (destinationRegister & 7));
-			}
-
-			while (offset < instructionLength)
-			{
-				*(byte*)(address + offset++) = 0x90;
-			}
-
-			return true;
-		}
-		finally
-		{
-			VirtualProtect((void*)address, (nuint)instructionLength, flNewProtect, &flNewProtect);
-			FlushInstructionCache(GetCurrentProcess(), (void*)address, (nuint)instructionLength);
-		}
-	}
-
 	private unsafe bool TryPatchTlsImmediateStoreInstruction(nint address, byte* source)
 	{
 		if (source[0] != 100 || source[1] != 199 || source[2] != 4 || source[3] != 37)
