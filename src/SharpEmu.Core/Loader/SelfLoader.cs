@@ -1438,14 +1438,8 @@ public sealed class SelfLoader : ISelfLoader
             return;
         }
 
-        foreach (var existing in destination)
-        {
-            if (existing == resolvedAddress)
-            {
-                return;
-            }
-        }
-
+        // These are ordered callback slots, not a set of unique functions.
+        // The same address in multiple slots must be called for each slot.
         destination.Add(resolvedAddress);
     }
 

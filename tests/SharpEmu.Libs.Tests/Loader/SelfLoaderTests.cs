@@ -214,6 +214,31 @@ public sealed class SelfLoaderTests
         }
     }
 
+    [Theory]
+    [InlineData(25, 27, false)] // INIT_ARRAY, forward order
+    [InlineData(26, 28, true)] // FINI_ARRAY, reverse order
+    [InlineData(32, 33, false)] // PREINIT_ARRAY, forward order
+    public void Load_PreservesRepeatedLifecycleSlots(long arrayTag, long sizeTag, bool reverse)
+    {
+        var bytes = CreateElfWithLifecycleFunctions();
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(0x350), 0x250);
+        var table = bytes.AsSpan(0x400, 0x90);
+        table.Clear();
+        var index = 0;
+        WriteDynamicEntry(table, ref index, arrayTag, 0x340);
+        WriteDynamicEntry(table, ref index, sizeTag, 24);
+        WriteDynamicEntry(table, ref index, arrayTag == 26 ? 13 : 12, 0x250);
+        WriteDynamicEntry(table, ref index, 0, 0);
+
+        var image = new SelfLoader().Load(bytes, new VirtualMemory());
+        var imageBase = image.EntryPoint - image.ElfHeader.EntryPoint;
+        var actual = arrayTag == 32 ? image.PreInitializerFunctions
+            : reverse ? image.FinalizerFunctions : image.InitializerFunctions;
+        ulong[] offsets = arrayTag == 32 ? [0x250, 0x251, 0x250]
+            : reverse ? [0x250, 0x251, 0x250, 0x250] : [0x250, 0x250, 0x251, 0x250];
+        Assert.Equal(offsets.Select(offset => imageBase + offset), actual);
+    }
+
     private static byte[] CreateSelfImage(uint magic, byte version, uint keyType, ushort flags)
     {
         var imageData = new byte[SelfHeaderSize + ElfHeaderSize];
