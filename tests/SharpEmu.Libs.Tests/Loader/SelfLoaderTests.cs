@@ -239,6 +239,19 @@ public sealed class SelfLoaderTests
         Assert.Equal(offsets.Select(offset => imageBase + offset), actual);
     }
 
+    [Theory]
+    [InlineData(0UL)]
+    [InlineData(1UL)]
+    [InlineData(ulong.MaxValue)]
+    public void Load_SkipsLifecycleArraySentinels(ulong sentinel)
+    {
+        var bytes = CreateElfWithLifecycleFunctions();
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(0x348), sentinel);
+        var image = new SelfLoader().Load(bytes, new VirtualMemory());
+        var imageBase = image.EntryPoint - image.ElfHeader.EntryPoint;
+        Assert.Equal([imageBase + 0x252, imageBase + 0x250, imageBase + 0x260], image.FinalizerFunctions);
+    }
+
     private static byte[] CreateSelfImage(uint magic, byte version, uint keyType, ushort flags)
     {
         var imageData = new byte[SelfHeaderSize + ElfHeaderSize];

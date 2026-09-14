@@ -1422,6 +1422,11 @@ public sealed class SelfLoader : ISelfLoader
             var entryIndex = reverse ? entryCount - i - 1 : i;
             var entryOffset = entryIndex * sizeof(ulong);
             var entryAddress = BinaryPrimitives.ReadUInt64LittleEndian(arrayBytes.AsSpan(entryOffset, sizeof(ulong)));
+            // rtld array placeholders are values, not image-relative addresses.
+            if (entryAddress is 0 or 1 or ulong.MaxValue)
+            {
+                continue;
+            }
             AppendResolvedInitializer(destination, entryAddress, virtualMemory, imageBase);
         }
     }
