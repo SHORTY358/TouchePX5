@@ -3190,9 +3190,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				{
 					nint address = (nint)(ptr + i);
 					int remainingBytes = scanBytes - i;
-					if (TryPatchTlsLoadInstruction(address, ptr + i, remainingBytes))
+					if (TryPatchTlsMemoryInstruction(address, ptr + i, remainingBytes, out var isStore))
 					{
-						num3++;
+						if (isStore) { num9++; } else { num3++; }
 					}
 					else if (remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i))
 					{
@@ -3329,12 +3329,14 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		return true;
 	}
 
-	private unsafe bool TryPatchTlsLoadInstruction(nint address, byte* source, int availableLength)
+	private unsafe bool TryPatchTlsMemoryInstruction(nint address, byte* source, int availableLength, out bool isStore)
 	{
-		if (!TlsLoadInstruction.TryDecode(new ReadOnlySpan<byte>(source, availableLength), out var instruction))
+		isStore = false;
+		if (!TlsMemoryInstruction.TryDecode(new ReadOnlySpan<byte>(source, availableLength), out var instruction))
 		{
 			return false;
 		}
+		isStore = instruction.IsStore;
 		var helper = AllocateTlsPatchStub(32);
 		if (helper == 0) { return false; }
 		var code = instruction.CreateHelperBytes((ulong)helper, (ulong)_tlsHandlerAddress);
