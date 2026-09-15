@@ -3201,7 +3201,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 					{
 						if (isStore) { num9++; } else if (isXor) { num4++; } else { num3++; }
 					}
-					else if (remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i))
+					else if (remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i, remainingBytes))
 					{
 						num9++;
 					}
@@ -3288,64 +3288,24 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		FlushInstructionCache(GetCurrentProcess(), (void*)helper, TlsPatchTrampoline.Size);
 		return PatchJumpSite(address, instruction.Length, helper);
 	}
-	private unsafe bool TryPatchTlsImmediateStoreInstruction(nint address, byte* source)
+	private unsafe bool TryPatchTlsImmediateStoreInstruction(nint address, byte* source, int availableLength)
 	{
-		if (source[0] != 100 || source[1] != 199 || source[2] != 4 || source[3] != 37)
+		if (!TlsImmediateStoreInstruction.TryDecode(new ReadOnlySpan<byte>(source, availableLength), out var instruction))
 		{
 			return false;
 		}
-		int tlsOffset = *(int*)(source + 4);
-		int immediateValue = *(int*)(source + 8);
-		nint num = CreateTlsImmediateStoreHelper(tlsOffset, immediateValue, (ulong)(address + 12));
-		if (num == 0)
-		{
-			return false;
-		}
-		return PatchJumpSite(address, 12, num);
-	}
-
-	private unsafe nint CreateTlsImmediateStoreHelper(int tlsOffset, int immediateValue, ulong continuation)
-	{
-		nint trampoline = AllocateTlsPatchStub(TlsPatchTrampoline.Size);
-		if (trampoline == 0) { return 0; }
-		var prefix = TlsPatchTrampoline.CreatePrefix((ulong)trampoline, continuation);
-		if (prefix is null) { return 0; }
+		var trampoline = AllocateTlsPatchStub(TlsPatchTrampoline.Size);
+		if (trampoline == 0) { return false; }
+		var prefix = TlsPatchTrampoline.CreatePrefix((ulong)trampoline, (ulong)(address + instruction.Length));
+		var code = instruction.CreateHelperBytes((ulong)(trampoline + TlsPatchTrampoline.PrefixSize), (ulong)_tlsHandlerAddress);
+		if (prefix is null || code is null) { return false; }
 		prefix.AsSpan().CopyTo(new Span<byte>((void*)trampoline, prefix.Length));
-		nint num = trampoline + TlsPatchTrampoline.PrefixSize;
-		if (num == 0)
-		{
-			return 0;
-		}
-		byte* ptr = (byte*)num;
-		int num2 = 0;
-		ptr[num2++] = 80;
-		ptr[num2++] = 232;
-		long num3 = _tlsHandlerAddress - (num + num2 + 4);
-		if (num3 < int.MinValue || num3 > int.MaxValue)
-		{
-			Console.Error.WriteLine($"[LOADER][WARNING] TLS store helper out of rel32 range at 0x{num:X16}");
-			return 0;
-		}
-		*(int*)(ptr + num2) = (int)num3;
-		num2 += 4;
-		ptr[num2++] = 199;
-		ptr[num2++] = 128;
-		*(int*)(ptr + num2) = tlsOffset;
-		num2 += 4;
-		*(int*)(ptr + num2) = immediateValue;
-		num2 += 4;
-		ptr[num2++] = 88;
-		ptr[num2++] = 195;
-		while (num2 < 32)
-		{
-			ptr[num2++] = 144;
-		}
-		uint flNewProtect = default(uint);
-		if (!VirtualProtect((void*)trampoline, TlsPatchTrampoline.Size, 32u, &flNewProtect)) { return 0; }
+		code.AsSpan().CopyTo(new Span<byte>((void*)(trampoline + TlsPatchTrampoline.PrefixSize), code.Length));
+		uint oldProtection;
+		if (!VirtualProtect((void*)trampoline, TlsPatchTrampoline.Size, 32u, &oldProtection)) { return false; }
 		FlushInstructionCache(GetCurrentProcess(), (void*)trampoline, TlsPatchTrampoline.Size);
-		return trampoline;
+		return PatchJumpSite(address, instruction.Length, trampoline);
 	}
-
 	private unsafe nint AllocateTlsPatchStub(int size)
 	{
 		if (_tlsHandlerAddress == 0 || size <= 0)
