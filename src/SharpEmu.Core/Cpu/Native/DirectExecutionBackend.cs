@@ -3344,15 +3344,17 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			return false;
 		}
 		isStore = instruction.IsStore;
-		var helper = AllocateTlsPatchStub(32);
+		var helper = AllocateTlsPatchStub(TlsPatchTrampoline.Size);
 		if (helper == 0) { return false; }
-		var code = instruction.CreateHelperBytes((ulong)helper, (ulong)_tlsHandlerAddress);
-		if (code is null) { return false; }
-		code.AsSpan().CopyTo(new Span<byte>((void*)helper, code.Length));
+		var prefix = TlsPatchTrampoline.CreatePrefix((ulong)helper, (ulong)(address + instruction.Length));
+		var code = instruction.CreateHelperBytes((ulong)(helper + TlsPatchTrampoline.PrefixSize), (ulong)_tlsHandlerAddress);
+		if (code is null || prefix is null) { return false; }
+		prefix.AsSpan().CopyTo(new Span<byte>((void*)helper, prefix.Length));
+		code.AsSpan().CopyTo(new Span<byte>((void*)(helper + TlsPatchTrampoline.PrefixSize), code.Length));
 		uint oldProtection;
-		if (!VirtualProtect((void*)helper, (nuint)code.Length, 32u, &oldProtection)) { return false; }
-		FlushInstructionCache(GetCurrentProcess(), (void*)helper, (nuint)code.Length);
-		return PatchCallSite(address, instruction.Length, helper);
+		if (!VirtualProtect((void*)helper, TlsPatchTrampoline.Size, 32u, &oldProtection)) { return false; }
+		FlushInstructionCache(GetCurrentProcess(), (void*)helper, TlsPatchTrampoline.Size);
+		return PatchJumpSite(address, instruction.Length, helper);
 	}
 	private unsafe bool TryPatchTlsImmediateStoreInstruction(nint address, byte* source)
 	{
@@ -3362,17 +3364,22 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		}
 		int tlsOffset = *(int*)(source + 4);
 		int immediateValue = *(int*)(source + 8);
-		nint num = CreateTlsImmediateStoreHelper(tlsOffset, immediateValue);
+		nint num = CreateTlsImmediateStoreHelper(tlsOffset, immediateValue, (ulong)(address + 12));
 		if (num == 0)
 		{
 			return false;
 		}
-		return PatchCallSite(address, 12, num);
+		return PatchJumpSite(address, 12, num);
 	}
 
-	private unsafe nint CreateTlsImmediateStoreHelper(int tlsOffset, int immediateValue)
+	private unsafe nint CreateTlsImmediateStoreHelper(int tlsOffset, int immediateValue, ulong continuation)
 	{
-		nint num = AllocateTlsPatchStub(32);
+		nint trampoline = AllocateTlsPatchStub(TlsPatchTrampoline.Size);
+		if (trampoline == 0) { return 0; }
+		var prefix = TlsPatchTrampoline.CreatePrefix((ulong)trampoline, continuation);
+		if (prefix is null) { return 0; }
+		prefix.AsSpan().CopyTo(new Span<byte>((void*)trampoline, prefix.Length));
+		nint num = trampoline + TlsPatchTrampoline.PrefixSize;
 		if (num == 0)
 		{
 			return 0;
@@ -3402,9 +3409,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			ptr[num2++] = 144;
 		}
 		uint flNewProtect = default(uint);
-		VirtualProtect((void*)num, 32u, 32u, &flNewProtect);
-		FlushInstructionCache(GetCurrentProcess(), (void*)num, 32u);
-		return num;
+		if (!VirtualProtect((void*)trampoline, TlsPatchTrampoline.Size, 32u, &flNewProtect)) { return 0; }
+		FlushInstructionCache(GetCurrentProcess(), (void*)trampoline, TlsPatchTrampoline.Size);
+		return trampoline;
 	}
 
 	private unsafe nint AllocateTlsPatchStub(int size)
@@ -3429,7 +3436,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		return result;
 	}
 
-	private unsafe bool PatchCallSite(nint address, int instructionLength, nint target)
+	private unsafe bool PatchJumpSite(nint address, int instructionLength, nint target)
 	{
 		if (instructionLength < 5)
 		{
@@ -3448,7 +3455,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				Console.Error.WriteLine($"[LOADER][WARNING] TLS patch out of rel32 range at 0x{address:X16}");
 				return false;
 			}
-			*(byte*)address = 232;
+			*(byte*)address = 0xE9;
 			*(int*)(address + 1) = (int)num;
 			for (int i = 5; i < instructionLength; i++)
 			{
