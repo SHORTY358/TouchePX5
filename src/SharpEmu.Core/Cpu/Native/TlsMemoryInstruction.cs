@@ -5,13 +5,23 @@ using System.Buffers.Binary;
 
 namespace SharpEmu.Core.Cpu.Native;
 
-internal readonly record struct TlsMemoryInstruction(int Length, int OperandRegister, bool Is64Bit, int Displacement, bool IsStore, bool IsXor = false)
+internal readonly record struct TlsMemoryInstruction(int Length, int OperandRegister, bool Is64Bit, int Displacement, bool IsStore, bool IsXor = false, bool Is16Bit = false)
 {
     public static bool TryDecode(ReadOnlySpan<byte> bytes, out TlsMemoryInstruction instruction)
     {
         instruction = default;
-        if (bytes.Length < 8 || bytes[0] != 0x64) { return false; }
-        var offset = 1;
+        if (bytes.Length < 8) { return false; }
+        var offset = 0;
+        var fs = false;
+        var narrow = false;
+        // Legacy segment and operand-size prefixes may occur in either order.
+        while (offset < bytes.Length && bytes[offset] is 0x64 or 0x66)
+        {
+            if (bytes[offset] == 0x64) { if (fs) { return false; } fs = true; }
+            else { if (narrow) { return false; } narrow = true; }
+            offset++;
+        }
+        if (!fs || offset >= bytes.Length) { return false; }
         byte rex = 0;
         if (bytes[offset] is >= 0x40 and <= 0x4F) { rex = bytes[offset++]; }
         // Only absolute FS:[disp32], without an index or base register.
@@ -24,7 +34,8 @@ internal readonly record struct TlsMemoryInstruction(int Length, int OperandRegi
         // A call-based patch cannot directly read/write the guest's original RSP.
         if (destination == 4) { return false; }
         instruction = new(offset + 7, destination, (rex & 8) != 0,
-            BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(offset + 3, 4)), bytes[offset] == 0x89, bytes[offset] == 0x33);
+            BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(offset + 3, 4)), bytes[offset] == 0x89, bytes[offset] == 0x33,
+            narrow && (rex & 8) == 0);
         return true;
     }
 
@@ -39,7 +50,7 @@ internal readonly record struct TlsMemoryInstruction(int Length, int OperandRegi
         BinaryPrimitives.WriteInt32LittleEndian(code.AsSpan(2), (int)relative);
         var offset = 6;
         var register = OperandRegister;
-        if ((IsStore || IsXor) && register == 0)
+        if ((IsStore || IsXor || Is16Bit) && register == 0)
         {
             // The handler returns the thread pointer in RAX. Recover the guest's
             // saved RAX through RCX, preserving the guest's RCX in turn.
@@ -52,19 +63,21 @@ internal readonly record struct TlsMemoryInstruction(int Length, int OperandRegi
             register = 1;
         }
         var rex = (byte)(0x40 | (Is64Bit ? 8 : 0) | (register >= 8 ? 4 : 0));
+        if (Is16Bit) { code[offset++] = 0x66; }
         if (rex != 0x40) { code[offset++] = rex; }
         code[offset++] = IsStore ? (byte)0x89 : IsXor ? (byte)0x33 : (byte)0x8B;
         code[offset++] = (byte)(0x80 | ((register & 7) << 3));
         BinaryPrimitives.WriteInt32LittleEndian(code.AsSpan(offset), Displacement);
         offset += 4;
-        if (IsXor && OperandRegister == 0)
+        if (!IsStore && (IsXor || Is16Bit) && OperandRegister == 0)
         {
-            // RCX holds the XOR result; MOV and POP preserve its arithmetic flags.
+            // RCX holds the result, including the guest's original upper bits for
+            // a 16-bit operation. MOV and POP preserve the arithmetic flags.
             code[offset++] = 0x48;
             code[offset++] = 0x89;
             code[offset++] = 0xC8;
         }
-        if ((IsStore || IsXor) && OperandRegister == 0) { code[offset++] = 0x59; }
+        if ((IsStore || IsXor || Is16Bit) && OperandRegister == 0) { code[offset++] = 0x59; }
         if (!IsStore && OperandRegister == 0)
         {
             // Discard saved RAX without changing the flags or the loaded result.

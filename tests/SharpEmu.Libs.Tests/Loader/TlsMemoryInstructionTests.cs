@@ -10,6 +10,36 @@ namespace SharpEmu.Libs.Tests.Loader;
 public sealed class TlsMemoryInstructionTests
 {
     [Theory]
+    [InlineData("66648B0425F8FFFFFF", Mnemonic.Mov, Register.CX, false)]
+    [InlineData("64668B1425F8FFFFFF", Mnemonic.Mov, Register.DX, false)]
+    [InlineData("6664448B0425F8FFFFFF", Mnemonic.Mov, Register.R8W, false)]
+    [InlineData("6664890425F8FFFFFF", Mnemonic.Mov, Register.CX, true)]
+    [InlineData("646644890425F8FFFFFF", Mnemonic.Mov, Register.R8W, true)]
+    [InlineData("6664330425F8FFFFFF", Mnemonic.Xor, Register.CX, false)]
+    public void WordHelper_EmitsSixteenBitMemoryOperation(string hex, Mnemonic mnemonic, Register operand, bool store)
+    {
+        Assert.True(TlsMemoryInstruction.TryDecode(Convert.FromHexString(hex), out var patch));
+        Assert.True(patch.Is16Bit);
+        Assert.False(patch.Is64Bit);
+        Assert.Equal(hex.Length / 2, patch.Length);
+        var code = patch.CreateHelperBytes(0x100000, 0x101000);
+        Assert.NotNull(code);
+        var decoder = Decoder.Create(64, new ByteArrayCodeReader(code));
+        var operations = new List<Instruction>();
+        while (decoder.IP < (ulong)code.Length)
+        {
+            var instruction = decoder.Decode();
+            if (instruction.Mnemonic == Mnemonic.Ret) { break; }
+            operations.Add(instruction);
+        }
+        var memory = Assert.Single(operations, i => i.MemoryBase == Register.RAX);
+        Assert.Equal(mnemonic, memory.Mnemonic);
+        Assert.Equal(MemorySize.UInt16, memory.MemorySize);
+        Assert.Equal(operand, store ? memory.Op1Register : memory.Op0Register);
+        Assert.Equal(unchecked((ulong)-8L), memory.MemoryDisplacement64);
+    }
+
+    [Theory]
     [InlineData("644833142528000000", Register.RDX, false)]
     [InlineData("644833042528000000", Register.RCX, true)]
     [InlineData("6433042528000000", Register.ECX, true)]
@@ -55,6 +85,7 @@ public sealed class TlsMemoryInstructionTests
     [InlineData("64448B0425F0FFFFFF", Register.R8D, 9, -16)]
     [InlineData("64488B142500000000", Register.RDX, 9, 0)]
     [InlineData("644C8B0C25F0FFFFFF", Register.R9, 9, -16)]
+    [InlineData("6664488B142500000000", Register.RDX, 10, 0)]
     public void Helper_LoadsCorrectWidthAndPreservesOtherRegisters(string hex, Register destination, int length, int displacement)
     {
         Assert.True(TlsMemoryInstruction.TryDecode(Convert.FromHexString(hex), out var patch));
@@ -97,6 +128,9 @@ public sealed class TlsMemoryInstructionTests
     [InlineData("65488B042500000000")]
     [InlineData("64488B242500000000")]
     [InlineData("644A8B042500000000")]
+    [InlineData("66648B0425000000")]
+    [InlineData("64648B042500000000")]
+    [InlineData("6666648B042500000000")]
     public void Decoder_RejectsUnsupportedOrTruncatedForms(string hex)
     {
         Assert.False(TlsMemoryInstruction.TryDecode(Convert.FromHexString(hex), out _));

@@ -10,6 +10,31 @@ namespace SharpEmu.Libs.Tests.Loader;
 public sealed class TlsImmediateStoreInstructionTests
 {
     [Theory]
+    [InlineData("6664C70425F8FFFFFF2143")]
+    [InlineData("6466C70425F8FFFFFF2143")]
+    public void WordStore_ConsumesOnlyTwoImmediateBytes(string hex)
+    {
+        var bytes = Convert.FromHexString(hex);
+        Assert.True(TlsImmediateStoreInstruction.TryDecode(bytes, out var instruction));
+        Assert.True(instruction.Is16Bit);
+        Assert.False(instruction.Is64Bit);
+        Assert.Equal(bytes.Length, instruction.Length);
+        Assert.Equal(0x4321, instruction.Immediate);
+        Assert.False(TlsImmediateStoreInstruction.TryDecode(bytes.AsSpan(0, bytes.Length - 1), out _));
+        var code = instruction.CreateHelperBytes(0x100000, 0x101000);
+        Assert.NotNull(code);
+        var decoder = Decoder.Create(64, new ByteArrayCodeReader(code));
+        decoder.Decode();
+        decoder.Decode();
+        var store = decoder.Decode();
+        Assert.Equal(MemorySize.UInt16, store.MemorySize);
+        Assert.Equal(0x4321UL, store.GetImmediate(1));
+        Assert.Equal(Register.RAX, store.MemoryBase);
+        Assert.Equal(Mnemonic.Pop, decoder.Decode().Mnemonic);
+        Assert.Equal(Mnemonic.Ret, decoder.Decode().Mnemonic);
+    }
+
+    [Theory]
     [InlineData("64C70425F8FFFFFFFFFFFFFF", false, -1L)]
     [InlineData("6448C70425F8FFFFFFFFFFFFFF", true, -1L)]
     [InlineData("6448C70425F8FFFFFF00000080", true, -2147483648L)]

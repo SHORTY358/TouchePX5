@@ -3201,7 +3201,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 					{
 						if (isStore) { num9++; } else if (isXor) { num4++; } else { num3++; }
 					}
-					else if (remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i, remainingBytes))
+					else if (remainingBytes >= 11 && TryPatchTlsImmediateStoreInstruction(address, ptr + i, remainingBytes))
 					{
 						num9++;
 					}
