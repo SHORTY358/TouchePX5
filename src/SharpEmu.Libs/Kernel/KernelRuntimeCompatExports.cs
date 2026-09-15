@@ -1387,7 +1387,9 @@ public static class KernelRuntimeCompatExports
                     break;
                 }
 
-                if (initializerAddress == moduleToStart.InitEntryPoint)
+                // Only the dedicated DT_INIT slot supplies the module result.
+                // The same function may also occur later in DT_INIT_ARRAY.
+                if (i == 0 && initializerAddress == moduleToStart.InitEntryPoint)
                 {
                     moduleResult = initializerResult;
                 }
