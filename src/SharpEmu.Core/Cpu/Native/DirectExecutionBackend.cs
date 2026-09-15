@@ -3197,9 +3197,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				{
 					nint address = (nint)(ptr + i);
 					int remainingBytes = scanBytes - i;
-					if (TryPatchTlsMemoryInstruction(address, ptr + i, remainingBytes, out var isStore))
+					if (TryPatchTlsMemoryInstruction(address, ptr + i, remainingBytes, out var isStore, out var isXor))
 					{
-						if (isStore) { num9++; } else { num3++; }
+						if (isStore) { num9++; } else if (isXor) { num4++; } else { num3++; }
 					}
 					else if (remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i))
 					{
@@ -3209,15 +3209,11 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 					{
 						sse4aPatchCount++;
 					}
-					else if (TryPatchStackCanaryInstruction(address, ptr + i))
-					{
-						num4++;
-					}
 				}
 			}
 			num = num6 > num ? num6 : num + 4096uL;
 		}
-		Console.Error.WriteLine($"[LOADER][INFO] Patched {num3} TLS loads, {num9} TLS stores, {num4} stack-canary accesses, {sse4aPatchCount} SSE4a EXTRQ blends");
+		Console.Error.WriteLine($"[LOADER][INFO] Patched {num3} TLS loads, {num9} TLS stores, {num4} TLS XORs, {sse4aPatchCount} SSE4a EXTRQ blends");
 	}
 
 	private unsafe bool TryPatchSse4aExtrqBlend(nint address, byte* source)
@@ -3270,80 +3266,16 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		return true;
 	}
 
-	private unsafe bool TryPatchStackCanaryInstruction(nint address, byte* source)
-	{
-		if (*source != 100)
-		{
-			return false;
-		}
-		byte b = 0;
-		int num = 1;
-		int num2 = 8;
-		if (source[1] >= 64 && source[1] <= 79)
-		{
-			b = source[1];
-			num = 2;
-			num2 = 9;
-		}
-		byte b2 = source[num];
-		if (b2 != 139 && b2 != 51)
-		{
-			return false;
-		}
-		byte b3 = source[num + 1];
-		byte b4 = source[num + 2];
-		if (b3 >> 6 != 0 || (b3 & 7) != 4 || b4 != 37)
-		{
-			return false;
-		}
-		int num3 = *(int*)(source + num + 3);
-		if (num3 != 40)
-		{
-			return false;
-		}
-		int num4 = ((b3 >> 3) & 7) | (((b & 4) != 0) ? 8 : 0);
-		bool flag = (b & 8) != 0;
-		int num5 = 64;
-		if (flag)
-		{
-			num5 |= 8;
-		}
-		if (num4 >= 8)
-		{
-			num5 |= 5;
-		}
-		byte b5 = (byte)(0xC0 | ((num4 & 7) << 3) | (num4 & 7));
-		uint flNewProtect = default(uint);
-		if (!VirtualProtect((void*)address, (nuint)num2, 64u, &flNewProtect))
-		{
-			return false;
-		}
-		try
-		{
-			*(byte*)address = (byte)num5;
-			*(sbyte*)(address + 1) = 49;
-			*(byte*)(address + 2) = b5;
-			for (int i = 3; i < num2; i++)
-			{
-				*(sbyte*)(address + i) = -112;
-			}
-		}
-		finally
-		{
-			VirtualProtect((void*)address, (nuint)num2, flNewProtect, &flNewProtect);
-			FlushInstructionCache(GetCurrentProcess(), (void*)address, (nuint)num2);
-		}
-		return true;
-	}
-
-	private unsafe bool TryPatchTlsMemoryInstruction(nint address, byte* source, int availableLength, out bool isStore)
+	private unsafe bool TryPatchTlsMemoryInstruction(nint address, byte* source, int availableLength, out bool isStore, out bool isXor)
 	{
 		isStore = false;
+		isXor = false;
 		if (!TlsMemoryInstruction.TryDecode(new ReadOnlySpan<byte>(source, availableLength), out var instruction))
 		{
 			return false;
 		}
 		isStore = instruction.IsStore;
+		isXor = instruction.IsXor;
 		var helper = AllocateTlsPatchStub(TlsPatchTrampoline.Size);
 		if (helper == 0) { return false; }
 		var prefix = TlsPatchTrampoline.CreatePrefix((ulong)helper, (ulong)(address + instruction.Length));

@@ -10,6 +10,47 @@ namespace SharpEmu.Libs.Tests.Loader;
 public sealed class TlsMemoryInstructionTests
 {
     [Theory]
+    [InlineData("644833142528000000", Register.RDX, false)]
+    [InlineData("644833042528000000", Register.RCX, true)]
+    [InlineData("6433042528000000", Register.ECX, true)]
+    [InlineData("644433042528000000", Register.R8D, false)]
+    public void XorHelper_UsesGuestOperandAndLeavesResultFlagsIntact(string hex, Register operand, bool savedRax)
+    {
+        Assert.True(TlsMemoryInstruction.TryDecode(Convert.FromHexString(hex), out var patch));
+        Assert.True(patch.IsXor);
+        Assert.False(patch.IsStore);
+        var bytes = patch.CreateHelperBytes(0x100000, 0x101000);
+        Assert.NotNull(bytes);
+        var decoder = Decoder.Create(64, new ByteArrayCodeReader(bytes));
+        Assert.Equal(Register.RAX, decoder.Decode().Op0Register);
+        Assert.Equal(Mnemonic.Call, decoder.Decode().Mnemonic);
+        if (savedRax)
+        {
+            Assert.Equal(Register.RCX, decoder.Decode().Op0Register);
+            var recover = decoder.Decode();
+            Assert.Equal(Register.RCX, recover.Op0Register);
+            Assert.Equal(Register.RSP, recover.MemoryBase);
+            Assert.Equal(8UL, recover.MemoryDisplacement64);
+        }
+        var xor = decoder.Decode();
+        Assert.Equal(Mnemonic.Xor, xor.Mnemonic);
+        Assert.Equal(operand, xor.Op0Register);
+        Assert.Equal(Register.RAX, xor.MemoryBase);
+        Assert.Equal(40UL, xor.MemoryDisplacement64);
+        if (savedRax)
+        {
+            var copyResult = decoder.Decode();
+            Assert.Equal(Mnemonic.Mov, copyResult.Mnemonic);
+            Assert.Equal(Register.RAX, copyResult.Op0Register);
+            Assert.Equal(Register.RCX, copyResult.Op1Register);
+            Assert.Equal(Register.RCX, decoder.Decode().Op0Register);
+            Assert.Equal(Mnemonic.Lea, decoder.Decode().Mnemonic);
+        }
+        else { Assert.Equal(Register.RAX, decoder.Decode().Op0Register); }
+        Assert.Equal(Mnemonic.Ret, decoder.Decode().Mnemonic);
+    }
+
+    [Theory]
     [InlineData("648B0425F0FFFFFF", Register.EAX, 8, -16)]
     [InlineData("64448B0425F0FFFFFF", Register.R8D, 9, -16)]
     [InlineData("64488B142500000000", Register.RDX, 9, 0)]
