@@ -14,6 +14,7 @@ using SharpEmu.Core.Loader;
 using SharpEmu.Core.Memory;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Diagnostics;
+using SharpEmu.Libs.Kernel;
 
 namespace SharpEmu.Core.Cpu.Native;
 
@@ -1666,7 +1667,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			{
 				return false;
 			}
-			if (TryResolveRuntimeSymbolAddress(nid, out var value2) && IsDirectImportTargetUsable(value2))
+			if (KernelModuleRegistry.TryResolveGlobalExport(nid, out var value2) && IsDirectImportTargetUsable(value2))
 			{
 				targetAddress = value2;
 				resolvedSymbol = nid;
@@ -1674,7 +1675,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 			foreach (string item in EnumerateRuntimeSymbolCandidates(export.Name))
 			{
-				if (TryResolveRuntimeSymbolAddress(item, out value2) && IsDirectImportTargetUsable(value2))
+				if (KernelModuleRegistry.TryResolveGlobalExport(item, out value2) && IsDirectImportTargetUsable(value2))
 				{
 					targetAddress = value2;
 					resolvedSymbol = item;
@@ -1689,7 +1690,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			Console.Error.WriteLine($"[LOADER][DEBUG] TryResolveDirectImportTarget: {nid} not in HLE table, checking runtime symbols...");
 		}
 
-		if (TryResolveRuntimeSymbolAddress(nid, out var directValue) && IsDirectImportTargetUsable(directValue))
+		if (KernelModuleRegistry.TryResolveGlobalExport(nid, out var directValue) && IsDirectImportTargetUsable(directValue))
 		{
 			targetAddress = directValue;
 			resolvedSymbol = nid;
@@ -1708,7 +1709,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 			foreach (string item in EnumerateRuntimeSymbolCandidates(symbolByNid.ExportName))
 			{
-				if (TryResolveRuntimeSymbolAddress(item, out var value) && IsDirectImportTargetUsable(value))
+				if (KernelModuleRegistry.TryResolveGlobalExport(item, out var value) && IsDirectImportTargetUsable(value))
 				{
 					targetAddress = value;
 					resolvedSymbol = item;
@@ -1790,14 +1791,14 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private bool HasUsableLleLibcExport(string nid, string exportName)
 	{
-		if (TryResolveRuntimeSymbolAddress(nid, out var address) && IsDirectImportTargetUsable(address))
+		if (KernelModuleRegistry.TryResolveGlobalExport(nid, out var address) && IsDirectImportTargetUsable(address))
 		{
 			return true;
 		}
 
 		foreach (var candidate in EnumerateRuntimeSymbolCandidates(exportName))
 		{
-			if (TryResolveRuntimeSymbolAddress(candidate, out address) && IsDirectImportTargetUsable(address))
+			if (KernelModuleRegistry.TryResolveGlobalExport(candidate, out address) && IsDirectImportTargetUsable(address))
 			{
 				return true;
 			}

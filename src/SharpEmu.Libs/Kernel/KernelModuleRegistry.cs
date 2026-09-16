@@ -419,6 +419,28 @@ public static class KernelModuleRegistry
         }
     }
 
+    public static bool TryResolveGlobalExport(string symbolName, out ulong address)
+    {
+        address = 0;
+        if (string.IsNullOrWhiteSpace(symbolName)) { return false; }
+        lock (_gate)
+        {
+            // Registration order matches the existing main-first preload lookup.
+            // Diagnostic/local symbols are deliberately absent from this index.
+            foreach (var module in _modulesByHandle.Values.OrderBy(entry => entry.Handle))
+            {
+                if (module.StartState != ModuleStartState.Stopped &&
+                    _symbolsByHandle.TryGetValue(module.Handle, out var exports) &&
+                    exports.TryGetValue(symbolName, out var candidate) && candidate >= 0x10000)
+                {
+                    address = candidate;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static bool TryFindByPathOrName(string? modulePathOrName, out ModuleEntry module)
     {
         module = default;

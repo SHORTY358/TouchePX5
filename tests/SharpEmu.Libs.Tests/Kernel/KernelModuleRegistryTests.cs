@@ -83,10 +83,42 @@ public sealed class KernelModuleRegistryTests
         Assert.Equal(0x10100UL, address);
     }
 
-    private static int RegisterModule(ulong initEntryPoint, ulong finiEntryPoint)
+    [Fact]
+    public void GlobalLookup_UsesRegistrationOrderAndSkipsStoppedModules()
+    {
+        KernelModuleRegistry.Reset();
+        var first = RegisterModule(0, 0, "first.sprx");
+        var second = RegisterModule(0, 0, "second.sprx");
+        KernelModuleRegistry.RegisterModuleSymbols(first, new Dictionary<string, ulong> { ["shared"] = 0x10100 });
+        KernelModuleRegistry.RegisterModuleSymbols(second, new Dictionary<string, ulong> { ["shared"] = 0x10200 });
+        Assert.True(KernelModuleRegistry.TryResolveGlobalExport("shared", out var address));
+        Assert.Equal(0x10100UL, address);
+        Assert.False(KernelModuleRegistry.TryResolveGlobalExport("missing", out _));
+        KernelModuleRegistry.TryBeginModuleStart(first, out _);
+        KernelModuleRegistry.TryBeginModuleStop(first, out _);
+        Assert.True(KernelModuleRegistry.TryResolveGlobalExport("shared", out address));
+        Assert.Equal(0x10200UL, address);
+        KernelModuleRegistry.TryBeginModuleStart(first, out _);
+        Assert.True(KernelModuleRegistry.TryResolveGlobalExport("shared", out address));
+        Assert.Equal(0x10100UL, address);
+    }
+
+    [Fact]
+    public void GlobalLookup_ResetDropsPreviousProcessExports()
+    {
+        KernelModuleRegistry.Reset();
+        var handle = RegisterModule(0, 0);
+        KernelModuleRegistry.RegisterModuleSymbols(handle, new Dictionary<string, ulong> { ["probe"] = 0x10100 });
+        Assert.True(KernelModuleRegistry.TryResolveGlobalExport("probe", out _));
+        KernelModuleRegistry.Reset();
+        Assert.False(KernelModuleRegistry.TryResolveGlobalExport("probe", out var address));
+        Assert.Equal(0UL, address);
+    }
+
+    private static int RegisterModule(ulong initEntryPoint, ulong finiEntryPoint, string path = "fixture.sprx")
     {
         return KernelModuleRegistry.RegisterModule(
-            "fixture.sprx",
+            path,
             baseAddress: 0x10000,
             size: 0x1000,
             entryPoint: 0x10100,
