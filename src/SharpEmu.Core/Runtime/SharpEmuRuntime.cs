@@ -161,7 +161,15 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         HleDataSymbols.ConfigureProcessImageName(processImageName);
         MergeKnownHleDataSymbols(activeRuntimeSymbols);
         var loadedModuleImages = LoadAdjacentSceModules(ebootPath, activeImportStubs, activeRuntimeSymbols);
-        RebindImportedDataSymbols(image, loadedModuleImages, activeRuntimeSymbols);
+        // The diagnostic symbol index includes local and hidden definitions.
+        // Cross-module data imports must only bind to public dynamic exports.
+        var dataImportSymbols = new Dictionary<string, ulong>(image.ExportedSymbols, StringComparer.Ordinal);
+        foreach (var module in loadedModuleImages)
+        {
+            MergeRuntimeSymbols(dataImportSymbols, module.Image.ExportedSymbols);
+        }
+        MergeKnownHleDataSymbols(dataImportSymbols);
+        RebindImportedDataSymbols(image, loadedModuleImages, dataImportSymbols);
         var initializerResult = RunAllInitializers(
             image,
             loadedModuleImages,
