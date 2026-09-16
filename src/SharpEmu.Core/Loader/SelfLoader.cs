@@ -1468,7 +1468,9 @@ public sealed class SelfLoader : ISelfLoader
                 descriptor.TargetAddress,
                 descriptor.Addend,
                 descriptor.ImportNid,
-                descriptor.IsDataImport));
+                descriptor.IsDataImport,
+                descriptor.WriteKind == RelocationWriteKind.UInt64 ? sizeof(ulong) : sizeof(uint),
+                descriptor.WriteKind == RelocationWriteKind.Int32));
         }
 
         return importedRelocations.Count == 0

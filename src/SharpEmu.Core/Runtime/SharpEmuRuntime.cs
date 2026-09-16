@@ -1020,7 +1020,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             }
 
             var reboundValue = AddSigned(symbolAddress, relocation.Addend);
-            if (!TryWriteUInt64(_virtualMemory, relocation.TargetAddress, reboundValue))
+            if (!relocation.TryWriteResolvedValue(_virtualMemory, reboundValue))
             {
                 if (logRebind)
                 {
