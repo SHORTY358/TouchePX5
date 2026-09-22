@@ -447,10 +447,12 @@ public sealed class GuestMemoryAllocatorTests
     private sealed class RecordingHostMemory : IHostMemory, IDisposable
     {
         private readonly nint _allocation;
+        private readonly ulong _size;
         private bool _freed;
 
         public RecordingHostMemory(ulong size)
         {
+            _size = size;
             _allocation = System.Runtime.InteropServices.Marshal.AllocHGlobal(checked((nint)(size + 0xFFF)));
             Address = (unchecked((ulong)_allocation) + 0xFFF) & ~0xFFFUL;
         }
@@ -493,8 +495,8 @@ public sealed class GuestMemoryAllocatorTests
 
         public bool Query(ulong address, out HostRegionInfo info)
         {
-            info = default;
-            return false;
+            info = new(Address, Address, _size, HostRegionState.Committed, 0, HostPageProtection.ReadWrite, 0, 0);
+            return !_freed && address >= Address && address - Address < _size;
         }
 
         public void FlushInstructionCache(ulong address, ulong size)
