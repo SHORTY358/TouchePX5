@@ -1314,6 +1314,12 @@ public static class VideoOutExports
                 displayBuffer.Width,
                 displayBuffer.Height,
                 displayBuffer.PitchInPixel);
+            if (!guestImageSubmitted && TryReadLinearDisplayFrame(ctx, displayBuffer, out var bgra))
+            {
+                GuestGpu.Current.Submit(bgra, displayBuffer.Width, displayBuffer.Height);
+                guestImageSubmitted = true;
+                TraceVideoOut($"videoout.submit_cpu_frame addr=0x{displayBuffer.Address:X16} {displayBuffer.Width}x{displayBuffer.Height}");
+            }
         }
 
         if (_dumpVideoOut)
@@ -1665,6 +1671,39 @@ public static class VideoOutExports
         }
 
         attribute = new BufferAttribute(NormalizePixelFormat(pixelFormat32), tilingMode, aspectRatio, width, height, pitchInPixel, option32);
+        return true;
+    }
+
+    internal static bool TryReadLinearDisplayFrame(CpuContext ctx, DisplayBufferInfo info, out byte[] bgra)
+    {
+        bgra = [];
+        var pitch = info.PitchInPixel == 0 ? info.Width : info.PitchInPixel;
+        if (info.TilingMode != 1 || info.Width == 0 || info.Height == 0 ||
+            info.Width > 8192 || info.Height > 8192 || pitch < info.Width ||
+            GetBytesPerPixel(info.PixelFormat) != 4)
+            return false;
+        var byteCount = (ulong)pitch * info.Height * 4;
+        if (byteCount > 256UL * 1024 * 1024 || info.Address > ulong.MaxValue - byteCount)
+            return false;
+
+        var pixels = new byte[checked((int)(info.Width * info.Height * 4))];
+        var row = new byte[checked((int)info.Width * 4)];
+        var rgb = new byte[checked((int)info.Width * 3)];
+        for (uint y = 0; y < info.Height; y++)
+        {
+            if (!ctx.Memory.TryRead(info.Address + (ulong)y * pitch * 4, row))
+                return false;
+            ConvertRowToRgb(row, rgb, info.PixelFormat);
+            var offset = checked((int)(y * info.Width * 4));
+            for (var x = 0; x < (int)info.Width; x++)
+            {
+                pixels[offset + x * 4] = rgb[x * 3 + 2];
+                pixels[offset + x * 4 + 1] = rgb[x * 3 + 1];
+                pixels[offset + x * 4 + 2] = rgb[x * 3];
+                pixels[offset + x * 4 + 3] = 255;
+            }
+        }
+        bgra = pixels;
         return true;
     }
 

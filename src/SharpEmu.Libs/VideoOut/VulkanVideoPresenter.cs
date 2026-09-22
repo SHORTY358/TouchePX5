@@ -1928,7 +1928,11 @@ internal static unsafe class VulkanVideoPresenter
         lock (_gate)
         {
             if (_closed ||
-                !_availableGuestImages.ContainsKey(address))
+                !_availableGuestImages.ContainsKey(address) ||
+                // Registration alone does not create a GPU image. Let VideoOut
+                // upload CPU-painted linear buffers instead of accepting a flip
+                // that the presenter will later drop for lack of a source.
+                !_guestImageWorkSequences.ContainsKey(address))
             {
                 return false;
             }
@@ -21190,6 +21194,51 @@ internal static unsafe class VulkanVideoPresenter
                 : "default";
 
 
+        private void RecordSwapchainReadback(uint imageIndex)
+        {
+            var destinationToReadback = new ImageMemoryBarrier
+            {
+                SType = StructureType.ImageMemoryBarrier,
+                SrcAccessMask = AccessFlags.TransferWriteBit,
+                DstAccessMask = AccessFlags.TransferReadBit,
+                OldLayout = ImageLayout.TransferDstOptimal,
+                NewLayout = ImageLayout.TransferSrcOptimal,
+                SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+                DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+                Image = _swapchainImages[imageIndex],
+                SubresourceRange = ColorSubresourceRange(),
+            };
+            _vk.CmdPipelineBarrier(
+                _commandBuffer,
+                PipelineStageFlags.TransferBit,
+                PipelineStageFlags.TransferBit,
+                0,
+                0,
+                null,
+                0,
+                null,
+                1,
+                &destinationToReadback);
+
+            var copyRegion = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                },
+                ImageExtent = new Extent3D(_extent.Width, _extent.Height, 1),
+            };
+            _vk.CmdCopyImageToBuffer(
+                _commandBuffer,
+                _swapchainImages[imageIndex],
+                ImageLayout.TransferSrcOptimal,
+                _stagingBuffer,
+                1,
+                &copyRegion);
+            _swapchainReadbackPending = true;
+        }
+
         private void RecordUpload(uint imageIndex, int frameSlot)
         {
             var oldLayout = _imageInitialized[imageIndex]
@@ -21238,12 +21287,19 @@ internal static unsafe class VulkanVideoPresenter
                 1,
                 &copyRegion);
 
+            var traceDestination = ShouldTracePresentedGuestImageContentsForDiagnostics() && !_tracedPresentedSwapchain;
+            if (traceDestination)
+            {
+                _tracedPresentedSwapchain = true;
+                RecordSwapchainReadback(imageIndex);
+            }
+
             var toPresent = new ImageMemoryBarrier
             {
                 SType = StructureType.ImageMemoryBarrier,
-                SrcAccessMask = AccessFlags.TransferWriteBit,
+                SrcAccessMask = traceDestination ? AccessFlags.TransferReadBit : AccessFlags.TransferWriteBit,
                 DstAccessMask = AccessFlags.MemoryReadBit,
-                OldLayout = ImageLayout.TransferDstOptimal,
+                OldLayout = traceDestination ? ImageLayout.TransferSrcOptimal : ImageLayout.TransferDstOptimal,
                 NewLayout = ImageLayout.PresentSrcKhr,
                 SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
@@ -21587,50 +21643,7 @@ internal static unsafe class VulkanVideoPresenter
                     &encodedCopy);
             }
 
-            if (traceDestination)
-            {
-                var destinationToReadback = new ImageMemoryBarrier
-                {
-                    SType = StructureType.ImageMemoryBarrier,
-                    SrcAccessMask = AccessFlags.TransferWriteBit,
-                    DstAccessMask = AccessFlags.TransferReadBit,
-                    OldLayout = ImageLayout.TransferDstOptimal,
-                    NewLayout = ImageLayout.TransferSrcOptimal,
-                    SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-                    DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-                    Image = _swapchainImages[imageIndex],
-                    SubresourceRange = ColorSubresourceRange(),
-                };
-                _vk.CmdPipelineBarrier(
-                    _commandBuffer,
-                    PipelineStageFlags.TransferBit,
-                    PipelineStageFlags.TransferBit,
-                    0,
-                    0,
-                    null,
-                    0,
-                    null,
-                    1,
-                    &destinationToReadback);
-
-                var copyRegion = new BufferImageCopy
-                {
-                    ImageSubresource = new ImageSubresourceLayers
-                    {
-                        AspectMask = ImageAspectFlags.ColorBit,
-                        LayerCount = 1,
-                    },
-                    ImageExtent = new Extent3D(_extent.Width, _extent.Height, 1),
-                };
-                _vk.CmdCopyImageToBuffer(
-                    _commandBuffer,
-                    _swapchainImages[imageIndex],
-                    ImageLayout.TransferSrcOptimal,
-                    _stagingBuffer,
-                    1,
-                    &copyRegion);
-                _swapchainReadbackPending = true;
-            }
+            if (traceDestination) RecordSwapchainReadback(imageIndex);
 
             var sourceToShaderRead = new ImageMemoryBarrier
             {
