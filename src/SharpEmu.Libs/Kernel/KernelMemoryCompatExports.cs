@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using SharpEmu.HLE.Host;
 using SharpEmu.Libs.Ampr;
 using SharpEmu.Libs.Bink;
 using System.Buffers;
@@ -6631,7 +6632,22 @@ public static partial class KernelMemoryCompatExports
         }
 
         var hostProtection = ResolveHostProtection(orbisProtection);
-        if (!VirtualProtect((nint)address, (nuint)length, hostProtection, out _))
+        if (!OperatingSystem.IsWindows())
+        {
+            // Legacy POSIX allocations use HostMemory's own shadow map, not
+            // the newer IHostMemory backend's separately tracked allocations.
+            var rawProtection = hostProtection switch
+            {
+                HostPageProtection.ReadOnly => HostPageReadOnly,
+                HostPageProtection.ReadWrite => HostPageReadWrite,
+                HostPageProtection.Execute => HostPageExecute,
+                HostPageProtection.ReadExecute => HostPageExecuteRead,
+                HostPageProtection.ReadWriteExecute => HostPageExecuteReadWrite,
+                _ => HostPageNoAccess,
+            };
+            return VirtualProtect((nint)address, (nuint)length, rawProtection, out _);
+        }
+        if (!HostMemoryRanges.TryProtect(HostPlatform.Current.Memory, address, length, hostProtection))
         {
             return false;
         }
@@ -6639,7 +6655,7 @@ public static partial class KernelMemoryCompatExports
         return true;
     }
 
-    private static uint ResolveHostProtection(int orbisProtection)
+    private static HostPageProtection ResolveHostProtection(int orbisProtection)
     {
         var read = (orbisProtection & (OrbisProtCpuRead | OrbisProtGpuRead)) != 0;
         var write = (orbisProtection & (OrbisProtCpuWrite | OrbisProtGpuWrite)) != 0;
@@ -6648,17 +6664,17 @@ public static partial class KernelMemoryCompatExports
         if (execute)
         {
             return write
-                ? HostPageExecuteReadWrite
+                ? HostPageProtection.ReadWriteExecute
                 : read
-                    ? HostPageExecuteRead
-                    : HostPageExecute;
+                    ? HostPageProtection.ReadExecute
+                    : HostPageProtection.Execute;
         }
 
         return write
-            ? HostPageReadWrite
+            ? HostPageProtection.ReadWrite
             : read
-                ? HostPageReadOnly
-                : HostPageNoAccess;
+                ? HostPageProtection.ReadOnly
+                : HostPageProtection.NoAccess;
     }
 
     private static bool TryFindVirtualQueryRegionLocked(ulong queryAddress, bool findNext, out MappedRegion region)

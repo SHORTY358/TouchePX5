@@ -10,7 +10,7 @@ public sealed class MappedProtectionTests
     public void SplitsProtectionAtHostRegionBoundaries()
     {
         var host = new RecordingHost();
-        Assert.True(PhysicalVirtualMemory.ProtectMappedRange(host, 0x14000, 0x28000, HostPageProtection.ReadOnly));
+        Assert.True(HostMemoryRanges.TryProtect(host, 0x14000, 0x28000, HostPageProtection.ReadOnly));
         Assert.Equal(new[] { (0x14000UL, 0xC000UL), (0x20000UL, 0x10000UL), (0x30000UL, 0xC000UL) }, host.Calls);
     }
 
@@ -18,7 +18,7 @@ public sealed class MappedProtectionTests
     public void UncommittedTailDoesNotChangeEarlierPermissions()
     {
         var host = new RecordingHost { ReservedTail = true };
-        Assert.False(PhysicalVirtualMemory.ProtectMappedRange(host, 0x14000, 0x28000, HostPageProtection.ReadOnly));
+        Assert.False(HostMemoryRanges.TryProtect(host, 0x14000, 0x28000, HostPageProtection.ReadOnly));
         Assert.Empty(host.Calls);
     }
 
@@ -26,7 +26,7 @@ public sealed class MappedProtectionTests
     public void HostProtectionFailureIsReported()
     {
         var host = new RecordingHost { FailProtect = true };
-        Assert.False(PhysicalVirtualMemory.ProtectMappedRange(host, 0x14000, 0x28000, HostPageProtection.ReadOnly));
+        Assert.False(HostMemoryRanges.TryProtect(host, 0x14000, 0x28000, HostPageProtection.ReadOnly));
         Assert.Single(host.Calls);
     }
 
@@ -37,7 +37,7 @@ public sealed class MappedProtectionTests
     public void InvalidRangesAreRejected(ulong address, ulong size)
     {
         var host = new RecordingHost();
-        Assert.False(PhysicalVirtualMemory.ProtectMappedRange(host, address, size, HostPageProtection.ReadOnly));
+        Assert.False(HostMemoryRanges.TryProtect(host, address, size, HostPageProtection.ReadOnly));
         Assert.Empty(host.Calls);
     }
 

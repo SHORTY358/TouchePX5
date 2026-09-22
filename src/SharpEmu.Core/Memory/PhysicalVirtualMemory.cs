@@ -972,7 +972,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             return false;
         }
 
-        return _hostMemory.Protect(address, size, ResolveProtection(protection), out _);
+        return HostMemoryRanges.TryProtect(_hostMemory, address, size, ResolveProtection(protection));
     }
 
     // Reproduces the decomposition KernelMemoryCompatExports.ResolveHostProtection
@@ -1155,7 +1155,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             protection = HostPageProtection.ReadOnly;
         }
 
-        if (!ProtectMappedRange(_hostMemory, address, size, protection))
+        if (!HostMemoryRanges.TryProtect(_hostMemory, address, size, protection))
         {
             throw new InvalidOperationException($"Failed to set memory protection at 0x{address:X16}");
         }
@@ -1164,34 +1164,6 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         {
             _hostMemory.FlushInstructionCache(address, size);
         }
-    }
-
-    internal static bool ProtectMappedRange(IHostMemory host, ulong address, ulong size, HostPageProtection protection)
-    {
-        if (size == 0 || address > ulong.MaxValue - size)
-            return false;
-
-        // VirtualProtect cannot cross separate reservations. Preflight the entire
-        // committed range before changing permissions on any part of it.
-        var end = address + size;
-        var chunks = new List<(ulong Address, ulong Size)>();
-        for (var cursor = address; cursor < end;)
-        {
-            if (!host.Query(cursor, out var region) || region.State != HostRegionState.Committed ||
-                region.BaseAddress > cursor || region.RegionSize == 0 ||
-                region.BaseAddress > ulong.MaxValue - region.RegionSize)
-                return false;
-            var next = Math.Min(end, region.BaseAddress + region.RegionSize);
-            if (next <= cursor)
-                return false;
-            chunks.Add((cursor, next - cursor));
-            cursor = next;
-        }
-
-        foreach (var chunk in chunks)
-            if (!host.Protect(chunk.Address, chunk.Size, protection, out _))
-                return false;
-        return true;
     }
 
     public IReadOnlyList<VirtualMemoryRegion> SnapshotRegions()
