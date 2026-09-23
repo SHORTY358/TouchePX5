@@ -598,7 +598,15 @@ public static class PadExports
     private static PadState SampleHostInputState()
     {
         var now = Stopwatch.GetTimestamp();
-        var input = HostPlatform.Current.Input;
+        var state = SampleHostInputState(HostPlatform.Current.Input);
+        if (IsAutoCrossActive()) state = state with { Buttons = state.Buttons | OrbisPadButton.Cross };
+        if (IsAutoDownActive()) state = state with { Buttons = state.Buttons | OrbisPadButton.Down };
+        Volatile.Write(ref _cachedInputSample, new PadSample(state, now));
+        return state;
+    }
+
+    internal static PadState SampleHostInputState(IHostInput input)
+    {
         var acceptsKeyboardInput = input.IsHostWindowFocused();
         var buttons = acceptsKeyboardInput ? ReadKeyboardButtons(input) : 0;
         var leftX = acceptsKeyboardInput ? ReadAnalogStick(input.IsKeyDown(0x41), input.IsKeyDown(0x44)) : (byte)128;
@@ -624,17 +632,7 @@ public static class PadExports
             r2 = Math.Max(r2, pad.RightTrigger);
         }
 
-        if (IsAutoCrossActive())
-        {
-            buttons |= 0x4000;
-        }
-
-        if (IsAutoDownActive())
-        {
-            buttons |= OrbisPadButton.Down;
-        }
-
-        var state = new PadState(
+        return new PadState(
             Connected: true,
             Buttons: buttons,
             LeftX: leftX,
@@ -643,8 +641,6 @@ public static class PadExports
             RightY: rightY,
             L2: l2,
             R2: r2);
-        Volatile.Write(ref _cachedInputSample, new PadSample(state, now));
-        return state;
     }
 
     private static readonly long PadStartTimestamp = Stopwatch.GetTimestamp();
