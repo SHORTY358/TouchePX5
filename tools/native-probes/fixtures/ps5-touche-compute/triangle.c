@@ -27,7 +27,7 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0xbf810000
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
-    0x7e0002f2, 0x7e020280, 0x7e040280, 0x7e0602f2, // opaque red
+    0x7e000200, 0x7e020280, 0x7e040201, 0x7e0602f2, // R=s0, G=0, B=s1, A=1
     0xf800180f,0x03020100, 0xbf810000
 };
 static int n;
@@ -47,7 +47,8 @@ int _start(void) {
     u64 vs=(u64)vertex, ps=(u64)pixel, target=(u64)pixels, label=(u64)&completed;
     reg(0x76,0xc8,(u32)(vs>>8)); reg(0x76,0xc9,(u32)(vs>>40));
     reg(0x76,0x8,(u32)(ps>>8)); reg(0x76,0x9,(u32)(ps>>40));
-    reg(0x76,0xcb,0); reg(0x76,0xb,0); // zero user SGPRs
+    reg(0x76,0xcb,0); reg(0x76,0xb,2<<1); // PS reads two user SGPRs
+    reg(0x76,0xc,0x3f800000); reg(0x76,0xd,0); // red
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs
     reg(0x69,0x318,(u32)(target>>8)); reg(0x69,0x390,(u32)(target>>40));
     reg(0x69,0x3b0,(319<<14)|179); reg(0x69,0x3b8,0);
@@ -62,6 +63,19 @@ int _start(void) {
     for(int i=0;i<5000 && !completed;i++) sleep_slot(1000);
     if(completed!=1) return 75;
     if(flip_slot(video,0,1,1)!=0) return 76;
+    sleep_slot(3000000);
+    // Reuse the shader and target, changing only the scalar color inputs.
+    n=0;
+    reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue
+    commands[n++]=0xc0012d00; commands[n++]=3; commands[n++]=2;
+    commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
+    commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
+    commands[n++]=2; commands[n++]=0; commands[n++]=0;
+    submission.count=(u32)n;
+    if(submit_slot(&submission)!=0) return 77;
+    for(int i=0;i<5000 && completed!=2;i++) sleep_slot(1000);
+    if(completed!=2) return 78;
+    if(flip_slot(video,0,1,2)!=0) return 79;
     sleep_slot(3000000);
     close_slot(video);
     return 0;

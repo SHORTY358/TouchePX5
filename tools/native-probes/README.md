@@ -1,22 +1,36 @@
-# Native GPU triangle probe
+# Native GPU checks
 
-Run `tools/native-probes/Test-TouchePX5-Triangle.ps1` from PowerShell after building the emulator.
-Requires the existing local .NET build and LLVM tools at the paths used by the runner.
+Run from the source checkout:
 
-This SDK-free synthetic guest submits gfx10 vertex/pixel programs through AGC, draws a triangle
-on the Vulkan device, presents it and checks the swapchain readback. The capture checker checks
-all pixel colors, exact interior/exterior coverage outside a two-source-pixel filter edge band,
-and triangle area. The edge band accounts for the presenter's bilinear non-integer scaling.
-A blank frame was separately confirmed to fail the checker.
+```powershell
+.\tools\native-probes\Test-TouchePX5-NativeGpu.ps1
+```
 
-Verified 2026-09-23 on GTX 1060 3 GB: 2,037,120 output pixels, 563,461 fully red pixels.
-The previous fixture omitted PS input masks and user-SGPR resource registers; this runner sets
-them explicitly, including zero values. No emulator behavior was changed for this probe.
+The runner uses the existing Release executable and installed LLVM tools; it does not install
+anything or rebuild. Reports are saved under `artifacts/native-gpu/<timestamp>/report.json`,
+with the source revision, executable hash, individual results and copied guest logs.
 
-Outputs: C:/Dev/TouchePX5/artifacts/smoke-triangle/triangle.log and triangle.png;
-timestamped GPU captures are retained beneath that directory.
-This is one synthetic raster draw, not commercial game compatibility.
+- Compute: a synthetic gfx10 program runs twice on Vulkan with different inputs and reused
+  memory. Checks FMA, signed multiplication, EXEC masking, ordered completion and CPU readback.
+- Raster: synthetic gfx10 vertex/pixel programs draw a triangle, then redraw the same target
+  through the same shader with changed scalar inputs: red becomes blue. Both Vulkan captures
+  are checked for color, shape and area. The checker requires exact interior/exterior colors
+  outside a two-source-pixel band accounting for bilinear presentation scaling. Every pixel
+  is checked for valid color channels. Blank and wrong-color negative controls must fail.
 
-The working copy was moved into this source repository because writes to the original OneDrive
-fixture path were denied. Security settings were not changed. The old OneDrive triangle script
-is an unfinished earlier version; use this runner.
+Verified on GTX 1060 3 GB at 1920x1061: 2,037,120 pixels per raster capture, 563,461 fully
+colored triangle pixels in each. These are controlled compute/raster tests, not commercial
+game compatibility. Depth, textures, clipping, blending and more complex geometry remain
+separate next steps.
+
+Raster outputs: `artifacts/smoke-triangle/triangle-red.png`, `triangle-blue.png`,
+`triangle.log` and `verification.json`; unique raw capture directories are retained too.
+Compute log: `artifacts/smoke-compute/compute.log`.
+
+The initial triangle fixture omitted PS input masks and shader user-SGPR resource registers.
+The corrected fixture supplies those registers explicitly. No emulator implementation change
+was required to pass these GPU probes.
+
+These files are kept here because Windows denied writes to the original OneDrive fixture
+folder. Security settings were not changed. The old OneDrive triangle script remains an
+unfinished earlier version; use these runners.
