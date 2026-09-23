@@ -10,6 +10,40 @@ namespace SharpEmu.Libs.Tests.Loader;
 public sealed class TlsImmediateStoreInstructionTests
 {
     [Theory]
+    [InlineData("64C60425F9FFFFFF00", 0)]
+    [InlineData("64C60425F9FFFFFF80", 128)]
+    [InlineData("64C60425F9FFFFFFFF", 255)]
+    [InlineData("6664C60425F9FFFFFFA5", 165)]
+    [InlineData("6466C60425F9FFFFFFA5", 165)]
+    [InlineData("6440C60425F9FFFFFFA5", 165)]
+    [InlineData("6448C60425F9FFFFFFA5", 165)]
+    public void ByteStore_WritesOnlyOneByteEvenWithOperandSizePrefixes(string hex, int value)
+    {
+        var bytes = Convert.FromHexString(hex);
+        Assert.True(TlsImmediateStoreInstruction.TryDecode(bytes, out var instruction));
+        Assert.Equal(bytes.Length, instruction.Length);
+        Assert.Equal(-7, instruction.Displacement);
+        Assert.Equal(value, instruction.Immediate);
+        Assert.False(instruction.Is16Bit);
+        Assert.False(instruction.Is64Bit);
+        Assert.False(TlsImmediateStoreInstruction.TryDecode(bytes.AsSpan(0, bytes.Length - 1), out _));
+        var code = instruction.CreateHelperBytes(0x100000, 0x101000);
+        Assert.NotNull(code);
+        var decoder = Decoder.Create(64, new ByteArrayCodeReader(code));
+        decoder.IP = 0x100000;
+        Assert.Equal(Register.RAX, decoder.Decode().Op0Register);
+        Assert.Equal(0x101000UL, decoder.Decode().NearBranchTarget);
+        var store = decoder.Decode();
+        Assert.Equal(Mnemonic.Mov, store.Mnemonic);
+        Assert.Equal(MemorySize.UInt8, store.MemorySize);
+        Assert.Equal((ulong)value, store.GetImmediate(1));
+        Assert.Equal(Register.RAX, store.MemoryBase);
+        Assert.Equal(unchecked((ulong)-7L), store.MemoryDisplacement64);
+        Assert.Equal(Mnemonic.Pop, decoder.Decode().Mnemonic);
+        Assert.Equal(Mnemonic.Ret, decoder.Decode().Mnemonic);
+    }
+
+    [Theory]
     [InlineData("6664C70425F8FFFFFF2143")]
     [InlineData("6466C70425F8FFFFFF2143")]
     public void WordStore_ConsumesOnlyTwoImmediateBytes(string hex)
@@ -73,6 +107,11 @@ public sealed class TlsImmediateStoreInstructionTests
     [InlineData("64C74425F8FFFFFFFFFFFFFF")]
     [InlineData("64C70465F8FFFFFFFFFFFFFF")]
     [InlineData("64C70C25F8FFFFFFFFFFFFFF")]
+    [InlineData("64C60425F9FFFFFF")]
+    [InlineData("64C60C25F9FFFFFF80")]
+    [InlineData("6449C60425F9FFFFFF80")]
+    [InlineData("65C60425F9FFFFFF80")]
+    [InlineData("64C60465F9FFFFFF80")]
     public void Decoder_RejectsUnsupportedOrTruncatedForms(string hex)
     {
         Assert.False(TlsImmediateStoreInstruction.TryDecode(Convert.FromHexString(hex), out _));
