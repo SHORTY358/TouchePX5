@@ -31,6 +31,25 @@ static const u32 pixel[] __attribute__((aligned(256))) = {
     0xf800180f,0x03020100, 0xbf810000
 };
 static int n;
+#if INDEX_BITS == 16
+static const unsigned short indices[3]={0,1,3};
+static const unsigned short stale_indices[3]={0,1,2};
+#elif INDEX_BITS == 32
+static const u32 indices[3]={0,1,3};
+static const u32 stale_indices[3]={0,1,2};
+#endif
+static void draw(void) {
+#ifdef INDEX_BITS
+    u64 address=(u64)indices;
+    commands[n++]=0xc0002a00; commands[n++]=(INDEX_BITS==32 ? 1 : 0);
+    // DRAW_INDEX_2 supplies its own address, without an INDEX_BASE packet.
+    commands[n++]=0xc0042700; commands[n++]=3;
+    commands[n++]=(u32)address; commands[n++]=(u32)(address>>32);
+    commands[n++]=3; commands[n++]=0;
+#else
+    commands[n++]=0xc0012d00; commands[n++]=3; commands[n++]=2;
+#endif
+}
 static void reg(u32 opcode,u32 index,u32 value) {
     commands[n++]=0xc0010000|(opcode<<8);
     commands[n++]=index; commands[n++]=value;
@@ -53,8 +72,13 @@ int _start(void) {
     reg(0x69,0x318,(u32)(target>>8)); reg(0x69,0x390,(u32)(target>>40));
     reg(0x69,0x3b0,(319<<14)|179); reg(0x69,0x3b8,0);
     reg(0x69,0x31c,10<<2); reg(0x69,0x8e,0xf);
+    reg(0x69,0x10f,0x43200000); reg(0x69,0x110,0x43200000); // viewport X scale/offset 160
+    reg(0x69,0x111,0x42b40000); reg(0x69,0x112,0x42b40000); // viewport Y scale/offset 90
+#ifdef TEST_SCISSOR
+    reg(0x69,0xc,80|(45<<16)); reg(0x69,0xd,240|(135<<16));
+#endif
     reg(0x79,0x242,4); // triangle list
-    commands[n++]=0xc0012d00; commands[n++]=3; commands[n++]=2;
+    draw();
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=1; commands[n++]=0; commands[n++]=0;
@@ -67,7 +91,13 @@ int _start(void) {
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
     reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue
-    commands[n++]=0xc0012d00; commands[n++]=3; commands[n++]=2;
+#ifdef INDEX_BITS
+    // A stale INDEX_BASE must not override the next DRAW_INDEX_2 inline base.
+    u64 stale=(u64)stale_indices;
+    commands[n++]=0xc0012600;
+    commands[n++]=(u32)stale; commands[n++]=(u32)(stale>>32);
+#endif
+    draw();
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=2; commands[n++]=0; commands[n++]=0;

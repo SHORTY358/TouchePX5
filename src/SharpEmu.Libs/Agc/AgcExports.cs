@@ -6782,8 +6782,18 @@ public static partial class AgcExports
             case ItDrawIndexAuto when packetLength >= 3:
                 return TryReadUInt32(ctx, packetAddress + 4, out drawCount);
             case ItDrawIndex2 when packetLength >= 6:
+                // DRAW_INDEX_2 carries an inline base and size. INDEX_BASE is
+                // not required beforehand, and an older base must not win.
+                if (!TryReadUInt32(ctx, packetAddress + 4, out var maximumIndexCount) ||
+                    !TryReadUInt64(ctx, packetAddress + 8, out var inlineIndexAddress) ||
+                    !TryReadUInt32(ctx, packetAddress + 16, out drawCount))
+                {
+                    return false;
+                }
+                state.IndexBufferAddress = inlineIndexAddress;
+                state.IndexBufferCount = maximumIndexCount;
                 state.DrawIndexOffset = 0;
-                return TryReadUInt32(ctx, packetAddress + 16, out drawCount);
+                return true;
             case ItDrawIndexOffset2 when packetLength >= 5:
                 if (!TryReadUInt32(ctx, packetAddress + 8, out var indexOffset))
                 {

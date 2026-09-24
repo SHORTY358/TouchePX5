@@ -18,20 +18,29 @@ function Save-Report { $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralP
 Save-Report
 try {
     foreach($case in @(
-        @{Name='compute-repeat'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute\compute.log'},
-        @{Name='triangle-repeat'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle\triangle.log'}
+        @{Name='compute-repeat'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute\compute.log'; Parameters=@{}},
+        @{Name='triangle-repeat'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle\triangle.log'; Parameters=@{}},
+        @{Name='triangle-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor\triangle.log'; Parameters=@{Scissor=$true}},
+        @{Name='triangle-index16'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-index16\triangle.log'; Parameters=@{IndexBits=16}},
+        @{Name='triangle-index32-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor-index32\triangle.log'; Parameters=@{IndexBits=32; Scissor=$true}}
     )) {
         $result=[ordered]@{Name=$case.Name; Status='Running'; Log=(Join-Path $reportRoot ($case.Name+'.log')); Error=$null; GuestLog=$null}
         $results.Add($result); Save-Report
         Write-Output "RUN: $($case.Name)"
+        $caseStartedUtc=[DateTime]::UtcNow
         try {
-            & (Join-Path $PSScriptRoot $case.Script) *> $result.Log
+            $parameters=$case.Parameters
+            & (Join-Path $PSScriptRoot $case.Script) @parameters *> $result.Log
             if(-not $?) { throw "Failed: $($case.Name)" }
+            if($case.Name -ne 'compute-repeat') {
+                $verification=Join-Path (Split-Path (Join-Path $sourceRoot ('artifacts\'+$case.Guest))) 'verification.json'
+                Copy-Item -LiteralPath $verification -Destination (Join-Path $reportRoot ($case.Name+'-verification.json'))
+            }
             $result.Status='Passed'
         } catch { $result.Status='Failed'; $result.Error=$_.Exception.Message; throw }
         finally {
             $guestLog=Join-Path $sourceRoot ('artifacts\'+$case.Guest)
-            if(Test-Path -LiteralPath $guestLog) {
+            if((Test-Path -LiteralPath $guestLog) -and (Get-Item -LiteralPath $guestLog).LastWriteTimeUtc -ge $caseStartedUtc) {
                 $result.GuestLog=Join-Path $reportRoot ($case.Name+'-guest.log')
                 Copy-Item -LiteralPath $guestLog -Destination $result.GuestLog
             }
@@ -39,7 +48,6 @@ try {
         }
         Write-Output "PASS: $($case.Name)"
     }
-    Copy-Item -LiteralPath (Join-Path $sourceRoot 'artifacts\smoke-triangle\verification.json') -Destination (Join-Path $reportRoot 'triangle-verification.json')
     if((Get-FileHash -LiteralPath $exe).Hash -ne $report.ExecutableSha256) { throw 'Executable changed during checks.' }
     $report.Status='Passed'
 } catch { $report.Status='Failed'; throw }

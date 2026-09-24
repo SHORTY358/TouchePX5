@@ -20,7 +20,7 @@ with the source revision, executable hash, individual results and copied guest l
 
 Verified on GTX 1060 3 GB at 1920x1061: 2,037,120 pixels per raster capture, 563,461 fully
 colored triangle pixels in each. These are controlled compute/raster tests, not commercial
-game compatibility. Depth, textures, clipping, blending and more complex geometry remain
+game compatibility. Depth, textures, blending and more complex geometry remain
 separate next steps.
 
 Raster outputs: `artifacts/smoke-triangle/triangle-red.png`, `triangle-blue.png`,
@@ -34,3 +34,16 @@ was required to pass these GPU probes.
 These files are kept here because Windows denied writes to the original OneDrive fixture
 folder. Security settings were not changed. The old OneDrive triangle script remains an
 unfinished earlier version; use these runners.
+## Indexed and clipped geometry
+
+`Test-TouchePX5-Triangle.ps1 -Scissor` intersects raster coverage with [80,240) x [45,135)
+while retaining an explicit full-surface viewport. `-IndexBits 16` or `-IndexBits 32` uses
+indices 0,1,3 to draw the mirrored triangle, which cannot pass if the index buffer is ignored.
+The second indexed draw first sets a deliberately wrong INDEX_BASE and requires the inline
+DRAW_INDEX_2 base to replace it. The combined GPU runner covers ordinary and clipped draws,
+16-bit indices and 32-bit indices with clipping.
+
+The indexed probe failed before the DRAW_INDEX_2 fix: the parser read the draw count but
+ignored the inline index base and maximum count. The corrected parser validates these fields
+before updating queue state. The 16-bit real-GPU probe then passed for both colors; all 1,225
+unit tests also passed after rebuilding. Full combined-run results live in the timestamped report.
