@@ -76,6 +76,8 @@ wrong nearest-neighbor expectation. The gradient PNG was visually inspected. Thi
 case twelve; mip selection is still not covered.
 All twelve cases passed in `artifacts/native-gpu/20260924-114628-635/report.json`.
 
-The older 27-case engineering report predates the indexed-parser fix; it must not be
-described as revalidated by this seven-case GPU run. Physical controller operation and
-commercial game execution also remain separate, unverified milestones.
+All 27 general engineering cases were revalidated after the mip fix in
+`artifacts/engineering/20260924-120558-722/report.json` on source revision 64ec821.
+This includes the Release build, all 1,235 unit tests, loader/module/TLS cases,
+VideoOut/AGC synchronization and the controlled input demo. Physical controller
+operation and commercial game execution remain separate, unverified milestones.
