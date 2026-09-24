@@ -2603,7 +2603,9 @@ internal static unsafe class VulkanVideoPresenter
             if (!_untrackedGuestImageContentProbes.TryGetValue(address, out var previous))
             {
                 _untrackedGuestImageContentProbes[address] = probe;
-                return true;
+                // The first observation may already follow a native CPU rewrite.
+                // It is not evidence that the uploaded image contains these bytes.
+                return false;
             }
 
             if (previous == probe)

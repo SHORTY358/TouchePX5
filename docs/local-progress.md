@@ -27,11 +27,18 @@ change the tested executable. Each case retains its guest log and pixel-verifica
 Use `tools/native-probes/Test-TouchePX5-NativeGpu.ps1` for these checks. The earlier
 OneDrive triangle script is obsolete. Source and builds remain under `C:\Dev\TouchePX5`.
 
-Next useful graphics milestone: an original guest fixture sampling a small known texture,
-with a pixel oracle, followed by changed texture contents at the same guest address.
+The sampled-texture milestone now has a passing native reproducer: a 1x1 image changes
+from red to blue at the same address, followed by an unchanged blue draw. This exposed
+and fixed an incorrect first-observation cache decision in the Vulkan upload-known path.
+After rebuilding, all 1,225 unit tests passed again (`artifacts/texture-unit-tests.log`).
+All eight cases passed in `artifacts/native-gpu/20260924-070915-639/report.json`,
+including the extended three-frame texture case. The executable differs from the older
+seven-case checkpoint; its exact hash is recorded in this newer report.
+
+Next useful graphics milestone: a two-color texture selected using different coordinates.
 Inspect `tests/SharpEmu.ShaderCompiler.Tests/Gen5ImageTests.cs` and texture decoding in
 `src/SharpEmu.Libs/Agc/AgcExports.cs` before choosing the descriptor and shader encoding.
-This milestone is planned, not implemented or passed.
+Coordinate selection is planned, not yet implemented or passed.
 
 The older 27-case engineering report predates the indexed-parser fix; it must not be
 described as revalidated by this seven-case GPU run. Physical controller operation and

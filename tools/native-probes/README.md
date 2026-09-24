@@ -67,3 +67,17 @@ depth, so the separate ordinary red draw is necessary. Correcting these fixture 
 made the real GPU depth probe pass; no emulator depth implementation change was needed.
 Depth outputs are under `artifacts/smoke-triangle-depth/`, with numbered PNGs and JSON.
 Depth and blend are deliberately separate scenarios and cannot be combined in this runner.
+
+## CPU-updated sampled texture
+
+`-Texture` samples a 1x1 RGBA8 UNORM image with `image_sample_lz`, using a real Vulkan
+texture binding. The guest first writes red, then rewrites the same address with blue;
+the descriptor and shader stay unchanged. A third draw repeats blue without a rewrite.
+The checked captures must be red, blue, blue. This tests upload freshness and retention,
+not UV interpolation, multiple texels, mipmaps, or filtering correctness.
+
+Before the fix, the first red capture passed but the blue capture stayed red. The first
+untracked-image content probe incorrectly returned "unchanged" before it had any baseline
+for the uploaded bytes. It now requests one refresh to establish that baseline. The
+two-frame native reproducer passed after this runtime fix. The aggregate runner includes
+the extended three-frame regression as its eighth case.

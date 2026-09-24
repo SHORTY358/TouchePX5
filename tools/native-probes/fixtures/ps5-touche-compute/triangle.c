@@ -13,6 +13,9 @@ static unsigned char attribute[40];
 static u64 addresses[1];
 static volatile u32 completed;
 static u32 commands[256];
+#ifdef TEST_TEXTURE
+static volatile u32 texel[64] __attribute__((aligned(256)));
+#endif
 #ifdef TEST_DEPTH
 static u32 depth[320*180] __attribute__((aligned(256)));
 #endif
@@ -34,8 +37,15 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0xbf810000
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
+#ifdef TEST_TEXTURE
+    0x7e0002f0, 0x7e0202f0, // sample at (0.5,0.5)
+    0xf09c0f08,0x00400400, // image_sample_lz v[4:7],v[0:1],s[0:7],s[8:11],dim2D
+    0xbf8c0f70, // s_waitcnt vmcnt(0)
+    0xf800180f,0x07060504,0xbf810000
+#else
     0x7e000200, 0x7e020280, 0x7e040201, 0x7e060202, // R=s0, G=0, B=s1, A=s2
     0xf800180f,0x03020100, 0xbf810000
+#endif
 };
 static int n;
 #if INDEX_BITS == 16
@@ -85,6 +95,15 @@ int _start(void) {
 #endif
     reg(0x76,0xc,0x3f800000); reg(0x76,0xd,0); // red
     reg(0x76,0xe,0x3f800000); // alpha 1
+#ifdef TEST_TEXTURE
+    texel[0]=0xff0000ff; // RGBA8 red
+    u64 texture=(u64)texel;
+    reg(0x76,0xb,12<<1);
+    reg(0x76,0xc,(u32)(texture>>8));
+    reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)); // RGBA8 UNORM, 1x1
+    reg(0x76,0xe,0); reg(0x76,0xf,0x90000fac);
+    for(int i=4;i<12;i++) reg(0x76,0xc+i,0);
+#endif
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs
     reg(0x69,0x318,(u32)(target>>8)); reg(0x69,0x390,(u32)(target>>40));
     reg(0x69,0x3b0,(319<<14)|179); reg(0x69,0x3b8,0);
@@ -113,7 +132,11 @@ int _start(void) {
     sleep_slot(3000000);
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
+#ifdef TEST_TEXTURE
+    texel[0]=0xffff0000; // same descriptor/address, now blue
+#else
     reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue
+#endif
 #ifdef TEST_DEPTH
     reg(0x69,0,0); reg(0x76,0xcc,0x3f400000); // keep depth; farther Z=0.75 must fail
 #endif
@@ -138,9 +161,12 @@ int _start(void) {
     if(completed!=2) return 78;
     if(flip_slot(video,0,1,2)!=0) return 79;
     sleep_slot(3000000);
-#ifdef TEST_DEPTH
+#if defined(TEST_DEPTH) || defined(TEST_TEXTURE)
     n=0;
+#ifdef TEST_DEPTH
     reg(0x76,0xcc,0x3e000000); // nearer blue Z=0.125 must pass
+#endif
+    // Texture mode repeats unchanged blue after the CPU update.
     draw();
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);

@@ -1,7 +1,9 @@
 [CmdletBinding()]
-param([switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($Texture) { $root += '-texture' }
+if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
@@ -12,6 +14,7 @@ Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorActi
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $defines=@()
+if($Texture) { $defines += '-DTEST_TEXTURE=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -53,10 +56,11 @@ try {
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Triangle guest failed: $log" }
     if ($output.Contains('agc.shader_color_clear')) { throw 'Triangle unexpectedly became a fullscreen clear.' }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
-    $expectedDraws=if($Depth) { 4 } else { 2 }
-    $expectedCaptures=if($Depth) { 4 } else { 3 }
+    $expectedDraws=if($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
+    $expectedCaptures=if($Depth -or $Texture) { 4 } else { 3 }
     if($captures.Count -ne $expectedCaptures) { throw "Unexpected number of swapchain captures: $log" }
-    if([regex]::Matches($output,'vk.offscreen_draw mrt=1 size=320x180 textures=0').Count -ne $expectedDraws -or $output.Contains('agc.shader_translate_miss')) { throw 'Missing expected successful translated raster draws.' }
+    $textureCount=if($Texture) { 1 } else { 0 }
+    if([regex]::Matches($output,"vk.offscreen_draw mrt=1 size=320x180 textures=$textureCount").Count -ne $expectedDraws -or $output.Contains('agc.shader_translate_miss')) { throw 'Missing expected successful translated raster draws.' }
     if(-not ('TrianglePixelVerifierV5' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
@@ -96,7 +100,7 @@ public static class TrianglePixelVerifierV5 {
     $verifiedFrames = @()
     Add-Type -AssemblyName System.Drawing
     foreach($frameIndex in 1..($captures.Count-1)) {
-    $expectBlue=($frameIndex -eq ($captures.Count-1))
+    $expectBlue=($frameIndex -eq ($captures.Count-1)) -or ($Texture -and $frameIndex -ge 2)
     $capture = $captures[$frameIndex].Groups[1].Value.Trim()
     $dimensions = [regex]::Match([IO.Path]::GetFileName($capture), '^present-\d+-(\d+)x(\d+)-B8G8R8A8Unorm\.bgra$')
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
@@ -123,6 +127,7 @@ public static class TrianglePixelVerifierV5 {
     }
     $report = [ordered]@{
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
+        Texture=[bool]$Texture
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash
