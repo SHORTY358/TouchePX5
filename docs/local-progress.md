@@ -53,6 +53,11 @@ weighting, and the aggregate runner includes it as case eleven. Filtering and mi
 selection remain future checks.
 All eleven cases passed in `artifacts/native-gpu/20260924-114233-465/report.json`,
 including rejection of the incorrect affine oracle for the perspective captures.
+Linear filtering also passed three captures in `artifacts/texture-linear-test.log`.
+The oracle checks a bilinear four-texel mix with a 3/255 RGB tolerance and rejects the
+wrong nearest-neighbor expectation. The gradient PNG was visually inspected. This adds
+case twelve; mip selection is still not covered.
+All twelve cases passed in `artifacts/native-gpu/20260924-114628-635/report.json`.
 
 The older 27-case engineering report predates the indexed-parser fix; it must not be
 described as revalidated by this seven-case GPU run. Physical controller operation and

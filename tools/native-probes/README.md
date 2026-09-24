@@ -102,3 +102,10 @@ perspective UVs as `(u/2, v)/(1-u/2)` from screen barycentric coordinates, indep
 of the shader code. The blue boundary moves from screen x=160 to x=200 and the green
 boundary becomes slanted. The ordinary affine oracle must reject this output. This is
 the eleventh aggregate case; the first native run passed all three captures.
+
+`-LinearFilter` uses affine UVs and clamp-to-edge linear filtering on the same 2x2 image.
+The independent oracle mixes its four texels with `tx=clamp(2u-0.5)` and
+`ty=clamp(2v-0.5)`. Interior RGB may differ by at most 3/255 for texture quantization
+and presentation resampling; alpha and the outside background remain exact. The nearest
+oracle must reject the filtered output. Three native captures passed and the gradient PNG
+was visually inspected. This is aggregate case twelve; mip selection remains untested.

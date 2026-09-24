@@ -133,6 +133,10 @@ int _start(void) {
     reg(0x76,0xe,1u<<14); // height=2
     reg(0x76,0x10,1); // pitch=2 (linear upload rounds to hardware row alignment)
     reg(0x76,0x18,0x3e800000); // sample red at (0.25,0.25)
+#ifdef TEST_LINEAR_FILTER
+    reg(0x76,0x14,2|(2<<3)|(2<<6)); // clamp to edge on every axis
+    reg(0x76,0x16,(1u<<20)|(1u<<22)); // linear minification/magnification
+#endif
 #endif
 #endif
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs

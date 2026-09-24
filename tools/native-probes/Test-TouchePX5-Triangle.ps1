@@ -1,8 +1,12 @@
 [CmdletBinding()]
-param([switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($Perspective) { $TextureUv=$true }
+if($LinearFilter) {
+    if($Perspective) { throw 'Linear filter oracle currently requires affine UVs.' }
+    $TextureUv=$true
+}
 if($TextureUv) {
     if($Scissor -or $IndexBits) { throw 'UV oracle currently requires the ordinary triangle.' }
     $TextureSelect=$true
@@ -12,6 +16,7 @@ if($Texture) { $root += '-texture' }
 if($TextureSelect) { $root += '-select' }
 if($TextureUv) { $root += '-uv' }
 if($Perspective) { $root += '-perspective' }
+if($LinearFilter) { $root += '-linear' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
@@ -27,6 +32,7 @@ if($Texture) { $defines += '-DTEST_TEXTURE=1' }
 if($TextureSelect) { $defines += '-DTEST_TEXTURE_SELECT=1' }
 if($TextureUv) { $defines += '-DTEST_TEXTURE_UV=1' }
 if($Perspective) { $defines += '-DTEST_PERSPECTIVE=1' }
+if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -110,11 +116,11 @@ public static class TrianglePixelVerifierV5 {
 "@
     }
     $verifiedFrames = @()
-    if($TextureUv -and -not ('TextureUvVerifierV2' -as [type])) {
+    if($TextureUv -and -not ('TextureUvVerifierV3' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
-public static class TextureUvVerifierV2 {
-    public static int Check(byte[] data,int width,int height,bool swap,bool perspective) {
+public static class TextureUvVerifierV3 {
+    public static int Check(byte[] data,int width,int height,bool swap,bool perspective,bool linear) {
         if(data.Length!=checked(width*height*4)) throw new Exception("Invalid capture size");
         int count=0, red=0, green=0, blue=0;
         for(int y=0;y<height;y++) for(int x=0;x<width;x++) {
@@ -127,10 +133,16 @@ public static class TextureUvVerifierV2 {
             if(outside && (data[p]!=0 || data[p+1]!=0 || data[p+2]!=0 || data[p+3]!=0)) throw new Exception("UV outside coverage");
             double u=(sx-40)/240, v=(sy-22.5)/135;
             if(perspective) { double reciprocalW=1-u*0.5; u=u*0.5/reciprocalW; v=v/reciprocalW; }
-            if(!inside || Math.Abs(u-0.5)<0.02 || Math.Abs(v-0.5)<0.02) continue;
+            if(!inside || (!linear && (Math.Abs(u-0.5)<0.02 || Math.Abs(v-0.5)<0.02))) continue;
             int channel=v>0.5 ? 1 : u>0.5 ? 0 : 2;
             if(swap && channel!=1) channel=2-channel;
-            if(data[p+3]!=255 || data[p+channel]!=255 || data[p+(channel+1)%3]!=0 || data[p+(channel+2)%3]!=0)
+            if(linear) {
+                double tx=Math.Max(0,Math.Min(1,2*u-0.5)),ty=Math.Max(0,Math.Min(1,2*v-0.5));
+                double r=255*((1-tx)*(1-ty)+tx*ty),g=255*ty,b=255*tx;
+                if(swap) { double tmp=r; r=b; b=tmp; }
+                if(data[p+3]!=255 || Math.Abs(data[p]-b)>3 || Math.Abs(data[p+1]-g)>3 || Math.Abs(data[p+2]-r)>3)
+                    throw new Exception("Linear sample mismatch at "+x+","+y);
+            } else if(data[p+3]!=255 || data[p+channel]!=255 || data[p+(channel+1)%3]!=0 || data[p+(channel+2)%3]!=0)
                 throw new Exception("UV color mismatch at "+x+","+y+" source="+sx+","+sy+" channel="+channel);
             if(channel==0) blue++; else if(channel==1) green++; else red++;
         }
@@ -149,16 +161,21 @@ public static class TextureUvVerifierV2 {
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
     if($TextureUv) {
-        $coloredPixels=[TextureUvVerifierV2]::Check($gpuBytes,$width,$height,$false,[bool]$Perspective)
+        $coloredPixels=[TextureUvVerifierV3]::Check($gpuBytes,$width,$height,$false,[bool]$Perspective,[bool]$LinearFilter)
         if($frameIndex -eq 1) {
             $rejectedBlank=$false; $rejectedWrongColor=$false
-            try { [TextureUvVerifierV2]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Perspective) | Out-Null } catch { $rejectedBlank=$true }
-            try { [TextureUvVerifierV2]::Check($gpuBytes,$width,$height,$true,[bool]$Perspective) | Out-Null } catch { $rejectedWrongColor=$true }
+            try { [TextureUvVerifierV3]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Perspective,[bool]$LinearFilter) | Out-Null } catch { $rejectedBlank=$true }
+            try { [TextureUvVerifierV3]::Check($gpuBytes,$width,$height,$true,[bool]$Perspective,[bool]$LinearFilter) | Out-Null } catch { $rejectedWrongColor=$true }
             if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'UV verifier accepted a negative control.' }
             if($Perspective) {
                 $rejectedAffine=$false
-                try { [TextureUvVerifierV2]::Check($gpuBytes,$width,$height,$false,$false) | Out-Null } catch { $rejectedAffine=$true }
+                try { [TextureUvVerifierV3]::Check($gpuBytes,$width,$height,$false,$false,$false) | Out-Null } catch { $rejectedAffine=$true }
                 if(-not $rejectedAffine) { throw 'Perspective output also passed the incorrect affine oracle.' }
+            }
+            if($LinearFilter) {
+                $rejectedNearest=$false
+                try { [TextureUvVerifierV3]::Check($gpuBytes,$width,$height,$false,$false,$false) | Out-Null } catch { $rejectedNearest=$true }
+                if(-not $rejectedNearest) { throw 'Linear output passed the incorrect nearest-neighbor oracle.' }
             }
         }
     } else {
@@ -188,12 +205,14 @@ public static class TextureUvVerifierV2 {
         TextureSelect=[bool]$TextureSelect
         TextureUv=[bool]$TextureUv
         Perspective=[bool]$Perspective
+        LinearFilter=[bool]$LinearFilter
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash
         RunnerSha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash
         NegativeControls='Blank frame and incorrect expected color rejected'
         AffineOracleRejected=[bool]$Perspective
+        NearestOracleRejected=[bool]$LinearFilter
         Log=$log
     }
     $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root 'verification.json') -Encoding utf8
