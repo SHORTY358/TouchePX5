@@ -11242,6 +11242,10 @@ internal static unsafe class VulkanVideoPresenter
             bool registerGuestImage = true)
         {
             var uploadMipLevels = (uint)(texture.AdditionalMips?.Length ?? 0) + 1;
+            // Legacy single-level uploads already represent their selected mip.
+            var viewBaseMipLevel = uploadMipLevels > 1
+                ? Math.Min(texture.BaseMipLevel, uploadMipLevels - 1)
+                : 0;
             BufferImageCopy[]? mipCopies = null;
             var width = Math.Max(texture.Width, 1);
             var height = Math.Max(texture.Height, 1);
@@ -11441,7 +11445,9 @@ internal static unsafe class VulkanVideoPresenter
                     texture.ArrayedView),
                 Format = vkFormat,
                 Components = ToVkComponentMapping(texture.DstSelect),
-                SubresourceRange = ColorSubresourceRange(0, Math.Min(texture.MipLevels, uploadMipLevels), layers),
+                SubresourceRange = ColorSubresourceRange(
+                    viewBaseMipLevel,
+                    Math.Min(texture.MipLevels, uploadMipLevels - viewBaseMipLevel), layers),
             };
             var viewUsage = new ImageViewUsageCreateInfo
             {

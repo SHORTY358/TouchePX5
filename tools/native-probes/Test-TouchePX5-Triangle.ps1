@@ -1,7 +1,9 @@
 [CmdletBinding()]
-param([switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
+if($MipBaseOnly -or $MipLowerView) { $Mip=$true }
 if($Mip) {
     if($LinearFilter -or $Perspective -or $TextureUv) { throw 'Mip test uses explicit constant LOD.' }
     $TextureSelect=$true
@@ -22,6 +24,8 @@ if($TextureUv) { $root += '-uv' }
 if($Perspective) { $root += '-perspective' }
 if($LinearFilter) { $root += '-linear' }
 if($Mip) { $root += '-mip' }
+if($MipBaseOnly) { $root += '-base-only' }
+if($MipLowerView) { $root += '-lower-view' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
@@ -39,6 +43,8 @@ if($TextureUv) { $defines += '-DTEST_TEXTURE_UV=1' }
 if($Perspective) { $defines += '-DTEST_PERSPECTIVE=1' }
 if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
 if($Mip) { $defines += '-DTEST_MIP=1' }
+if($MipBaseOnly) { $defines += '-DTEST_MIP_BASE_ONLY=1' }
+if($MipLowerView) { $defines += '-DTEST_MIP_LOWER_VIEW=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -162,6 +168,8 @@ public static class TextureUvVerifierV3 {
     foreach($frameIndex in 1..($captures.Count-1)) {
     $expectBlue=($frameIndex -eq ($captures.Count-1)) -or ($Texture -and $frameIndex -ge 2)
     if($Mip) { $expectBlue=($frameIndex -eq 2) }
+    if($MipBaseOnly) { $expectBlue=$false }
+    if($MipLowerView) { $expectBlue=($frameIndex -lt 3) }
     $capture = $captures[$frameIndex].Groups[1].Value.Trim()
     $dimensions = [regex]::Match([IO.Path]::GetFileName($capture), '^present-\d+-(\d+)x(\d+)-B8G8R8A8Unorm\.bgra$')
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
@@ -191,7 +199,7 @@ public static class TextureUvVerifierV3 {
     if($frameIndex -eq 1 -and -not $TextureUv) {
         $rejectedBlank=$false; $rejectedWrongColor=$false
         try { [TrianglePixelVerifierV5]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedBlank=$true }
-        try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$true,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedWrongColor=$true }
+        try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,(-not $expectBlue),[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedWrongColor=$true }
         if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'Triangle verifier accepted a negative control.' }
     }
     $color=if($TextureUv) { 'textured' } elseif($expectBlue -and $Blend) { 'purple' } elseif($expectBlue) { 'blue' } else { 'red' }
@@ -214,6 +222,8 @@ public static class TextureUvVerifierV3 {
         Perspective=[bool]$Perspective
         LinearFilter=[bool]$LinearFilter
         Mip=[bool]$Mip
+        MipBaseOnly=[bool]$MipBaseOnly
+        MipLowerView=[bool]$MipLowerView
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash

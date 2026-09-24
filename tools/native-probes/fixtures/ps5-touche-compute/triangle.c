@@ -143,6 +143,12 @@ int _start(void) {
     texel[64]=texel[65]=texel[128]=texel[129]=0xff0000ff; // base level red at +256
     texel[0]=0xffff0000; // 1x1 mip at allocation start
     reg(0x76,0xf,0x90010fac); // last mip=1
+#ifdef TEST_MIP_BASE_ONLY
+    reg(0x76,0xf,0x90000fac); // resource has two levels, but the view exposes only mip0
+#endif
+#ifdef TEST_MIP_LOWER_VIEW
+    reg(0x76,0xf,0x90011fac); // view exposes only mip1; shader LOD0 is relative to this view
+#endif
     reg(0x76,0x11,1<<4); // max mip=1
     reg(0x76,0x15,256u<<12); // sampler max LOD=1
     reg(0x76,0x16,1u<<26); // nearest mip selection

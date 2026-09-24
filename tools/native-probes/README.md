@@ -117,8 +117,8 @@ Expected captures are red/blue/red. The initial reproducer failed at LOD 1 becau
 standalone Vulkan upload allocated only one mip. The fix transports independent CPU
 snapshots for the lower levels and uploads each to its own image subresource.
 
-Scope: CPU-authored linear 2D RGBA8 UNORM, implicit width-derived pitch, base view level 0, with no existing backend
-image at that address. Tiled, array, storage, nonzero-base views and GPU-written mip
+Scope: CPU-authored linear 2D RGBA8 UNORM, implicit width-derived pitch, with no existing backend
+image at that address. Tiled, array, storage and GPU-written mip
 chains retain their existing behavior. Full chains currently use transient per-draw
 uploads for correctness; caching/performance optimization is future work. Payload
 accounting includes lower levels. Ten added unit cases cover padded/odd dimensions,
@@ -132,3 +132,10 @@ bytes. Vulkan mip extents still use floor division. The first experimental fixtu
 reader both assumed base-first order; the mip result in
 `artifacts/native-gpu/20260924-115830-882/report.json` is superseded and must not be used
 as evidence for GFX10 mip layout correctness. Both were corrected after source validation.
+
+`-MipBaseOnly` exposes only level 0 of the two-level resource and requires red/red/red,
+even when the shader requests LOD 1. `-MipLowerView` exposes only level 1 and requires
+blue/blue/red: LOD 0 is relative to the view, and a lower-level CPU rewrite remains visible.
+Both initial native tests passed. Full-chain Vulkan views now honor BaseMipLevel and
+MipLevels; legacy single-level uploads retain a zero-based host view. These are cases
+fourteen and fifteen in the aggregate runner.

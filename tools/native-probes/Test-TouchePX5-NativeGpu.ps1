@@ -29,6 +29,8 @@ try {
         @{Name='triangle-perspective'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-uv-perspective\triangle.log'; Parameters=@{Perspective=$true}},
         @{Name='triangle-linear-filter'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-uv-linear\triangle.log'; Parameters=@{LinearFilter=$true}},
         @{Name='triangle-mip'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip\triangle.log'; Parameters=@{Mip=$true}},
+        @{Name='triangle-mip-base-only'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-base-only\triangle.log'; Parameters=@{MipBaseOnly=$true}},
+        @{Name='triangle-mip-lower-view'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-lower-view\triangle.log'; Parameters=@{MipLowerView=$true}},
         @{Name='triangle-index16'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-index16\triangle.log'; Parameters=@{IndexBits=16}},
         @{Name='triangle-index32-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor-index32\triangle.log'; Parameters=@{IndexBits=32; Scissor=$true}}
     )) {

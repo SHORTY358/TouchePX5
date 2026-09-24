@@ -10471,7 +10471,7 @@ public static partial class AgcExports
         // existing paths until their full-chain layout is implemented.
         if (!isStorage && !isArrayed && descriptor.Type == Gen5TextureType2D &&
             descriptor.TileMode == 0 && descriptor.Format == 10 && descriptor.NumberType == 0 &&
-            descriptor.ViewBaseLevel == 0 && descriptor.ResourceMipLevels > 1 &&
+            descriptor.ResourceMipLevels > 1 &&
             !GuestGpu.Current.TryGetGuestImageExtent(descriptor.Address, out _, out _, out _) &&
             TryReadLinearRgba8MipChain(ctx.Memory, descriptor.Address, descriptor.Width,
                 descriptor.Height, Math.Max(descriptor.Width, descriptor.Pitch),
@@ -10479,7 +10479,8 @@ public static partial class AgcExports
         {
             texture = new GuestDrawTexture(descriptor.Address, descriptor.Width, descriptor.Height,
                 descriptor.Format, descriptor.NumberType, mipChain[0].Pixels, false, false,
-                MipLevels: descriptor.MipLevels, ResourceMipLevels: descriptor.ResourceMipLevels,
+                MipLevels: descriptor.MipLevels, BaseMipLevel: descriptor.ViewBaseLevel,
+                ResourceMipLevels: descriptor.ResourceMipLevels,
                 Pitch: mipChain[0].Pitch, DstSelect: descriptor.DstSelect,
                 Sampler: ToGuestSampler(samplerDescriptor), AdditionalMips: mipChain[1..]);
             return true;
