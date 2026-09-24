@@ -42,8 +42,13 @@ was required. The aggregate runner now includes this as a ninth case.
 All nine cases passed together in `artifacts/native-gpu/20260924-071323-129/report.json`.
 Inspect `tests/SharpEmu.ShaderCompiler.Tests/Gen5ImageTests.cs` and texture decoding in
 `src/SharpEmu.Libs/Agc/AgcExports.cs` before choosing the descriptor and shader encoding.
-Next graphics milestone: interpolated UV coordinates across a triangle, with a spatial
-pixel oracle, then filtering and mip selection. These remain unimplemented fixtures.
+Interpolated UV coordinates now pass in `artifacts/texture-uv-test.log`: three captures
+show red, blue and green regions in their expected positions. A spatial pixel oracle and
+visual inspection of `artifacts/smoke-triangle-texture-select-uv/triangle-1-textured.png`
+verify this. The tenth aggregate case covers this fixture. No new runtime fix was needed.
+All ten cases passed together in `artifacts/native-gpu/20260924-071713-770/report.json`.
+Filtering, mip selection and perspective correction with unequal vertex W remain future
+checks; the current UV triangle has W=1 at every vertex.
 
 The older 27-case engineering report predates the indexed-parser fix; it must not be
 described as revalidated by this seven-case GPU run. Physical controller operation and

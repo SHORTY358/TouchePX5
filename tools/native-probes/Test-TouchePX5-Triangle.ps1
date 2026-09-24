@@ -1,10 +1,15 @@
 [CmdletBinding()]
-param([switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($TextureUv) {
+    if($Scissor -or $IndexBits) { throw 'UV oracle currently requires the ordinary triangle.' }
+    $TextureSelect=$true
+}
 if($TextureSelect) { $Texture=$true }
 if($Texture) { $root += '-texture' }
 if($TextureSelect) { $root += '-select' }
+if($TextureUv) { $root += '-uv' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
@@ -18,6 +23,7 @@ $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $defines=@()
 if($Texture) { $defines += '-DTEST_TEXTURE=1' }
 if($TextureSelect) { $defines += '-DTEST_TEXTURE_SELECT=1' }
+if($TextureUv) { $defines += '-DTEST_TEXTURE_UV=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -101,6 +107,34 @@ public static class TrianglePixelVerifierV5 {
 "@
     }
     $verifiedFrames = @()
+    if($TextureUv -and -not ('TextureUvVerifierV1' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+public static class TextureUvVerifierV1 {
+    public static int Check(byte[] data,int width,int height,bool swap) {
+        if(data.Length!=checked(width*height*4)) throw new Exception("Invalid capture size");
+        int count=0, red=0, green=0, blue=0;
+        for(int y=0;y<height;y++) for(int x=0;x<width;x++) {
+            int p=(y*width+x)*4;
+            double sx=(x+0.5)*320/width,sy=(y+0.5)*180/height;
+            double diagonal=(sx-40)/240+(sy-22.5)/135;
+            bool inside=sx>42 && sy>24.5 && diagonal<0.98;
+            bool outside=sx<38 || sy<20.5 || diagonal>1.02;
+            if(data[p+3]==255) count++;
+            if(outside && (data[p]!=0 || data[p+1]!=0 || data[p+2]!=0 || data[p+3]!=0)) throw new Exception("UV outside coverage");
+            if(!inside || Math.Abs(sx-160)<2 || Math.Abs(sy-90)<2) continue;
+            int channel=sy>90 ? 1 : sx>160 ? 0 : 2;
+            if(swap && channel!=1) channel=2-channel;
+            if(data[p+3]!=255 || data[p+channel]!=255 || data[p+(channel+1)%3]!=0 || data[p+(channel+2)%3]!=0)
+                throw new Exception("UV color mismatch at "+x+","+y+" source="+sx+","+sy+" channel="+channel);
+            if(channel==0) blue++; else if(channel==1) green++; else red++;
+        }
+        if(count<width*(long)height*0.27 || count>width*(long)height*0.30 || red<100 || green<100 || blue<100) throw new Exception("UV area or color region missing");
+        return count;
+    }
+}
+"@
+    }
     Add-Type -AssemblyName System.Drawing
     foreach($frameIndex in 1..($captures.Count-1)) {
     $expectBlue=($frameIndex -eq ($captures.Count-1)) -or ($Texture -and $frameIndex -ge 2)
@@ -109,14 +143,24 @@ public static class TrianglePixelVerifierV5 {
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
-    $coloredPixels=[TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$expectBlue,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend)
-    if($frameIndex -eq 1) {
+    if($TextureUv) {
+        $coloredPixels=[TextureUvVerifierV1]::Check($gpuBytes,$width,$height,$false)
+        if($frameIndex -eq 1) {
+            $rejectedBlank=$false; $rejectedWrongColor=$false
+            try { [TextureUvVerifierV1]::Check([byte[]]::new(320*180*4),320,180,$false) | Out-Null } catch { $rejectedBlank=$true }
+            try { [TextureUvVerifierV1]::Check($gpuBytes,$width,$height,$true) | Out-Null } catch { $rejectedWrongColor=$true }
+            if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'UV verifier accepted a negative control.' }
+        }
+    } else {
+        $coloredPixels=[TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$expectBlue,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend)
+    }
+    if($frameIndex -eq 1 -and -not $TextureUv) {
         $rejectedBlank=$false; $rejectedWrongColor=$false
         try { [TrianglePixelVerifierV5]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedBlank=$true }
         try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$true,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedWrongColor=$true }
         if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'Triangle verifier accepted a negative control.' }
     }
-    $color=if($expectBlue -and $Blend) { 'purple' } elseif($expectBlue) { 'blue' } else { 'red' }
+    $color=if($TextureUv) { 'textured' } elseif($expectBlue -and $Blend) { 'purple' } elseif($expectBlue) { 'blue' } else { 'red' }
     Write-Output "PASS: $color GPU triangle verified across $($width*$height) pixels ($coloredPixels colored)."
     $bitmap=[Drawing.Bitmap]::new($width,$height,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
@@ -132,6 +176,7 @@ public static class TrianglePixelVerifierV5 {
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect
+        TextureUv=[bool]$TextureUv
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash

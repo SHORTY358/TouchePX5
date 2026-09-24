@@ -88,3 +88,11 @@ change from 0.25 to 0.75, then repeat unchanged. Red/blue/blue captures verify s
 of different texels and the padded second row. Green traps reject a missing coordinate
 change. This passed on the real device without an additional runtime change and is the
 ninth aggregate case. It still does not establish interpolated UV or mipmap correctness.
+
+`-TextureUv` exports UV coordinates from the vertex shader and interpolates them in the
+pixel shader before sampling a fixed 2x2 red/blue/green/white texture. The ordinary triangle
+contains red, blue and green regions; white lies outside its diagonal. Its separate oracle
+checks each region's position, solid colors, alpha, background and total area, excluding
+only narrow filtered edge bands. Blank output and swapped red/blue expectations must fail.
+Three captures passed, and the PNG was visually inspected. This is the tenth aggregate
+case; mipmaps and nontrivial perspective correction are still separate future checks.

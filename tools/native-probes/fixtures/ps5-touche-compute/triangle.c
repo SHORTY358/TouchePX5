@@ -24,6 +24,9 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0x36000a81, // v_and_b32 v0, 1, v5 (vertex index)
     0x36020a82, // v_and_b32 v1, 2, v5
     0x7e000d00, 0x7e020d01, // v_cvt_f32_u32 v0,v0 / v1,v1
+#ifdef TEST_TEXTURE_UV
+    0x7e0c0300, 0x100e02f0, // v6=u=v0; v7=v=v1*0.5
+#endif
     0x100000ff,0x3fc00000, // v_mul_f32 v0,1.5,v0
     0x100202ff,0x3f400000, // v_mul_f32 v1,0.75,v1
     0x060000ff,0xbf400000, // v_add_f32 v0,-0.75,v0
@@ -33,13 +36,21 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
 #else
     0x7e040280, 0x7e0602f2, // z=0, w=1
 #endif
+#ifdef TEST_TEXTURE_UV
+    0xf800020f,0x03020706, // exp param0 v6,v7,v2,v3
+#endif
     0xf80008cf,0x03020100, // exp pos0 v0,v1,v2,v3 done
     0xbf810000
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
 #ifdef TEST_TEXTURE
 #ifdef TEST_TEXTURE_SELECT
+#ifdef TEST_TEXTURE_UV
+    0xc8000000,0xc8010001, // v_interp_p1/p2 v0, attr0.x
+    0xc8040100,0xc8050101, // v_interp_p1/p2 v1, attr0.y
+#else
     0x7e00020c, 0x7e02020c, // u=v=s12
+#endif
 #else
     0x7e0002f0, 0x7e0202f0, // sample at (0.5,0.5)
 #endif
@@ -110,6 +121,9 @@ int _start(void) {
 #ifdef TEST_TEXTURE_SELECT
     texel[1]=0xff00ff00; // green traps detect swapped/missing coordinates
     texel[64]=0xff00ff00; texel[65]=0xffff0000; // second row at 256-byte pitch
+#ifdef TEST_TEXTURE_UV
+    texel[1]=0xffff0000; texel[65]=0xffffffff; // red/blue, green/white
+#endif
     reg(0x76,0xb,13<<1);
     reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)|(1u<<30)); // width=2
     reg(0x76,0xe,1u<<14); // height=2
@@ -118,6 +132,10 @@ int _start(void) {
 #endif
 #endif
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs
+#ifdef TEST_TEXTURE_UV
+    reg(0x69,0x1b3,1); reg(0x69,0x1b4,1); // perspective sample barycentrics
+    reg(0x69,0x191,0); // attr0 maps to param0, smooth interpolation
+#endif
     reg(0x69,0x318,(u32)(target>>8)); reg(0x69,0x390,(u32)(target>>40));
     reg(0x69,0x3b0,(319<<14)|179); reg(0x69,0x3b8,0);
     reg(0x69,0x31c,10<<2); reg(0x69,0x8e,0xf);
