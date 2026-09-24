@@ -14,7 +14,7 @@ static u64 addresses[1];
 static volatile u32 completed;
 static u32 commands[256];
 #ifdef TEST_TEXTURE
-static volatile u32 texel[128] __attribute__((aligned(256)));
+static volatile u32 texel[192] __attribute__((aligned(256)));
 #endif
 #ifdef TEST_DEPTH
 static u32 depth[320*180] __attribute__((aligned(256)));
@@ -58,7 +58,12 @@ static const u32 pixel[] __attribute__((aligned(256))) = {
 #else
     0x7e0002f0, 0x7e0202f0, // sample at (0.5,0.5)
 #endif
+#ifdef TEST_MIP
+    0x7e04020c, // v2=explicit LOD from s12
+    0xf0900f08,0x00400400, // image_sample_l v[4:7],v[0:2],s[0:7],s[8:11],dim2D
+#else
     0xf09c0f08,0x00400400, // image_sample_lz v[4:7],v[0:1],s[0:7],s[8:11],dim2D
+#endif
     0xbf8c0f70, // s_waitcnt vmcnt(0)
     0xf800180f,0x07060504,0xbf810000
 #else
@@ -133,6 +138,16 @@ int _start(void) {
     reg(0x76,0xe,1u<<14); // height=2
     reg(0x76,0x10,1); // pitch=2 (linear upload rounds to hardware row alignment)
     reg(0x76,0x18,0x3e800000); // sample red at (0.25,0.25)
+#ifdef TEST_MIP
+    // GFX10 linear allocation: smaller mip precedes mip0 (AMD AddrLib).
+    texel[64]=texel[65]=texel[128]=texel[129]=0xff0000ff; // base level red at +256
+    texel[0]=0xffff0000; // 1x1 mip at allocation start
+    reg(0x76,0xf,0x90010fac); // last mip=1
+    reg(0x76,0x11,1<<4); // max mip=1
+    reg(0x76,0x15,256u<<12); // sampler max LOD=1
+    reg(0x76,0x16,1u<<26); // nearest mip selection
+    reg(0x76,0x18,0); // sample mip0
+#endif
 #ifdef TEST_LINEAR_FILTER
     reg(0x76,0x14,2|(2<<3)|(2<<6)); // clamp to edge on every axis
     reg(0x76,0x16,(1u<<20)|(1u<<22)); // linear minification/magnification
@@ -174,6 +189,9 @@ int _start(void) {
 #ifdef TEST_TEXTURE
 #ifdef TEST_TEXTURE_SELECT
     reg(0x76,0x18,0x3f400000); // sample blue at (0.75,0.75)
+#ifdef TEST_MIP
+    reg(0x76,0x18,0x3f800000); // sample mip1
+#endif
 #else
     texel[0]=0xffff0000; // same descriptor/address, now blue
 #endif
@@ -206,6 +224,9 @@ int _start(void) {
     sleep_slot(3000000);
 #if defined(TEST_DEPTH) || defined(TEST_TEXTURE)
     n=0;
+#ifdef TEST_MIP
+    texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged
+#endif
 #ifdef TEST_DEPTH
     reg(0x76,0xcc,0x3e000000); // nearer blue Z=0.125 must pass
 #endif

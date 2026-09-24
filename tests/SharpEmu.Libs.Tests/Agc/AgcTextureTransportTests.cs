@@ -11,6 +11,64 @@ namespace SharpEmu.Libs.Tests.Agc;
 public sealed class AgcTextureTransportTests
 {
     [Fact]
+    public void LinearMipChainReadsPaddedRowsAndIndependentLowerLevels()
+    {
+        const ulong address = 0x30000;
+        // AddrLib GFX10: mip2=2x1 storage at 0; mip1=3x2 at 256;
+        // mip0=5x3 at 768, all rows aligned to 256 bytes.
+        var memory = new FakeCpuMemory(address, 1536);
+        Assert.True(memory.TryWrite(address + 768, new byte[] { 11 }));
+        Assert.True(memory.TryWrite(address + 256, new byte[] { 22 }));
+        Assert.True(memory.TryWrite(address, new byte[] { 33 }));
+        Assert.True(AgcExports.TryReadLinearRgba8MipChain(memory, address, 5, 3, 5, 3, out var chain));
+        Assert.Equal(new uint[] { 5, 2, 1 }, chain.Select(m => m.Width));
+        Assert.Equal(new uint[] { 3, 1, 1 }, chain.Select(m => m.Height));
+        Assert.All(chain, mip => Assert.Equal(64u, mip.Pitch));
+        Assert.Equal(new int[] { 768, 512, 256 }, chain.Select(m => m.Pixels.Length));
+        Assert.Equal(new byte[] { 11, 22, 33 }, chain.Select(m => m.Pixels[0]));
+        Assert.True(memory.TryWrite(address, new byte[] { 44 }));
+        Assert.Equal(33, chain[2].Pixels[0]); // queued draw owns its historical snapshot
+    }
+
+    [Fact]
+    public void TruncatedMipChainDoesNotPublishPartialSnapshot()
+    {
+        var memory = new FakeCpuMemory(0x40000, 512);
+        Assert.False(AgcExports.TryReadLinearRgba8MipChain(memory, 0x40000, 2, 2, 2, 2, out var chain));
+        Assert.Empty(chain);
+    }
+
+    [Theory]
+    [InlineData(0u, 2u, 2u, 2u)]
+    [InlineData(2u, 2u, 1u, 2u)]
+    [InlineData(2u, 2u, 3u, 2u)]
+    [InlineData(2u, 2u, 2u, 3u)]
+    [InlineData(2u, 2u, 2u, 1u)]
+    [InlineData(8193u, 2u, 8193u, 2u)]
+    public void InvalidMipChainDimensionsAreRejected(uint width, uint height, uint pitch, uint levels)
+    {
+        var memory = new FakeCpuMemory(0x50000, 1024);
+        Assert.False(AgcExports.TryReadLinearRgba8MipChain(memory, 0x50000, width, height, pitch, levels, out var chain));
+        Assert.Empty(chain);
+    }
+
+    [Fact]
+    public void MipChainAddressOverflowIsRejected()
+    {
+        var memory = new FakeCpuMemory(0x60000, 1024);
+        Assert.False(AgcExports.TryReadLinearRgba8MipChain(memory, ulong.MaxValue - 255, 2, 2, 2, 2, out var chain));
+        Assert.Empty(chain);
+    }
+
+    [Fact]
+    public void TexturePayloadAccountingIncludesLowerMipSnapshots()
+    {
+        var texture = new GuestDrawTexture(0x70000, 2, 2, 10, 0, new byte[512], false, false,
+            AdditionalMips: [new GuestTextureMip(1, 1, 64, new byte[256])]);
+        Assert.Equal(768UL, VulkanVideoPresenter.GetTexturePayloadBytesForTests([texture]));
+    }
+
+    [Fact]
     public void SingleChannelAltReverse_RoutesAlphaIntoTheStoredChannel()
     {
         Assert.Equal(

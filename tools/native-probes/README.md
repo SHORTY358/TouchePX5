@@ -109,3 +109,26 @@ The independent oracle mixes its four texels with `tx=clamp(2u-0.5)` and
 and presentation resampling; alpha and the outside background remain exact. The nearest
 oracle must reject the filtered output. Three native captures passed and the gradient PNG
 was visually inspected. This is aggregate case twelve; mip selection remains untested.
+
+`-Mip` supplies a red 2x2 base level and a blue 1x1 lower level in a linear RGBA8 chain,
+with the lower level first in memory and the base level starting at byte offset 256.
+Explicit LOD changes from 0 to 1; the third draw rewrites only the lower level to red.
+Expected captures are red/blue/red. The initial reproducer failed at LOD 1 because the
+standalone Vulkan upload allocated only one mip. The fix transports independent CPU
+snapshots for the lower levels and uploads each to its own image subresource.
+
+Scope: CPU-authored linear 2D RGBA8 UNORM, implicit width-derived pitch, base view level 0, with no existing backend
+image at that address. Tiled, array, storage, nonzero-base views and GPU-written mip
+chains retain their existing behavior. Full chains currently use transient per-draw
+uploads for correctness; caching/performance optimization is future work. Payload
+accounting includes lower levels. Ten added unit cases cover padded/odd dimensions,
+independent snapshots, invalid/truncated layouts, address overflow and payload size.
+The aggregate's thirteenth case adds the lower-level-only rewrite check.
+
+Layout reference: AMD's [GFX10 AddrLib implementation](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/imported/addrlib/src/gfx10/gfx10addrlib.cpp),
+`HwlComputeSurfaceInfoLinear`, and `GetMipSize` in the sibling header. Levels are packed
+from smallest to largest; storage dimensions use ceiling division and rows align to 256
+bytes. Vulkan mip extents still use floor division. The first experimental fixture and
+reader both assumed base-first order; the mip result in
+`artifacts/native-gpu/20260924-115830-882/report.json` is superseded and must not be used
+as evidence for GFX10 mip layout correctness. Both were corrected after source validation.

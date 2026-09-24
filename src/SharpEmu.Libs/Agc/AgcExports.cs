@@ -10465,6 +10465,26 @@ public static partial class AgcExports
             !_arrayUploadUnsupported.ContainsKey(descriptor.Address);
         var arrayUploadLayers = wantsArrayUpload ? descriptor.Depth : 1u;
 
+        // Keep CPU-authored linear mip chains distinct from GPU-rendered images.
+        // Snapshot every level together; a base-only cache identity cannot prove
+        // that lower levels are unchanged. Tiled/array/storage layouts keep their
+        // existing paths until their full-chain layout is implemented.
+        if (!isStorage && !isArrayed && descriptor.Type == Gen5TextureType2D &&
+            descriptor.TileMode == 0 && descriptor.Format == 10 && descriptor.NumberType == 0 &&
+            descriptor.ViewBaseLevel == 0 && descriptor.ResourceMipLevels > 1 &&
+            !GuestGpu.Current.TryGetGuestImageExtent(descriptor.Address, out _, out _, out _) &&
+            TryReadLinearRgba8MipChain(ctx.Memory, descriptor.Address, descriptor.Width,
+                descriptor.Height, Math.Max(descriptor.Width, descriptor.Pitch),
+                descriptor.ResourceMipLevels, out var mipChain))
+        {
+            texture = new GuestDrawTexture(descriptor.Address, descriptor.Width, descriptor.Height,
+                descriptor.Format, descriptor.NumberType, mipChain[0].Pixels, false, false,
+                MipLevels: descriptor.MipLevels, ResourceMipLevels: descriptor.ResourceMipLevels,
+                Pitch: mipChain[0].Pitch, DstSelect: descriptor.DstSelect,
+                Sampler: ToGuestSampler(samplerDescriptor), AdditionalMips: mipChain[1..]);
+            return true;
+        }
+
         // Upload-known (not plain availability): the presenter's answer goes
         // generation-stale when the guest CPU rewrites a CPU-backed image
         // (video planes, streamed font atlases), which routes this draw back
@@ -10947,6 +10967,42 @@ public static partial class AgcExports
             ArrayedView: isArrayed,
             Type: descriptor.Type,
             Depth: textureDepth);
+        return true;
+    }
+
+    internal static bool TryReadLinearRgba8MipChain(
+        ICpuMemory memory, ulong address, uint width, uint height, uint pitch,
+        uint levels, out GuestTextureMip[] chain)
+    {
+        chain = [];
+        if (address == 0 || width == 0 || height == 0 || width > 8192 || height > 8192 ||
+            pitch != width || levels < 2 || levels > 14)
+            return false;
+        uint maxLevels = 1;
+        for (var dimension = Math.Max(width, height); dimension > 1; dimension >>= 1) maxLevels++;
+        if (levels > maxLevels) return false;
+        var result = new GuestTextureMip[levels];
+        ulong offset = 0;
+        // AMD AddrLib Gfx10Lib::HwlComputeSurfaceInfoLinear packs the smallest
+        // level first. GetMipSize rounds storage dimensions UP before aligning
+        // rows, while Vulkan's visible mip extent rounds dimensions down.
+        for (var level = (int)levels - 1; level >= 0; level--)
+        {
+            var w = Math.Max(1u, width >> level);
+            var h = Math.Max(1u, height >> level);
+            var divisor = 1u << level;
+            var storageWidth = (width + divisor - 1) / divisor;
+            var storageHeight = (height + divisor - 1) / divisor;
+            var row = GetLinearTexturePitch(storageWidth, storageHeight, 10);
+            var bytes = (ulong)row * storageHeight * 4;
+            if (offset + bytes > MaxPresentedTextureBytes || address > ulong.MaxValue - offset - bytes)
+                return false;
+            var pixels = new byte[checked((int)bytes)];
+            if (!memory.TryRead(address + offset, pixels)) return false;
+            result[level] = new GuestTextureMip(w, h, row, pixels);
+            offset += bytes;
+        }
+        chain = result;
         return true;
     }
 

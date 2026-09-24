@@ -4,6 +4,22 @@ This checkout is an experimental emulator. Commercial PS5 game compatibility and
 playability have not been demonstrated. No supported overall completion percentage or
 completion date can be inferred from the tests below.
 
+## Latest runtime change
+
+CPU-authored linear 2D RGBA8 UNORM mip chains now reach separate Vulkan image levels.
+The native `-Mip` case verifies LOD 0, LOD 1 and a CPU rewrite of only LOD 1 with
+red/blue/red captures (`artifacts/texture-mip-addrlib.log`). All 1,235 unit tests passed
+after rebuilding (`artifacts/mip-addrlib-tests.log`). The new aggregate has 13 cases;
+its full run after the layout correction is still pending.
+
+Layout was checked against AMD AddrLib GFX10: smallest level first, ceiling-rounded
+storage dimensions, 256-byte rows. The initial base-first experimental result in
+`artifacts/native-gpu/20260924-115830-882/report.json` is superseded for mip correctness.
+See the native-probes README for primary source links and explicit scope limits.
+Mip chains currently use per-draw snapshots/uploads, so this is a correctness change,
+not a performance claim. Tiled/array/storage/GPU-written chains and nonzero base views
+are not newly supported by this change.
+
 ## Verified
 
 - DRAW_INDEX_2 now reads its inline index-buffer address and maximum count, rather than

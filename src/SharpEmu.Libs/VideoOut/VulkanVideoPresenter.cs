@@ -4014,6 +4014,11 @@ internal static unsafe class VulkanVideoPresenter
         foreach (var texture in textures)
         {
             bytes = SaturatingAdd(bytes, (ulong)texture.RgbaPixels.LongLength);
+            if (texture.AdditionalMips is { } mips)
+            {
+                foreach (var mip in mips)
+                    bytes = SaturatingAdd(bytes, (ulong)mip.Pixels.LongLength);
+            }
             if (texture.TiledSource is { } tiledSource &&
                 !ReferenceEquals(tiledSource, texture.RgbaPixels))
             {
@@ -4650,6 +4655,8 @@ internal static unsafe class VulkanVideoPresenter
             public uint DstSelect;
             public uint Layers = 1;
             public uint MipLevel;
+            public uint UploadMipLevels = 1;
+            public BufferImageCopy[]? MipCopies;
             public bool NeedsUpload;
             public bool OwnsStorage;
             public bool IsStorage;
@@ -9937,6 +9944,11 @@ internal static unsafe class VulkanVideoPresenter
         [MethodImpl(MethodImplOptions.NoInlining)]
         private TextureResource ResolveTextureResource(GuestDrawTexture texture)
         {
+            if (texture.AdditionalMips is { Length: > 0 })
+            {
+                // A full CPU mip snapshot must not alias a base-only cached image.
+                return CreateTextureResource(texture, registerGuestImage: false);
+            }
             if (texture.IsStorage)
             {
                 return ResolveStorageImageResource(texture);
@@ -11229,6 +11241,8 @@ internal static unsafe class VulkanVideoPresenter
             GuestDrawTexture texture,
             bool registerGuestImage = true)
         {
+            var uploadMipLevels = (uint)(texture.AdditionalMips?.Length ?? 0) + 1;
+            BufferImageCopy[]? mipCopies = null;
             var width = Math.Max(texture.Width, 1);
             var height = Math.Max(texture.Height, 1);
             var depth = GetGuestTextureDepth(texture.Type, texture.Depth);
@@ -11337,6 +11351,36 @@ internal static unsafe class VulkanVideoPresenter
                 var uploadPixels = texture.Format == 13
                     ? ExpandRgb32Pixels(pixels)
                     : pixels;
+                if (texture.AdditionalMips is { Length: > 0 } additionalMips)
+                {
+                    var totalBytes = uploadPixels.Length;
+                    foreach (var mip in additionalMips) totalBytes = checked(totalBytes + mip.Pixels.Length);
+                    var combined = new byte[totalBytes];
+                    uploadPixels.CopyTo(combined, 0);
+                    mipCopies = new BufferImageCopy[uploadMipLevels];
+                    mipCopies[0] = new BufferImageCopy
+                    {
+                        BufferRowLength = rowLength,
+                        ImageSubresource = new ImageSubresourceLayers { AspectMask = ImageAspectFlags.ColorBit, LayerCount = 1 },
+                        ImageExtent = new Extent3D(width, height, 1),
+                    };
+                    var offset = uploadPixels.Length;
+                    for (var index = 0; index < additionalMips.Length; index++)
+                    {
+                        var mip = additionalMips[index];
+                        mip.Pixels.CopyTo(combined, offset);
+                        mipCopies[index + 1] = new BufferImageCopy
+                        {
+                            BufferOffset = (ulong)offset,
+                            BufferRowLength = mip.Pitch,
+                            ImageSubresource = new ImageSubresourceLayers
+                            { AspectMask = ImageAspectFlags.ColorBit, MipLevel = (uint)index + 1, LayerCount = 1 },
+                            ImageExtent = new Extent3D(mip.Width, mip.Height, 1),
+                        };
+                        offset += mip.Pixels.Length;
+                    }
+                    uploadPixels = combined;
+                }
                 contentFingerprint = ComputeTextureContentFingerprint(pixels);
                 (stagingBuffer, stagingMemory) = CreateTextureStagingBuffer(
                     uploadPixels,
@@ -11359,7 +11403,7 @@ internal static unsafe class VulkanVideoPresenter
                 ImageType = GetGuestTextureImageType(texture.Type),
                 Format = vkFormat,
                 Extent = new Extent3D(width, height, depth),
-                MipLevels = 1,
+                MipLevels = uploadMipLevels,
                 ArrayLayers = layers,
                 Samples = SampleCountFlags.Count1Bit,
                 Tiling = ImageTiling.Optimal,
@@ -11397,7 +11441,7 @@ internal static unsafe class VulkanVideoPresenter
                     texture.ArrayedView),
                 Format = vkFormat,
                 Components = ToVkComponentMapping(texture.DstSelect),
-                SubresourceRange = ColorSubresourceRange(layerCount: layers),
+                SubresourceRange = ColorSubresourceRange(0, Math.Min(texture.MipLevels, uploadMipLevels), layers),
             };
             var viewUsage = new ImageViewUsageCreateInfo
             {
@@ -11502,6 +11546,8 @@ internal static unsafe class VulkanVideoPresenter
                 DstSelect = texture.DstSelect,
                 Layers = layers,
                 NeedsUpload = !gpuDetiled,
+                UploadMipLevels = uploadMipLevels,
+                MipCopies = mipCopies,
                 OwnsStorage = true,
                 SamplerState = texture.Sampler,
                 CpuContentFingerprint = contentFingerprint,
@@ -19380,7 +19426,7 @@ internal static unsafe class VulkanVideoPresenter
                     Image = texture.Image,
                     SubresourceRange = ColorSubresourceRange(
                         texture.MipLevel,
-                        1,
+                        texture.UploadMipLevels,
                         texture.Layers),
                 };
                 _vk.CmdPipelineBarrier(
@@ -19413,7 +19459,13 @@ internal static unsafe class VulkanVideoPresenter
                         texture.Height,
                         texture.Depth),
                 };
-                _vk.CmdCopyBufferToImage(
+                if (texture.MipCopies is { } copies)
+                {
+                    fixed (BufferImageCopy* regions = copies)
+                        _vk.CmdCopyBufferToImage(_commandBuffer, texture.StagingBuffer, texture.Image,
+                            ImageLayout.TransferDstOptimal, (uint)copies.Length, regions);
+                }
+                else _vk.CmdCopyBufferToImage(
                     _commandBuffer,
                     texture.StagingBuffer,
                     texture.Image,
@@ -19433,7 +19485,7 @@ internal static unsafe class VulkanVideoPresenter
                     Image = texture.Image,
                     SubresourceRange = ColorSubresourceRange(
                         texture.MipLevel,
-                        1,
+                        texture.UploadMipLevels,
                         texture.Layers),
                 };
                 _vk.CmdPipelineBarrier(

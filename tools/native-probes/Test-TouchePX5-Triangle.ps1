@@ -1,7 +1,11 @@
 [CmdletBinding()]
-param([switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($Mip) {
+    if($LinearFilter -or $Perspective -or $TextureUv) { throw 'Mip test uses explicit constant LOD.' }
+    $TextureSelect=$true
+}
 if($Perspective) { $TextureUv=$true }
 if($LinearFilter) {
     if($Perspective) { throw 'Linear filter oracle currently requires affine UVs.' }
@@ -17,6 +21,7 @@ if($TextureSelect) { $root += '-select' }
 if($TextureUv) { $root += '-uv' }
 if($Perspective) { $root += '-perspective' }
 if($LinearFilter) { $root += '-linear' }
+if($Mip) { $root += '-mip' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
@@ -33,6 +38,7 @@ if($TextureSelect) { $defines += '-DTEST_TEXTURE_SELECT=1' }
 if($TextureUv) { $defines += '-DTEST_TEXTURE_UV=1' }
 if($Perspective) { $defines += '-DTEST_PERSPECTIVE=1' }
 if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
+if($Mip) { $defines += '-DTEST_MIP=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -155,6 +161,7 @@ public static class TextureUvVerifierV3 {
     Add-Type -AssemblyName System.Drawing
     foreach($frameIndex in 1..($captures.Count-1)) {
     $expectBlue=($frameIndex -eq ($captures.Count-1)) -or ($Texture -and $frameIndex -ge 2)
+    if($Mip) { $expectBlue=($frameIndex -eq 2) }
     $capture = $captures[$frameIndex].Groups[1].Value.Trim()
     $dimensions = [regex]::Match([IO.Path]::GetFileName($capture), '^present-\d+-(\d+)x(\d+)-B8G8R8A8Unorm\.bgra$')
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
@@ -206,6 +213,7 @@ public static class TextureUvVerifierV3 {
         TextureUv=[bool]$TextureUv
         Perspective=[bool]$Perspective
         LinearFilter=[bool]$LinearFilter
+        Mip=[bool]$Mip
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash
