@@ -14,7 +14,7 @@ static u64 addresses[1];
 static volatile u32 completed;
 static u32 commands[256];
 #ifdef TEST_TEXTURE
-static volatile u32 texel[64] __attribute__((aligned(256)));
+static volatile u32 texel[128] __attribute__((aligned(256)));
 #endif
 #ifdef TEST_DEPTH
 static u32 depth[320*180] __attribute__((aligned(256)));
@@ -38,7 +38,11 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
 #ifdef TEST_TEXTURE
+#ifdef TEST_TEXTURE_SELECT
+    0x7e00020c, 0x7e02020c, // u=v=s12
+#else
     0x7e0002f0, 0x7e0202f0, // sample at (0.5,0.5)
+#endif
     0xf09c0f08,0x00400400, // image_sample_lz v[4:7],v[0:1],s[0:7],s[8:11],dim2D
     0xbf8c0f70, // s_waitcnt vmcnt(0)
     0xf800180f,0x07060504,0xbf810000
@@ -103,6 +107,15 @@ int _start(void) {
     reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)); // RGBA8 UNORM, 1x1
     reg(0x76,0xe,0); reg(0x76,0xf,0x90000fac);
     for(int i=4;i<12;i++) reg(0x76,0xc+i,0);
+#ifdef TEST_TEXTURE_SELECT
+    texel[1]=0xff00ff00; // green traps detect swapped/missing coordinates
+    texel[64]=0xff00ff00; texel[65]=0xffff0000; // second row at 256-byte pitch
+    reg(0x76,0xb,13<<1);
+    reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)|(1u<<30)); // width=2
+    reg(0x76,0xe,1u<<14); // height=2
+    reg(0x76,0x10,1); // pitch=2 (linear upload rounds to hardware row alignment)
+    reg(0x76,0x18,0x3e800000); // sample red at (0.25,0.25)
+#endif
 #endif
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs
     reg(0x69,0x318,(u32)(target>>8)); reg(0x69,0x390,(u32)(target>>40));
@@ -133,7 +146,11 @@ int _start(void) {
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
 #ifdef TEST_TEXTURE
+#ifdef TEST_TEXTURE_SELECT
+    reg(0x76,0x18,0x3f400000); // sample blue at (0.75,0.75)
+#else
     texel[0]=0xffff0000; // same descriptor/address, now blue
+#endif
 #else
     reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue
 #endif

@@ -81,3 +81,10 @@ untracked-image content probe incorrectly returned "unchanged" before it had any
 for the uploaded bytes. It now requests one refresh to establish that baseline. The
 two-frame native reproducer passed after this runtime fix. The aggregate runner includes
 the extended three-frame regression as its eighth case.
+
+`-TextureSelect` uses an unchanged 2x2 RGBA8 image with rows at a 256-byte pitch:
+red/green on the first row and green/blue on the second. Both sampling coordinates
+change from 0.25 to 0.75, then repeat unchanged. Red/blue/blue captures verify selection
+of different texels and the padded second row. Green traps reject a missing coordinate
+change. This passed on the real device without an additional runtime change and is the
+ninth aggregate case. It still does not establish interpolated UV or mipmap correctness.

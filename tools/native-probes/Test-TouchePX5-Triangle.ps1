@@ -1,8 +1,10 @@
 [CmdletBinding()]
-param([switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($TextureSelect) { $Texture=$true }
 if($Texture) { $root += '-texture' }
+if($TextureSelect) { $root += '-select' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
@@ -15,6 +17,7 @@ $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $defines=@()
 if($Texture) { $defines += '-DTEST_TEXTURE=1' }
+if($TextureSelect) { $defines += '-DTEST_TEXTURE_SELECT=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -128,6 +131,7 @@ public static class TrianglePixelVerifierV5 {
     $report = [ordered]@{
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
         Texture=[bool]$Texture
+        TextureSelect=[bool]$TextureSelect
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash

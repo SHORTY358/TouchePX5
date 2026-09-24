@@ -35,10 +35,15 @@ All eight cases passed in `artifacts/native-gpu/20260924-070915-639/report.json`
 including the extended three-frame texture case. The executable differs from the older
 seven-case checkpoint; its exact hash is recorded in this newer report.
 
-Next useful graphics milestone: a two-color texture selected using different coordinates.
+The next native fixture also passed: `-TextureSelect` samples red and blue diagonal
+texels of a fixed 2x2 image, with green off-diagonal traps and a padded second row.
+Its three frames passed in `artifacts/texture-select-2d.log`. No additional runtime fix
+was required. The aggregate runner now includes this as a ninth case.
+All nine cases passed together in `artifacts/native-gpu/20260924-071323-129/report.json`.
 Inspect `tests/SharpEmu.ShaderCompiler.Tests/Gen5ImageTests.cs` and texture decoding in
 `src/SharpEmu.Libs/Agc/AgcExports.cs` before choosing the descriptor and shader encoding.
-Coordinate selection is planned, not yet implemented or passed.
+Next graphics milestone: interpolated UV coordinates across a triangle, with a spatial
+pixel oracle, then filtering and mip selection. These remain unimplemented fixtures.
 
 The older 27-case engineering report predates the indexed-parser fix; it must not be
 described as revalidated by this seven-case GPU run. Physical controller operation and
