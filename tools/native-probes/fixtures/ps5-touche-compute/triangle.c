@@ -27,7 +27,7 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0xbf810000
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
-    0x7e000200, 0x7e020280, 0x7e040201, 0x7e0602f2, // R=s0, G=0, B=s1, A=1
+    0x7e000200, 0x7e020280, 0x7e040201, 0x7e060202, // R=s0, G=0, B=s1, A=s2
     0xf800180f,0x03020100, 0xbf810000
 };
 static int n;
@@ -66,8 +66,9 @@ int _start(void) {
     u64 vs=(u64)vertex, ps=(u64)pixel, target=(u64)pixels, label=(u64)&completed;
     reg(0x76,0xc8,(u32)(vs>>8)); reg(0x76,0xc9,(u32)(vs>>40));
     reg(0x76,0x8,(u32)(ps>>8)); reg(0x76,0x9,(u32)(ps>>40));
-    reg(0x76,0xcb,0); reg(0x76,0xb,2<<1); // PS reads two user SGPRs
+    reg(0x76,0xcb,0); reg(0x76,0xb,3<<1); // PS reads three user SGPRs
     reg(0x76,0xc,0x3f800000); reg(0x76,0xd,0); // red
+    reg(0x76,0xe,0x3f800000); // alpha 1
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs
     reg(0x69,0x318,(u32)(target>>8)); reg(0x69,0x390,(u32)(target>>40));
     reg(0x69,0x3b0,(319<<14)|179); reg(0x69,0x3b8,0);
@@ -91,6 +92,11 @@ int _start(void) {
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
     reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue
+#ifdef TEST_BLEND
+    reg(0x76,0xe,0x3f000000); // source alpha 0.5
+    // RGB: src*srcAlpha + dst*(1-srcAlpha). Alpha: src + dst*(1-srcAlpha).
+    reg(0x69,0x1e0,(1u<<30)|(1u<<29)|(5u<<24)|(1u<<16)|(5u<<8)|4u);
+#endif
 #ifdef INDEX_BITS
     // A stale INDEX_BASE must not override the next DRAW_INDEX_2 inline base.
     u64 stale=(u64)stale_indices;

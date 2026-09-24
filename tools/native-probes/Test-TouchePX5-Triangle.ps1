@@ -1,7 +1,8 @@
 [CmdletBinding()]
-param([switch]$Scissor, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($Blend) { $root += '-blend' }
 if($Scissor) { $root += '-scissor' }
 if($IndexBits) { $root += "-index$IndexBits" }
 New-Item -ItemType Directory -Path $root -Force | Out-Null
@@ -9,6 +10,7 @@ Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorActi
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $defines=@()
+if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
 & $clang --target=x86_64-pc-linux-gnu -O1 -ffreestanding -fno-builtin -fno-stack-protector -fpie -mno-sse @defines -c (Join-Path $fixture 'triangle.c') -o (Join-Path $root 'triangle.o')
@@ -50,11 +52,11 @@ try {
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
     if($captures.Count -ne 3) { throw "Expected three swapchain captures: $log" }
     if([regex]::Matches($output,'vk.offscreen_draw mrt=1 size=320x180 textures=0').Count -ne 2 -or $output.Contains('agc.shader_translate_miss')) { throw 'Missing two successful translated raster draws.' }
-    if(-not ('TrianglePixelVerifierV4' -as [type])) {
+    if(-not ('TrianglePixelVerifierV5' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
-public static class TrianglePixelVerifierV4 {
-    public static int Check(byte[] data, int width, int height, bool blue, bool scissor, bool indexed) {
+public static class TrianglePixelVerifierV5 {
+    public static int Check(byte[] data, int width, int height, bool blue, bool scissor, bool indexed, bool blend) {
         if (data.Length != checked(width * height * 4)) throw new Exception("Invalid capture size");
         int redCount = 0;
         for(int y=0;y<height;y++) for(int x=0;x<width;x++) {
@@ -62,7 +64,10 @@ public static class TrianglePixelVerifierV4 {
             int channel=blue ? 0 : 2, other=blue ? 2 : 0;
             bool red=data[p+other]==0 && data[p+1]==0 && data[p+channel]==255;
             bool black=data[p]==0 && data[p+1]==0 && data[p+2]==0;
-            if(data[p+other]!=0 || data[p+1]!=0 || data[p+3]!=data[p+channel]) throw new Exception("Unexpected color at " + x + "," + y);
+            if(blue && blend) {
+                red=data[p]>=127 && data[p]<=128 && data[p+2]>=127 && data[p+2]<=128 && data[p+3]==255;
+                if(data[p+1]!=0 || Math.Abs(data[p]-data[p+2])>1 || Math.Abs(data[p+3]-2*data[p+2])>2) throw new Exception("Blend color mismatch at " + x + "," + y);
+            } else if(data[p+other]!=0 || data[p+1]!=0 || data[p+3]!=data[p+channel]) throw new Exception("Unexpected color at " + x + "," + y);
             if(red) redCount++;
             double sx=(x+0.5)*320/width, sy=(y+0.5)*180/height;
             if(indexed) sx=320-sx;
@@ -91,14 +96,14 @@ public static class TrianglePixelVerifierV4 {
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
-    $coloredPixels=[TrianglePixelVerifierV4]::Check($gpuBytes,$width,$height,($frameIndex -eq 2),[bool]$Scissor,($IndexBits -ne 0))
+    $coloredPixels=[TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,($frameIndex -eq 2),[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend)
     if($frameIndex -eq 1) {
         $rejectedBlank=$false; $rejectedWrongColor=$false
-        try { [TrianglePixelVerifierV4]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Scissor,($IndexBits -ne 0)) | Out-Null } catch { $rejectedBlank=$true }
-        try { [TrianglePixelVerifierV4]::Check($gpuBytes,$width,$height,$true,[bool]$Scissor,($IndexBits -ne 0)) | Out-Null } catch { $rejectedWrongColor=$true }
+        try { [TrianglePixelVerifierV5]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedBlank=$true }
+        try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$true,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedWrongColor=$true }
         if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'Triangle verifier accepted a negative control.' }
     }
-    $color=if($frameIndex -eq 2) { 'blue' } else { 'red' }
+    $color=if($frameIndex -eq 2 -and $Blend) { 'purple' } elseif($frameIndex -eq 2) { 'blue' } else { 'red' }
     Write-Output "PASS: $color GPU triangle verified across $($width*$height) pixels ($coloredPixels colored)."
     $bitmap=[Drawing.Bitmap]::new($width,$height,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
@@ -111,7 +116,7 @@ public static class TrianglePixelVerifierV4 {
     $verifiedFrames += [ordered]@{ Color=$color; Width=$width; Height=$height; ColoredPixels=$coloredPixels; Capture=$capture; Sha256=(Get-FileHash -LiteralPath $capture).Hash }
     }
     $report = [ordered]@{
-        Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits
+        Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash

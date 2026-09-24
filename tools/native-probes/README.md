@@ -20,7 +20,7 @@ with the source revision, executable hash, individual results and copied guest l
 
 Verified on GTX 1060 3 GB at 1920x1061: 2,037,120 pixels per raster capture, 563,461 fully
 colored triangle pixels in each. These are controlled compute/raster tests, not commercial
-game compatibility. Depth, textures, blending and more complex geometry remain
+game compatibility. Depth, textures and more complex geometry remain
 separate next steps.
 
 Raster outputs: `artifacts/smoke-triangle/triangle-red.png`, `triangle-blue.png`,
@@ -47,3 +47,9 @@ The indexed probe failed before the DRAW_INDEX_2 fix: the parser read the draw c
 ignored the inline index base and maximum count. The corrected parser validates these fields
 before updating queue state. The 16-bit real-GPU probe then passed for both colors; all 1,225
 unit tests also passed after rebuilding. Full combined-run results live in the timestamped report.
+
+`-Blend` draws half-transparent blue over opaque red with separate alpha factors. The second
+capture must be purple (red/blue 127 or 128, alpha 255 in the interior); the old red target
+contents must survive for blending to succeed. The checker rejects incorrect channels,
+coverage and area, and permits only the narrow filtered edge band. This passed on the real
+Vulkan device. The combined runner includes this as its sixth case.
