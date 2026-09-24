@@ -37,6 +37,10 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0x7e040280, 0x7e0602f2, // z=0, w=1
 #endif
 #ifdef TEST_TEXTURE_UV
+#ifdef TEST_PERSPECTIVE
+    0x06100cf2, // v8=1+u: W is 1,2,1 at the three vertices
+    0x10000108,0x10020308,0x7e060308, // scale clip X/Y by W; v3=W
+#endif
     0xf800020f,0x03020706, // exp param0 v6,v7,v2,v3
 #endif
     0xf80008cf,0x03020100, // exp pos0 v0,v1,v2,v3 done

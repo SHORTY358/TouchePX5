@@ -47,8 +47,12 @@ show red, blue and green regions in their expected positions. A spatial pixel or
 visual inspection of `artifacts/smoke-triangle-texture-select-uv/triangle-1-textured.png`
 verify this. The tenth aggregate case covers this fixture. No new runtime fix was needed.
 All ten cases passed together in `artifacts/native-gpu/20260924-071713-770/report.json`.
-Filtering, mip selection and perspective correction with unequal vertex W remain future
-checks; the current UV triangle has W=1 at every vertex.
+The unequal-W perspective fixture also passed all three captures in
+`artifacts/texture-perspective-test.log`. Its independent CPU oracle applies reciprocal-W
+weighting, and the aggregate runner includes it as case eleven. Filtering and mip
+selection remain future checks.
+All eleven cases passed in `artifacts/native-gpu/20260924-114233-465/report.json`,
+including rejection of the incorrect affine oracle for the perspective captures.
 
 The older 27-case engineering report predates the indexed-parser fix; it must not be
 described as revalidated by this seven-case GPU run. Physical controller operation and

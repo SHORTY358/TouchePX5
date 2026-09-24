@@ -96,3 +96,9 @@ checks each region's position, solid colors, alpha, background and total area, e
 only narrow filtered edge bands. Blank output and swapped red/blue expectations must fail.
 Three captures passed, and the PNG was visually inspected. This is the tenth aggregate
 case; mipmaps and nontrivial perspective correction are still separate future checks.
+
+`-Perspective` preserves screen geometry but uses clip W=1,2,1. The CPU oracle computes
+perspective UVs as `(u/2, v)/(1-u/2)` from screen barycentric coordinates, independently
+of the shader code. The blue boundary moves from screen x=160 to x=200 and the green
+boundary becomes slanted. The ordinary affine oracle must reject this output. This is
+the eleventh aggregate case; the first native run passed all three captures.
