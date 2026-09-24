@@ -9,8 +9,9 @@ completion date can be inferred from the tests below.
 CPU-authored linear 2D RGBA8 UNORM mip chains now reach separate Vulkan image levels.
 The native `-Mip` case verifies LOD 0, LOD 1 and a CPU rewrite of only LOD 1 with
 red/blue/red captures (`artifacts/texture-mip-addrlib.log`). All 1,235 unit tests passed
-after rebuilding (`artifacts/mip-addrlib-tests.log`). The new aggregate has 13 cases;
-its full run after the layout correction is still pending.
+after rebuilding (`artifacts/mip-addrlib-tests.log`). All 13 native GPU cases passed
+after the layout correction in `artifacts/native-gpu/20260924-120303-210/report.json`,
+on clean source revision b372dd2.
 
 Layout was checked against AMD AddrLib GFX10: smallest level first, ceiling-rounded
 storage dimensions, 256-byte rows. The initial base-first experimental result in
