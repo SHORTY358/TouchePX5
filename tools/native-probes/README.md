@@ -20,16 +20,16 @@ with the source revision, executable hash, individual results and copied guest l
 
 Verified on GTX 1060 3 GB at 1920x1061: 2,037,120 pixels per raster capture, 563,461 fully
 colored triangle pixels in each. These are controlled compute/raster tests, not commercial
-game compatibility. Depth, textures and more complex geometry remain
+game compatibility. Textures and more complex geometry remain
 separate next steps.
 
-Raster outputs: `artifacts/smoke-triangle/triangle-red.png`, `triangle-blue.png`,
+Raster outputs: `artifacts/smoke-triangle/triangle-1-red.png`, `triangle-2-blue.png`,
 `triangle.log` and `verification.json`; unique raw capture directories are retained too.
 Compute log: `artifacts/smoke-compute/compute.log`.
 
 The initial triangle fixture omitted PS input masks and shader user-SGPR resource registers.
 The corrected fixture supplies those registers explicitly. No emulator implementation change
-was required to pass these GPU probes.
+was required for the original non-indexed probes; the indexed parser fix is described below.
 
 These files are kept here because Windows denied writes to the original OneDrive fixture
 folder. Security settings were not changed. The old OneDrive triangle script remains an
@@ -53,3 +53,17 @@ capture must be purple (red/blue 127 or 128, alpha 255 in the interior); the old
 contents must survive for blending to succeed. The checker rejects incorrect channels,
 coverage and area, and permits only the narrow filtered edge band. This passed on the real
 Vulkan device. The combined runner includes this as its sixth case.
+
+## Depth ordering
+
+`-Depth` uses a D32 attachment cleared to 1.0, with LESS comparison and depth writes.
+An ordinary red draw at 0.25 follows the clear draw. Blue at 0.75 must remain hidden;
+blue at 0.125 must replace red. The three checked captures must therefore be red, red,
+blue, including complete pixel coverage checks. The combined runner now has seven cases.
+
+The vertex shader reads depth from s8: merged ES user data begins there, whereas PS
+color inputs begin at s0. Clear mode initializes the attachment without writing geometry
+depth, so the separate ordinary red draw is necessary. Correcting these fixture mistakes
+made the real GPU depth probe pass; no emulator depth implementation change was needed.
+Depth outputs are under `artifacts/smoke-triangle-depth/`, with numbered PNGs and JSON.
+Depth and blend are deliberately separate scenarios and cannot be combined in this runner.

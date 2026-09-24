@@ -12,7 +12,10 @@ static u32 pixels[320*180] __attribute__((aligned(256)));
 static unsigned char attribute[40];
 static u64 addresses[1];
 static volatile u32 completed;
-static u32 commands[128];
+static u32 commands[256];
+#ifdef TEST_DEPTH
+static u32 depth[320*180] __attribute__((aligned(256)));
+#endif
 static struct { u64 address; u32 count; u32 reserved; } submission;
 static const u32 vertex[] __attribute__((aligned(256))) = {
     0x36000a81, // v_and_b32 v0, 1, v5 (vertex index)
@@ -22,7 +25,11 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0x100202ff,0x3f400000, // v_mul_f32 v1,0.75,v1
     0x060000ff,0xbf400000, // v_add_f32 v0,-0.75,v0
     0x060202ff,0xbf400000, // v_add_f32 v1,-0.75,v1
+#ifdef TEST_DEPTH
+    0x7e040208, 0x7e0602f2, // merged ES user data starts at s8: z=s8, w=1
+#else
     0x7e040280, 0x7e0602f2, // z=0, w=1
+#endif
     0xf80008cf,0x03020100, // exp pos0 v0,v1,v2,v3 done
     0xbf810000
 };
@@ -67,6 +74,15 @@ int _start(void) {
     reg(0x76,0xc8,(u32)(vs>>8)); reg(0x76,0xc9,(u32)(vs>>40));
     reg(0x76,0x8,(u32)(ps>>8)); reg(0x76,0x9,(u32)(ps>>40));
     reg(0x76,0xcb,0); reg(0x76,0xb,3<<1); // PS reads three user SGPRs
+#ifdef TEST_DEPTH
+    reg(0x76,0xcb,1<<1); reg(0x76,0xcc,0x3e800000); // vertex Z=0.25
+    u64 ds=(u64)depth;
+    reg(0x69,0x7,319|(179<<16)); reg(0x69,0x10,3); // D32, 320x180
+    reg(0x69,0x12,(u32)(ds>>8)); reg(0x69,0x14,(u32)(ds>>8));
+    reg(0x69,0x1a,(u32)(ds>>40)); reg(0x69,0x1c,(u32)(ds>>40));
+    reg(0x69,0xb,0x3f800000); reg(0x69,0,1); // clear depth to 1
+    reg(0x69,0x200,0x16); // test/write enabled, LESS
+#endif
     reg(0x76,0xc,0x3f800000); reg(0x76,0xd,0); // red
     reg(0x76,0xe,0x3f800000); // alpha 1
     reg(0x69,0x1b3,0); reg(0x69,0x1b4,0); // constant PS has no interpolated inputs
@@ -80,6 +96,12 @@ int _start(void) {
 #endif
     reg(0x79,0x242,4); // triangle list
     draw();
+#ifdef TEST_DEPTH
+    // DB clear draws initialize the attachment; geometry depth is written by
+    // a separate ordinary draw after disabling DEPTH_CLEAR_ENABLE.
+    reg(0x69,0,0);
+    draw();
+#endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=1; commands[n++]=0; commands[n++]=0;
@@ -92,6 +114,9 @@ int _start(void) {
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
     reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue
+#ifdef TEST_DEPTH
+    reg(0x69,0,0); reg(0x76,0xcc,0x3f400000); // keep depth; farther Z=0.75 must fail
+#endif
 #ifdef TEST_BLEND
     reg(0x76,0xe,0x3f000000); // source alpha 0.5
     // RGB: src*srcAlpha + dst*(1-srcAlpha). Alpha: src + dst*(1-srcAlpha).
@@ -113,6 +138,20 @@ int _start(void) {
     if(completed!=2) return 78;
     if(flip_slot(video,0,1,2)!=0) return 79;
     sleep_slot(3000000);
+#ifdef TEST_DEPTH
+    n=0;
+    reg(0x76,0xcc,0x3e000000); // nearer blue Z=0.125 must pass
+    draw();
+    commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
+    commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
+    commands[n++]=3; commands[n++]=0; commands[n++]=0;
+    submission.count=(u32)n;
+    if(submit_slot(&submission)!=0) return 80;
+    for(int i=0;i<5000 && completed!=3;i++) sleep_slot(1000);
+    if(completed!=3) return 81;
+    if(flip_slot(video,0,1,3)!=0) return 82;
+    sleep_slot(3000000);
+#endif
     close_slot(video);
     return 0;
 }
