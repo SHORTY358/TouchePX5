@@ -86,7 +86,25 @@ static const unsigned short stale_indices[3]={0,1,2};
 static const u32 indices[3]={0,1,3};
 static const u32 stale_indices[3]={0,1,2};
 #endif
+#ifdef TEST_INDIRECT
+// The command processor copies firstInstance into the selected user register.
+// This test deliberately treats its raw float bits as vertex depth.
+static const u32 indirect_args[][4] __attribute__((aligned(16))) = {
+    {0,0,0,0}, // ignoring the nonzero packet offset draws nothing
+    {3,1,0,0x3e800000}, {3,1,0,0x3e800000},
+    {3,1,0,0x3f400000}, {3,1,0,0x3e000000}
+};
+static u32 indirect_draw;
+#endif
 static void draw(void) {
+#ifdef TEST_INDIRECT
+    u64 address=(u64)indirect_args;
+    commands[n++]=0xc0017600; commands[n++]=0xcc; commands[n++]=0x3f800000;
+    commands[n++]=0xc0021100; commands[n++]=1;
+    commands[n++]=(u32)address; commands[n++]=(u32)(address>>32);
+    commands[n++]=0xc0032400; commands[n++]=(++indirect_draw)*16;
+    commands[n++]=0xcd; commands[n++]=0xcc; commands[n++]=2;
+#else
 #ifdef INDEX_BITS
     u64 address=(u64)indices;
     commands[n++]=0xc0002a00; commands[n++]=(INDEX_BITS==32 ? 1 : 0);
@@ -96,6 +114,7 @@ static void draw(void) {
     commands[n++]=3; commands[n++]=0;
 #else
     commands[n++]=0xc0012d00; commands[n++]=3; commands[n++]=2;
+#endif
 #endif
 }
 static void reg(u32 opcode,u32 index,u32 value) {

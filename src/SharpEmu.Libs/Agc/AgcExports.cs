@@ -411,6 +411,15 @@ public static partial class AgcExports
         }
     }
 
+    internal static uint? GetSubmittedGraphicsShRegisterForDiagnostics(CpuContext ctx, uint register)
+    {
+        var state = _submittedGpuStates.GetValue(ctx.Memory, static _ => new SubmittedGpuState());
+        lock (state.Gate)
+        {
+            return state.Graphics.ShRegisters.TryGetValue(register, out var value) ? value : null;
+        }
+    }
+
     private static readonly RegisterDefaultGroup[] PrimaryRegisterDefaults =
         CreatePrimaryRegisterDefaults();
 
@@ -6858,6 +6867,16 @@ public static partial class AgcExports
             stride,
             commandSize);
 
+        // Single indirect packets name the SH registers receiving base vertex
+        // and first instance. These are persistent user-data writes, not just
+        // host draw offsets. Multi packets have additional controls handled separately.
+        var writesUserData = op is ItDrawIndirect or ItDrawIndexIndirect;
+        uint vertexRegister = 0, instanceRegister = 0;
+        if (writesUserData &&
+            (!TryReadUInt32(ctx, packetAddress + 8, out vertexRegister) ||
+             !TryReadUInt32(ctx, packetAddress + 12, out instanceRegister)))
+            return false;
+
         var savedDrawIndexOffset = state.DrawIndexOffset;
         var hadBaseVertex = state.UcRegisters.TryGetValue(GeIndxOffset, out var savedBaseVertex);
         try
@@ -6901,6 +6920,14 @@ public static partial class AgcExports
                 else
                 {
                     state.DrawIndexOffset = 0;
+                }
+
+                if (writesUserData)
+                {
+                    if (!TryReadUInt32(ctx, args + (indexed ? 16UL : 12UL), out var firstInstance))
+                        break;
+                    state.ShRegisters[vertexRegister & 0xFFFFu] = baseVertex;
+                    state.ShRegisters[instanceRegister & 0xFFFFu] = firstInstance;
                 }
 
                 state.UcRegisters[GeIndxOffset] = baseVertex;

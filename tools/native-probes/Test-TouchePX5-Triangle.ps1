@@ -1,6 +1,10 @@
 [CmdletBinding()]
-param([switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($Indirect) {
+    if($Scissor -or $Blend -or $IndexBits) { throw 'Indirect probe requires its standalone depth layout.' }
+    $Depth=$true
+}
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
@@ -47,6 +51,7 @@ if($MipOdd) { $root += '-odd' }
 if($MipCachePressure) { $root += '-pressure' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
+if($Indirect) { $root += '-indirect' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
 if($Scissor) { $root += '-scissor' }
@@ -71,6 +76,7 @@ if($Mip2D) { $defines += '-DTEST_MIP_2D=1' }
 if($MipOdd) { $defines += '-DTEST_MIP_ODD=1' }
 if($MipCachePressure) { $defines += '-DTEST_MIP_CACHE_PRESSURE=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
+if($Indirect) { $defines += '-DTEST_INDIRECT=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -100,14 +106,18 @@ try {
         $previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')
         [Environment]::SetEnvironmentVariable($name,$settings[$name],'Process')
     }
-    & 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe' '--cpu-engine=native' '--fps-limit=60' '--log-level=info' "--log-file=$log" $guest
-    if ($LASTEXITCODE -ne 0) { throw "Triangle launch failed: $log" }
-    $deadline = [DateTime]::UtcNow.AddSeconds(20)
-    do {
-        $output = if (Test-Path -LiteralPath $log) { '' + (Get-Content -LiteralPath $log -Raw) } else { '' }
-        if ($output.Contains('TouchePx5 execution completed.')) { break }
-        Start-Sleep -Milliseconds 100
-    } while ([DateTime]::UtcNow -lt $deadline)
+    # The app host is a Windows GUI executable: direct invocation can return
+    # before it exits. Wait for this exact child before inspecting its final log.
+    $guestProcess=Start-Process -FilePath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe' -ArgumentList @('--cpu-engine=native','--fps-limit=60','--log-level=info',"--log-file=$log",$guest) -WindowStyle Hidden -PassThru
+    try {
+        if(-not $guestProcess.WaitForExit(60000)) {
+            $guestProcess.Kill()
+            $guestProcess.WaitForExit(5000) | Out-Null
+            throw "Triangle guest timed out after 60 seconds: $log"
+        }
+        if($guestProcess.ExitCode -ne 0) { throw "Triangle launch failed ($($guestProcess.ExitCode)): $log" }
+    } finally { $guestProcess.Dispose() }
+    $output = if (Test-Path -LiteralPath $log) { '' + (Get-Content -LiteralPath $log -Raw) } else { '' }
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Triangle guest failed: $log" }
     if ($output.Contains('agc.shader_color_clear')) { throw 'Triangle unexpectedly became a fullscreen clear.' }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
@@ -306,6 +316,7 @@ public static class TextureUvVerifierV3 {
     }
     $report = [ordered]@{
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
+        Indirect=[bool]$Indirect
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect
         TextureUv=[bool]$TextureUv

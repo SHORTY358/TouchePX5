@@ -215,3 +215,21 @@ checks exact alpha independently from color and rejects opaque-alpha, wrong-colo
 and blank-image expectations. The unchanged draw reuses its upload; a lower-level
 rewrite creates a fresh upload. This tests endpoint selection, not interpolated
 BC3 alpha selectors or every BC3 encoding. BC3 sRGB remains outside this change.
+
+`-Indirect` adds the twenty-third case, using the depth scenario. Four DRAW_INDIRECT
+records follow a poison zero-count record; nonzero byte offsets must select each
+record. The packet's start-instance destination names the vertex user-data register
+used for Z. The test intentionally encodes float depth bits in firstInstance to
+isolate raw command-processor register writes; it does not claim first-instance
+indexing coverage. A preceding SET_SH_REG poisons Z to 1 before every draw. Expected
+frames are red/red/blue; the old parser leaves the third frame red. The single
+indexed and non-indexed packet variants also have argument-copy unit coverage.
+References: AMD [BuildDrawIndirect](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp)
+and the [PFP packet fields](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_pfp_pm4_packets.h).
+Multi-draw packet controls and general base-instance semantics are separate work.
+
+The triangle runner waits for the exact launched app-host process to exit before
+reading its log. A 60-second timeout stops only that child and fails the test;
+nonzero exit codes and all existing guest/pixel checks still fail. This replaces
+the GUI-executable invocation plus 20-second log polling, which could report failure
+while a slower guest was still finishing successfully.

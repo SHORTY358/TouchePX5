@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-09-25
+# Local engineering checkpoint — 2026-09-26
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,8 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/mip-bc3-build.log`).
-- All 1,247 unit tests passed (`artifacts/mip-bc3-tests.log`).
+- Latest Release build: no warnings/errors (`artifacts/indirect-register-build.log`).
+- All 1,249 unit tests passed (`artifacts/indirect-register-tests.log`).
+- Single indirect draws now copy argument values into the packet-selected shader
+  registers. A native depth probe failed before this fix (third frame remained red)
+  and passed afterward (red/red/blue): `artifacts/indirect-register-before-guest.log`
+  and `artifacts/indirect-register-after.log`. Unit checks cover both single packet
+  variants, nonzero argument offsets and a signed indexed base-vertex bit pattern.
+  The new 23-case aggregate is pending; the 22-case and general runs below predate
+  this fix. Multi-draw controls and general base-instance semantics remain separate.
+- The first post-fix probe hit the old runner's 20-second log deadline although
+  its guest later completed successfully. Preserved log:
+  `artifacts/indirect-register-after-timeout-guest.log`. The runner now waits for
+  its exact child process with a 60-second bound, then checks exit/log/pixels.
 - Initial cache revision passed all 15 native Vulkan cases:
   `artifacts/native-gpu/20260925-005443-656/report.json`.
 - Final cache ownership/trace revision passed all three mip view cases
