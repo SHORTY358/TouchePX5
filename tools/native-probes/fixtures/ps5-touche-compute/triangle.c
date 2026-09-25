@@ -183,6 +183,15 @@ int _start(void) {
     reg(0x76,0x15,256u<<12); // sampler max LOD=1
     reg(0x76,0x16,1u<<26); // nearest mip selection
     reg(0x76,0x18,0); // sample mip0
+#ifdef TEST_MIP_BC1
+    // BC1: 8-byte blocks, 256-byte rows. 4x4 mip1 precedes 8x8 mip0.
+    for(u32 i=0;i<192;i++) texel[i]=0;
+    texel[0]=0x001f; // blue RGB565 endpoint; every two-bit selector is zero
+    texel[64]=texel[66]=texel[128]=texel[130]=0xf800; // four red blocks
+    reg(0x76,0xd,(u32)(texture>>40)|(169u<<20)|(3u<<30));
+    reg(0x76,0xe,1u|(7u<<14)); // width=8, height=8
+    reg(0x76,0x10,7); // pitch=8 before block-row alignment
+#endif
 #endif
 #ifdef TEST_LINEAR_FILTER
     reg(0x76,0x14,2|(2<<3)|(2<<6)); // clamp to edge on every axis
@@ -288,6 +297,9 @@ int _start(void) {
     texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged
 #ifdef TEST_MIP_SRGB
     texel[0]=0x80000040; // R=64, A=128: RGB must decode, alpha must not
+#endif
+#ifdef TEST_MIP_BC1
+    texel[0]=0xf800; // only the lower compressed block changes to red
 #endif
 #endif
 #endif

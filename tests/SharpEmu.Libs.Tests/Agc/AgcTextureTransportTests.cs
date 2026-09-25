@@ -11,6 +11,37 @@ namespace SharpEmu.Libs.Tests.Agc;
 public sealed class AgcTextureTransportTests
 {
     [Fact]
+    public void LinearBc1MipChainUsesBlockStorageAndTexelCopyPitch()
+    {
+        const ulong address = 0x40000;
+        var memory = new FakeCpuMemory(address, 1536);
+        // 9x9 => 3x3 blocks, then 2x2, then 1x1; reversed storage,
+        // each block row 256 bytes. Visible levels are 9x9, 4x4, 2x2.
+        Assert.True(memory.TryWrite(address, new byte[] { 11 }));
+        Assert.True(memory.TryWrite(address + 256, new byte[] { 22 }));
+        Assert.True(memory.TryWrite(address + 768, new byte[] { 33 }));
+        Assert.True(AgcExports.TryReadLinearMipChain(memory, address, 9, 9, 9, 3, 169, out var chain));
+        Assert.Equal(new uint[] { 9, 4, 2 }, chain.Select(m => m.Width));
+        Assert.Equal(new uint[] { 9, 4, 2 }, chain.Select(m => m.Height));
+        Assert.All(chain, mip => Assert.Equal(128u, mip.Pitch)); // 32 blocks, 4 texels each
+        Assert.Equal(new int[] { 768, 512, 256 }, chain.Select(m => m.Pixels.Length));
+        Assert.Equal(new byte[] { 33, 22, 11 }, chain.Select(m => m.Pixels[0]));
+        Assert.True(memory.TryWrite(address, new byte[] { 99 }));
+        Assert.Equal(11, chain[2].Pixels[0]);
+    }
+
+    [Theory]
+    [InlineData(169, 767)] // BC1 8x8 + 4x4 requires 768 padded bytes
+    [InlineData(170, 768)] // BC1 sRGB is not yet in the supported subset
+    [InlineData(171, 768)] // BC2 layout has not been implemented here
+    public void UnsupportedOrTruncatedCompressedChainPublishesNothing(uint format, int size)
+    {
+        var memory = new FakeCpuMemory(0x40000, size);
+        Assert.False(AgcExports.TryReadLinearMipChain(memory, 0x40000, 8, 8, 8, 2, format, out var chain));
+        Assert.Empty(chain);
+    }
+
+    [Fact]
     public void LinearMipChainReadsPaddedRowsAndIndependentLowerLevels()
     {
         const ulong address = 0x30000;

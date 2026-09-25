@@ -117,7 +117,7 @@ Expected captures are red/blue/red. The initial reproducer failed at LOD 1 becau
 standalone Vulkan upload allocated only one mip. The fix transports independent CPU
 snapshots for the lower levels and uploads each to its own image subresource.
 
-Scope: CPU-authored linear 2D RGBA8 UNORM/sRGB, implicit width-derived pitch, with no existing backend
+Scope: CPU-authored linear 2D RGBA8 UNORM/sRGB or BC1 UNORM, implicit width-derived pitch, with no existing backend
 image at that address. Tiled, array, storage and GPU-written mip
 chains retain their existing behavior. Full chains retain per-draw CPU snapshots,
 but exact matches reuse an immutable Vulkan upload. The separate cache compares
@@ -175,6 +175,22 @@ the tested UNORM swapchain, the expected color channels are 55, 55 and 13 while
 alpha remains 128. It rejects a blank image and the incorrect no-decoding oracle.
 The pre-fix probe sampled blue from the allocation's first mip instead of red
 from the base: the full-chain AGC path previously excluded sRGB number type 9.
+
+`-MipBc1` is the twentieth case: an 8x8 red base (four BC1 blocks) follows a 4x4
+blue lower level, then only that lower block becomes red. Every block uses one
+RGB565 endpoint and zero selectors, making the expected colors exact. Rows occupy
+256 bytes; the lower level uses offset 0, the base starts at 256, and total storage
+is 768 bytes. The old path failed the first frame; the block-aware full-chain
+reader passes all three pixel checks and requires one cache hit / two uploads.
+BC1 sRGB, other BC formats, arrays and tiled mip chains are outside this change.
+Four additional unit cases cover odd 9x9 block storage, texel-unit copy pitch,
+independent snapshots and rejection of truncated/unsupported formats.
+
+Compressed layout references: AMD [ComputeSurfaceInfo](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/imported/addrlib/src/core/addrlib2.cpp)
+calls [AdjustSurfaceInfo](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/imported/addrlib/src/core/addrelemlib.cpp)
+to convert BC1 dimensions into 4x4, 64-bit elements before the GFX10 linear mip
+calculation. Vulkan [buffer/image copies](https://docs.vulkan.org/spec/latest/chapters/copies.html)
+express buffer row length in texels, so a 256-byte BC1 block row becomes 128 texels.
 
 Aggregate reports include SHA-256 manifests for the runtime's EXE/DLL files,
 including nested libraries, and .NET deps/runtimeconfig files. The same manifest

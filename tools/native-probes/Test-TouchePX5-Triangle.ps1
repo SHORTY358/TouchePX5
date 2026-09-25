@@ -1,9 +1,13 @@
 [CmdletBinding()]
-param([switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
+if($MipBc1) {
+    if($MipSrgb -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure) { throw 'BC1 mip probe requires its standalone layout.' }
+    $Mip=$true
+}
 if($MipSrgb) {
     if($Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'sRGB mip probe requires its standalone layout.' }
     $Mip=$true
@@ -30,6 +34,7 @@ if($Perspective) { $root += '-perspective' }
 if($LinearFilter) { $root += '-linear' }
 if($Mip) { $root += '-mip' }
 if($MipSrgb) { $root += '-srgb' }
+if($MipBc1) { $root += '-bc1' }
 if($MipBaseOnly) { $root += '-base-only' }
 if($MipLowerView) { $root += '-lower-view' }
 if($Mip2D) { $root += '-2d' }
@@ -53,6 +58,7 @@ if($Perspective) { $defines += '-DTEST_PERSPECTIVE=1' }
 if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
 if($Mip) { $defines += '-DTEST_MIP=1' }
 if($MipSrgb) { $defines += '-DTEST_MIP_SRGB=1' }
+if($MipBc1) { $defines += '-DTEST_MIP_BC1=1' }
 if($MipBaseOnly) { $defines += '-DTEST_MIP_BASE_ONLY=1' }
 if($MipLowerView) { $defines += '-DTEST_MIP_LOWER_VIEW=1' }
 if($Mip2D) { $defines += '-DTEST_MIP_2D=1' }
@@ -301,6 +307,7 @@ public static class TextureUvVerifierV3 {
         Mip2D=[bool]$Mip2D
         MipOdd=[bool]$MipOdd
         MipSrgb=[bool]$MipSrgb
+        MipBc1=[bool]$MipBc1
         NonDecodingOracleRejected=[bool]$MipSrgb
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash

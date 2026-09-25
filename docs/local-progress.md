@@ -6,10 +6,10 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/mip-srgb-build.log`).
+- Latest Release build: no warnings/errors (`artifacts/mip-bc1-build.log`).
   The later presentation-diagnostic-only build also passed with no warnings/errors
   (`artifacts/present-diagnostic-build.log`).
-- All 1,239 unit tests passed (`artifacts/mip-srgb-tests.log`).
+- All 1,243 unit tests passed (`artifacts/mip-bc1-tests.log`).
 - Initial cache revision passed all 15 native Vulkan cases:
   `artifacts/native-gpu/20260925-005443-656/report.json`.
 - Final cache ownership/trace revision passed all three mip view cases
@@ -46,7 +46,13 @@ percentage or release-date estimate.
   fixed the same probe: `artifacts/mip-srgb-before.log`, `mip-srgb-before-guest.log`,
   `mip-srgb-after.log`. Three frames verify RGB decoding (128 -> 55, 64 -> 13 on
   UNORM output), alpha remaining 128, cache reuse and lower-level-only changes.
-  The aggregate now has 19 cases; a combined run including sRGB is pending.
+  All **19/19** aggregate cases passed on clean source `551cc2f`:
+  `artifacts/native-gpu/20260925-082252-052/report.json`.
+- BC1 UNORM native mip sampling failed before the block-aware reader and passed
+  afterwards (`artifacts/mip-bc1-before.log`, `mip-bc1-before-guest.log`,
+  `mip-bc1-after.log`). The new case requires red/blue/red, correct opaque alpha,
+  one unchanged reuse and two uploads. The aggregate now contains 20 cases;
+  a combined run with BC1 is pending.
 - All 27 general engineering cases passed after the mip-upload fix:
   `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
   This general run predates the mip-view/cache extensions.
@@ -73,6 +79,8 @@ reject the corresponding incorrect affine/nearest-neighbor expectations.
    allocations are additional. Retirement waits for previously submitted GPU work.
 5. CPU RGBA8 sRGB mip chains now use the full-chain path instead of interpreting
    the allocation's lowest mip as the base texture. Vulkan performs sRGB sampling.
+6. CPU BC1 UNORM mip chains calculate storage in compressed blocks, retain texel
+   dimensions for sampling and provide texel-unit row lengths to Vulkan copies.
 
 Mip layout follows AMD AddrLib GFX10: smallest level first, ceiling-rounded storage
 sizes and 256-byte rows. Primary-source links and the supported subset are in
@@ -82,7 +90,7 @@ used as evidence for correct GFX10 layout.
 
 ## Scope and next work
 
-Full-chain Vulkan upload currently supports CPU-authored linear 2D RGBA8 UNORM/sRGB with implicit
+Full-chain Vulkan upload currently supports CPU-authored linear 2D RGBA8 UNORM/sRGB or BC1 UNORM with implicit
 width-derived pitch and no existing backend image at the allocation address. It uses
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.

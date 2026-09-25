@@ -10470,12 +10470,14 @@ public static partial class AgcExports
         // that lower levels are unchanged. Tiled/array/storage layouts keep their
         // existing paths until their full-chain layout is implemented.
         if (!isStorage && !isArrayed && descriptor.Type == Gen5TextureType2D &&
-            descriptor.TileMode == 0 && descriptor.Format == 10 && descriptor.NumberType is 0 or 9 &&
+            descriptor.TileMode == 0 &&
+            ((descriptor.Format == 10 && descriptor.NumberType is 0 or 9) ||
+             (descriptor.Format == 169 && descriptor.NumberType == 0)) &&
             descriptor.ResourceMipLevels > 1 &&
             !GuestGpu.Current.TryGetGuestImageExtent(descriptor.Address, out _, out _, out _) &&
-            TryReadLinearRgba8MipChain(ctx.Memory, descriptor.Address, descriptor.Width,
+            TryReadLinearMipChain(ctx.Memory, descriptor.Address, descriptor.Width,
                 descriptor.Height, Math.Max(descriptor.Width, descriptor.Pitch),
-                descriptor.ResourceMipLevels, out var mipChain))
+                descriptor.ResourceMipLevels, descriptor.Format, out var mipChain))
         {
             texture = new GuestDrawTexture(descriptor.Address, descriptor.Width, descriptor.Height,
                 descriptor.Format, descriptor.NumberType, mipChain[0].Pixels, false, false,
@@ -10973,17 +10975,28 @@ public static partial class AgcExports
 
     internal static bool TryReadLinearRgba8MipChain(
         ICpuMemory memory, ulong address, uint width, uint height, uint pitch,
-        uint levels, out GuestTextureMip[] chain)
+        uint levels, out GuestTextureMip[] chain) =>
+        TryReadLinearMipChain(memory, address, width, height, pitch, levels, 10, out chain);
+
+    internal static bool TryReadLinearMipChain(
+        ICpuMemory memory, ulong address, uint width, uint height, uint pitch,
+        uint levels, uint format, out GuestTextureMip[] chain)
     {
         chain = [];
         if (address == 0 || width == 0 || height == 0 || width > 8192 || height > 8192 ||
-            pitch != width || levels < 2 || levels > 14)
+            pitch != width || levels < 2 || levels > 14 || format is not (10 or 169))
             return false;
         uint maxLevels = 1;
         for (var dimension = Math.Max(width, height); dimension > 1; dimension >>= 1) maxLevels++;
         if (levels > maxLevels) return false;
         var result = new GuestTextureMip[levels];
         ulong offset = 0;
+        // AddrLib converts compressed dimensions to blocks before computing
+        // mip storage. Vulkan copy row lengths remain expressed in texels.
+        var blockExtent = format == 169 ? 4u : 1u;
+        var elementBytes = format == 169 ? 8u : 4u;
+        var elementWidth = (width + blockExtent - 1) / blockExtent;
+        var elementHeight = (height + blockExtent - 1) / blockExtent;
         // AMD AddrLib Gfx10Lib::HwlComputeSurfaceInfoLinear packs the smallest
         // level first. GetMipSize rounds storage dimensions UP before aligning
         // rows, while Vulkan's visible mip extent rounds dimensions down.
@@ -10992,10 +11005,11 @@ public static partial class AgcExports
             var w = Math.Max(1u, width >> level);
             var h = Math.Max(1u, height >> level);
             var divisor = 1u << level;
-            var storageWidth = (width + divisor - 1) / divisor;
-            var storageHeight = (height + divisor - 1) / divisor;
-            var row = GetLinearTexturePitch(storageWidth, storageHeight, 10);
-            var bytes = (ulong)row * storageHeight * 4;
+            var storageWidth = (elementWidth + divisor - 1) / divisor;
+            var storageHeight = (elementHeight + divisor - 1) / divisor;
+            var rowBytes = AlignUp((ulong)storageWidth * elementBytes, 256);
+            var row = checked((uint)(rowBytes / elementBytes * blockExtent));
+            var bytes = rowBytes * storageHeight;
             if (offset + bytes > MaxPresentedTextureBytes || address > ulong.MaxValue - offset - bytes)
                 return false;
             var pixels = new byte[checked((int)bytes)];
