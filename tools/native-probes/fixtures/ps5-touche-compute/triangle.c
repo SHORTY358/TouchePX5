@@ -229,6 +229,23 @@ int _start(void) {
     if(flip_slot(video,0,1,2)!=0) return 79;
     sleep_slot(3000000);
 #if defined(TEST_DEPTH) || defined(TEST_TEXTURE)
+#ifdef TEST_MIP_CACHE_PRESSURE
+    // Distinct snapshots exceed the bounded host cache. Mutate padding in the
+    // lower mip so the displayed blue texel remains unchanged. Wait for each
+    // submission to consume its snapshot before writing the next version.
+    for(u32 version=1;version<=40;version++) {
+        texel[2]=version;
+        n=0;
+        draw();
+        commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
+        commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
+        commands[n++]=100+version; commands[n++]=0; commands[n++]=0;
+        submission.count=(u32)n;
+        if(submit_slot(&submission)!=0) return 83;
+        for(int i=0;i<5000 && completed!=100+version;i++) sleep_slot(1000);
+        if(completed!=100+version) return 84;
+    }
+#endif
     n=0;
 #ifdef TEST_MIP
     texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged

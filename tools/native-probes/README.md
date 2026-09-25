@@ -119,8 +119,13 @@ snapshots for the lower levels and uploads each to its own image subresource.
 
 Scope: CPU-authored linear 2D RGBA8 UNORM, implicit width-derived pitch, with no existing backend
 image at that address. Tiled, array, storage and GPU-written mip
-chains retain their existing behavior. Full chains currently use transient per-draw
-uploads for correctness; caching/performance optimization is future work. Payload
+chains retain their existing behavior. Full chains retain per-draw CPU snapshots,
+but exact matches reuse an immutable Vulkan upload. The separate cache compares
+all levels, layout, view and sampler; it does not rely on write-tracker generations
+or a base-level hash. Admission is bounded to 32 entries and 16 MiB of snapshot
+payload (GPU allocations and staging storage are additional). On saturation, a
+work boundary flushes the current batch and defers destruction to its completed
+submission timeline. Oversized chains retain transient uploads. Payload
 accounting includes lower levels. Ten added unit cases cover padded/odd dimensions,
 independent snapshots, invalid/truncated layouts, address overflow and payload size.
 The aggregate's thirteenth case adds the lower-level-only rewrite check.
@@ -139,3 +144,12 @@ blue/blue/red: LOD 0 is relative to the view, and a lower-level CPU rewrite rema
 Both initial native tests passed. Full-chain Vulkan views now honor BaseMipLevel and
 MipLevels; legacy single-level uploads retain a zero-based host view. These are cases
 fourteen and fifteen in the aggregate runner.
+
+The three mip cases also require one cache hit and exactly two Vulkan upload
+commands: changing only the shader LOD reuses the image, while changing the lower
+level creates another immutable version. `-MipCachePressure` adds 40 distinct
+padding-only writes with submission completion between writes. It requires 43
+draws, 42 uploads, one cache hit and at least one deferred eviction of 32 entries,
+followed by the same red/blue/red pixel checks. This is the sixteenth aggregate
+case. Padding changes deliberately count as content changes; this conservative
+cache does not try to infer which texels a future shader might access.

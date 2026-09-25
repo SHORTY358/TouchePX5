@@ -4661,6 +4661,9 @@ internal static unsafe class VulkanVideoPresenter
             public bool OwnsStorage;
             public bool IsStorage;
             public bool Cached;
+            // Ownership outlives cache membership: completed frame/submission
+            // records can be collected after the cache's deferred destruction.
+            public bool CpuMipCacheOwned;
             public bool IsHostMovie;
             public int HostMoviePlane = -1;
             public long HostMovieFrameSerial;
@@ -9946,8 +9949,7 @@ internal static unsafe class VulkanVideoPresenter
         {
             if (texture.AdditionalMips is { Length: > 0 })
             {
-                // A full CPU mip snapshot must not alias a base-only cached image.
-                return CreateTextureResource(texture, registerGuestImage: false);
+                return GetOrCreateCpuMipTexture(texture);
             }
             if (texture.IsStorage)
             {
@@ -10424,6 +10426,65 @@ internal static unsafe class VulkanVideoPresenter
         }
 
         private readonly Dictionary<TextureContentIdentity, TextureResource> _textureCache = new();
+
+        // Deliberately separate from base-only identities: CPU snapshots must
+        // still be read on every draw to observe untracked lower-level writes.
+        private readonly List<(GuestDrawTexture Snapshot, TextureResource Resource)> _cpuMipCache = [];
+        private const long CpuMipCacheBudget = 16 * 1024 * 1024;
+        private long _cpuMipCacheBytes;
+        private bool _trimCpuMipCache;
+
+        private TextureResource GetOrCreateCpuMipTexture(GuestDrawTexture texture)
+        {
+            foreach (var entry in _cpuMipCache)
+            {
+                if (CpuMipSnapshot.Matches(entry.Snapshot, texture))
+                {
+                    TraceVulkanShader("vk.cpu_mip_cache hit");
+                    return entry.Resource;
+                }
+            }
+
+            var resource = CreateTextureResource(texture, registerGuestImage: false);
+            var bytes = CpuMipSnapshot.ByteCount(texture);
+            if (resource.OwnsStorage && bytes <= CpuMipCacheBudget &&
+                _cpuMipCache.Count < 32 && _cpuMipCacheBytes + bytes <= CpuMipCacheBudget)
+            {
+                resource.Cached = true;
+                _cpuMipCache.Add((texture, resource));
+                resource.CpuMipCacheOwned = true;
+                _cpuMipCacheBytes += bytes;
+            }
+            else if (bytes <= CpuMipCacheBudget)
+            {
+                _trimCpuMipCache = true;
+            }
+            TraceVulkanShader("vk.cpu_mip_cache miss");
+            return resource;
+        }
+
+        private void TrimCpuMipCacheAtWorkBoundary()
+        {
+            if (!_trimCpuMipCache)
+            {
+                return;
+            }
+            // Never evict while resolving one draw's descriptors: earlier
+            // descriptors can already reference a cache entry. At this work
+            // boundary every such reference is recorded in an existing batch.
+            if (_batchOpen)
+            {
+                FlushBatchedGuestCommands();
+            }
+            foreach (var entry in _cpuMipCache)
+            {
+                _deferredTextureDestroys.Enqueue((entry.Resource, _submitTimeline));
+            }
+            TraceVulkanShader($"vk.cpu_mip_cache trim entries={_cpuMipCache.Count}");
+            _cpuMipCache.Clear();
+            _cpuMipCacheBytes = 0;
+            _trimCpuMipCache = false;
+        }
 
         /// <summary>
         /// Guest textures are static assets in the common case, but every draw
@@ -18398,6 +18459,7 @@ internal static unsafe class VulkanVideoPresenter
                     overlay.Sequence != _presentedSequence;
             }
 
+            TrimCpuMipCacheAtWorkBoundary();
             DrainGuestImageCpuSync();
             var completedWork = 0;
             HashSet<string>? deferredOrderedQueues = null;
@@ -19467,6 +19529,7 @@ internal static unsafe class VulkanVideoPresenter
                 };
                 if (texture.MipCopies is { } copies)
                 {
+                    TraceVulkanShader($"vk.cpu_mip_upload levels={copies.Length}");
                     fixed (BufferImageCopy* regions = copies)
                         _vk.CmdCopyBufferToImage(_commandBuffer, texture.StagingBuffer, texture.Image,
                             ImageLayout.TransferDstOptimal, (uint)copies.Length, regions);
@@ -20975,7 +21038,7 @@ internal static unsafe class VulkanVideoPresenter
 
             foreach (var texture in resources.Textures)
             {
-                if (texture is null || texture.Cached)
+                if (texture is null || texture.Cached || texture.CpuMipCacheOwned)
                 {
                     continue;
                 }
@@ -22099,6 +22162,12 @@ internal static unsafe class VulkanVideoPresenter
             DrainFrameSlots();
             CollectCompletedGuestSubmissions(waitForOldest: false);
             ClearCachedTextureIdentities();
+            foreach (var entry in _cpuMipCache)
+            {
+                DestroyCachedTextureResource(entry.Resource);
+            }
+            _cpuMipCache.Clear();
+            _cpuMipCacheBytes = 0;
             foreach (var pipeline in _computePipelines.Values)
             {
                 _vk.DestroyPipeline(_device, pipeline, null);

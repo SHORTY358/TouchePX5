@@ -1,9 +1,9 @@
 [CmdletBinding()]
-param([switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
-if($MipBaseOnly -or $MipLowerView) { $Mip=$true }
+if($MipBaseOnly -or $MipLowerView -or $MipCachePressure) { $Mip=$true }
 if($Mip) {
     if($LinearFilter -or $Perspective -or $TextureUv) { throw 'Mip test uses explicit constant LOD.' }
     $TextureSelect=$true
@@ -26,6 +26,7 @@ if($LinearFilter) { $root += '-linear' }
 if($Mip) { $root += '-mip' }
 if($MipBaseOnly) { $root += '-base-only' }
 if($MipLowerView) { $root += '-lower-view' }
+if($MipCachePressure) { $root += '-pressure' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
@@ -45,6 +46,7 @@ if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
 if($Mip) { $defines += '-DTEST_MIP=1' }
 if($MipBaseOnly) { $defines += '-DTEST_MIP_BASE_ONLY=1' }
 if($MipLowerView) { $defines += '-DTEST_MIP_LOWER_VIEW=1' }
+if($MipCachePressure) { $defines += '-DTEST_MIP_CACHE_PRESSURE=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
@@ -87,6 +89,7 @@ try {
     if ($output.Contains('agc.shader_color_clear')) { throw 'Triangle unexpectedly became a fullscreen clear.' }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
     $expectedDraws=if($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
+    if($MipCachePressure) { $expectedDraws += 40 }
     $expectedCaptures=if($Depth -or $Texture) { 4 } else { 3 }
     if($captures.Count -ne $expectedCaptures) { throw "Unexpected number of swapchain captures: $log" }
     $textureCount=if($Texture) { 1 } else { 0 }
@@ -214,6 +217,19 @@ public static class TextureUvVerifierV3 {
     Write-Output "Captured GPU output: $capture"
     $verifiedFrames += [ordered]@{ Color=$color; Width=$width; Height=$height; ColoredPixels=$coloredPixels; Capture=$capture; Sha256=(Get-FileHash -LiteralPath $capture).Hash }
     }
+    $mipCacheHits=0; $mipCacheMisses=0; $mipUploads=0; $mipCacheTrims=0
+    if($Mip) {
+        $mipTrace=Get-Content -LiteralPath $log -Raw
+        $mipCacheHits=[regex]::Matches($mipTrace,'vk\.cpu_mip_cache hit').Count
+        $mipCacheMisses=[regex]::Matches($mipTrace,'vk\.cpu_mip_cache miss').Count
+        $mipUploads=[regex]::Matches($mipTrace,'vk\.cpu_mip_upload levels=2').Count
+        $mipCacheTrims=[regex]::Matches($mipTrace,'vk\.cpu_mip_cache trim entries=32').Count
+        $expectedMisses=if($MipCachePressure) { 42 } else { 2 }
+        if($mipCacheHits -ne 1 -or $mipCacheMisses -ne $expectedMisses -or $mipUploads -ne $expectedMisses) {
+            throw "Mip cache expected one unchanged reuse and $expectedMisses uploads; got hits=$mipCacheHits misses=$mipCacheMisses uploads=$mipUploads."
+        }
+        if($MipCachePressure -and $mipCacheTrims -lt 1) { throw 'Mip pressure did not exercise deferred eviction.' }
+    }
     $report = [ordered]@{
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
         Texture=[bool]$Texture
@@ -224,6 +240,11 @@ public static class TextureUvVerifierV3 {
         Mip=[bool]$Mip
         MipBaseOnly=[bool]$MipBaseOnly
         MipLowerView=[bool]$MipLowerView
+        MipCacheHits=$mipCacheHits
+        MipCacheMisses=$mipCacheMisses
+        MipUploads=$mipUploads
+        MipCacheTrims=$mipCacheTrims
+        MipCachePressure=[bool]$MipCachePressure
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash

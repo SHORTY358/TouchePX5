@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-09-24
+# Local engineering checkpoint — 2026-09-25
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,14 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Release build: no warnings/errors (`artifacts/mip-views-final-build.log`).
-- All 1,235 unit tests passed (`artifacts/mip-views-final-tests.log`).
-- All 15 native Vulkan cases passed together:
-  `artifacts/native-gpu/20260924-121116-745/report.json`.
+- Release build: no warnings/errors (`artifacts/mip-cache-final-build.log`).
+- All 1,239 unit tests passed (`artifacts/mip-cache-final-tests.log`).
+- Initial cache revision passed all 15 native Vulkan cases:
+  `artifacts/native-gpu/20260925-005443-656/report.json`.
+- Final cache ownership/trace revision passed all three mip view cases
+  (`artifacts/mip-cache-final-Mip*.log`) and the new pressure case
+  (`artifacts/mip-cache-pressure.log`). Pressure verified 43 draws, 42 uploads,
+  one cache hit and one deferred eviction of 32 entries, with correct pixels.
+- The expanded 16-case aggregate has NOT passed as a whole: runs
+  `20260925-005926-364` and `20260925-010003-464` under `artifacts/native-gpu`
+  failed on missing captures in ordinary triangle / blend respectively. Logs show
+  `vkQueuePresentKHR: ErrorOutOfDateKhr` and a zero surface extent. They remain
+  failed evidence, not retries silently converted to success.
 - All 27 general engineering cases passed after the mip-upload fix:
   `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
-  This general run predates the final mip-view extension; that extension was validated
-  by the latest unit tests and 15-case GPU run above.
+  This general run predates the mip-view/cache extensions.
 
 The native cases cover compute, repeated raster draws, clipping, blending, depth,
 texture CPU rewrites, 2D texel selection, interpolated UVs, perspective correction,
@@ -31,6 +39,10 @@ reject the corresponding incorrect affine/nearest-neighbor expectations.
    (b372dd2), and restricted views select the correct base/count. Native tests verify
    red/blue/red after changing only the lower level, base-only red/red/red, and
    lower-only blue/blue/red.
+4. Identical full CPU mip snapshots reuse a Vulkan upload; any changed level,
+   layout, view or sampler gets a separate resource. CPU snapshots remain fresh.
+   Cache admission is capped at 32 entries / 16 MiB of CPU payload; GPU and staging
+   allocations are additional. Retirement waits for previously submitted GPU work.
 
 Mip layout follows AMD AddrLib GFX10: smallest level first, ceiling-rounded storage
 sizes and 256-byte rows. Primary-source links and the supported subset are in
@@ -42,12 +54,14 @@ used as evidence for correct GFX10 layout.
 
 Full-chain upload currently supports CPU-authored linear 2D RGBA8 UNORM with implicit
 width-derived pitch and no existing backend image at the allocation address. It uses
-per-draw snapshots/uploads for correctness. Tiled/array/storage/GPU-written chains,
-cache optimization and broad commercial-game compatibility remain separate work.
+per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
+chains and broad commercial-game compatibility remain separate work.
 
-Next useful task: measure and safely cache unchanged full mip-chain uploads, preserving
-lower-level-only CPU updates and per-draw snapshots. Extend tests before optimizing.
-Alternatively, validate another texture format/layout against a primary reference.
+Next task: diagnose why the presentation surface intermittently becomes zero-sized
+and loses captures during aggregate probes. Current logging calls this a window size,
+but actually reports surface capabilities; log the real framebuffer and window state
+before attributing it to minimization. Do not weaken pixel/count checks.
+Afterwards, extend native mip coverage to a nonuniform lower mip larger than 1x1.
 
 Use `tools/native-probes/Test-TouchePX5-NativeGpu.ps1` for GPU checks. Keep sources and
 builds under `C:\Dev\TouchePX5`; the old OneDrive triangle runner is obsolete. General
