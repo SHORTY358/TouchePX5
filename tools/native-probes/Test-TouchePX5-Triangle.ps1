@@ -5,7 +5,7 @@ $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc1) {
-    if($MipSrgb -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure) { throw 'BC1 mip probe requires its standalone layout.' }
+    if($MipSrgb -or $MipOdd -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure) { throw 'BC1 mip probe supports only its default or 2D layout.' }
     $Mip=$true
 }
 if($MipSrgb) {

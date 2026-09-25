@@ -51,11 +51,17 @@ percentage or release-date estimate.
 - BC1 UNORM native mip sampling failed before the block-aware reader and passed
   afterwards (`artifacts/mip-bc1-before.log`, `mip-bc1-before-guest.log`,
   `mip-bc1-after.log`). The new case requires red/blue/red, correct opaque alpha,
-  one unchanged reuse and two uploads. The aggregate now contains 20 cases;
-  a combined run with BC1 is pending.
-- All 27 general engineering cases passed after the mip-upload fix:
-  `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
-  This general run predates the mip-view/cache extensions.
+  one unchanged reuse and two uploads. All **20/20** passed on source `844915f`:
+  `artifacts/native-gpu/20260925-083835-186/report.json`.
+- All **27/27** general engineering cases passed on source `844915f`:
+  `artifacts/engineering/20260925-083517-069/report.json`. Its saved
+  `runtime-after.json` exactly matches all 248 runtime entries in the subsequent
+  20-case GPU report above. An earlier GPU run preceded this rebuild and is not
+  used to claim identical binaries.
+- The new BC1 multi-row probe passed independently:
+  `artifacts/mip-bc1-2d-native.log`. A 16x16 base follows an 8x8 lower level;
+  sampling its bottom-right block gives blue, then red after a rewrite.
+  This adds the twenty-first aggregate case; a combined run is pending.
 
 The native cases cover compute, repeated raster draws, clipping, blending, depth,
 texture CPU rewrites, 2D texel selection, interpolated UVs, perspective correction,

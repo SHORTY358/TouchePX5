@@ -185,12 +185,20 @@ int _start(void) {
     reg(0x76,0x18,0); // sample mip0
 #ifdef TEST_MIP_BC1
     // BC1: 8-byte blocks, 256-byte rows. 4x4 mip1 precedes 8x8 mip0.
-    for(u32 i=0;i<192;i++) texel[i]=0;
+    for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
     texel[0]=0x001f; // blue RGB565 endpoint; every two-bit selector is zero
     texel[64]=texel[66]=texel[128]=texel[130]=0xf800; // four red blocks
     reg(0x76,0xd,(u32)(texture>>40)|(169u<<20)|(3u<<30));
     reg(0x76,0xe,1u|(7u<<14)); // width=8, height=8
     reg(0x76,0x10,7); // pitch=8 before block-row alignment
+#ifdef TEST_MIP_2D
+    // 16x16 red base follows an 8x8 lower level with four distinct blocks.
+    for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
+    texel[0]=0xf800; texel[2]=texel[64]=0x07e0; texel[66]=0x001f;
+    for(u32 y=0;y<4;y++) for(u32 x=0;x<4;x++) texel[128+y*64+x*2]=0xf800;
+    reg(0x76,0xe,3u|(15u<<14)); // width=16, height=16
+    reg(0x76,0x10,15);
+#endif
 #endif
 #endif
 #ifdef TEST_LINEAR_FILTER
@@ -287,7 +295,13 @@ int _start(void) {
 #endif
     n=0;
 #ifdef TEST_MIP
+#ifdef TEST_MIP_BC1
 #ifdef TEST_MIP_2D
+    texel[66]=0xf800; // lower mip's bottom-right block changes to red
+#else
+    texel[0]=0xf800; // only the lower compressed block changes to red
+#endif
+#elif defined(TEST_MIP_2D)
 #ifdef TEST_MIP_ODD
     texel[1]=0xff0000ff; // second visible texel; storage padding stays green
 #else
@@ -297,9 +311,6 @@ int _start(void) {
     texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged
 #ifdef TEST_MIP_SRGB
     texel[0]=0x80000040; // R=64, A=128: RGB must decode, alpha must not
-#endif
-#ifdef TEST_MIP_BC1
-    texel[0]=0xf800; // only the lower compressed block changes to red
 #endif
 #endif
 #endif

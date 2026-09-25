@@ -197,3 +197,9 @@ including nested libraries, and .NET deps/runtimeconfig files. The same manifest
 must match at completion; a rebuild that leaves the app-host EXE unchanged but
 replaces a managed DLL invalidates the run. Capture/source hashes remain in the
 per-case reports. The manifest does not claim to hash external drivers or caches.
+
+`-MipBc1 -Mip2D` is the twenty-first case: a 16x16 base starts at offset 512;
+the 8x8 lower level has red/green blocks in the first row and green/blue in the
+second. UV=(0.75,0.75) selects the bottom-right blue block, then its red replacement.
+This checks block-row pitch and selection that a single-block lower level cannot
+distinguish. It retains the one-cache-hit / two-upload requirements.
