@@ -2254,15 +2254,17 @@ public static partial class AgcExports
         var drawCount = (uint)ctx[CpuRegister.Rdx];
         var modifier = (uint)ctx[CpuRegister.R8];
         if (commandBufferAddress == 0 ||
-            !TryAllocateCommandDwords(ctx, commandBufferAddress, 8, out var commandAddress) ||
-            !TryWriteUInt32(ctx, commandAddress, Pm4(8, ItDrawIndexIndirectMulti, 0)) ||
+            !TryAllocateCommandDwords(ctx, commandBufferAddress, 10, out var commandAddress) ||
+            !TryWriteUInt32(ctx, commandAddress, Pm4(10, ItDrawIndexIndirectMulti, 0)) ||
             !TryWriteUInt32(ctx, commandAddress + 4, dataOffset) ||
             !TryWriteUInt32(ctx, commandAddress + 8, 0) ||
             !TryWriteUInt32(ctx, commandAddress + 12, 0) ||
             !TryWriteUInt32(ctx, commandAddress + 16, 0) ||
             !TryWriteUInt32(ctx, commandAddress + 20, drawCount) ||
-            !TryWriteUInt32(ctx, commandAddress + 24, DrawIndexedIndirectArgsSize) ||
-            !TryWriteUInt32(ctx, commandAddress + 28, modifier))
+            !TryWriteUInt32(ctx, commandAddress + 24, 0) ||
+            !TryWriteUInt32(ctx, commandAddress + 28, 0) ||
+            !TryWriteUInt32(ctx, commandAddress + 32, DrawIndexedIndirectArgsSize) ||
+            !TryWriteUInt32(ctx, commandAddress + 36, modifier))
         {
             return ReturnPointer(ctx, 0);
         }
@@ -2292,7 +2294,7 @@ public static partial class AgcExports
         LibraryName = "libSceAgc")]
     public static int DcbDrawIndexIndirectMultiGetSize(CpuContext ctx)
     {
-        ctx[CpuRegister.Rax] = 8u * sizeof(uint);
+        ctx[CpuRegister.Rax] = 10u * sizeof(uint);
         return (int)ctx[CpuRegister.Rax];
     }
 
@@ -6844,19 +6846,33 @@ public static partial class AgcExports
         var commandSize = indexed ? DrawIndexedIndirectArgsSize : 16u;
         var commandCount = 1u;
         var stride = commandSize;
+        uint multiControl = 0;
         if (op == ItDrawIndexIndirectMulti)
         {
-            if (packetLength < 8 ||
+            if (packetLength < 10 ||
+                !TryReadUInt32(ctx, packetAddress + 16, out multiControl) ||
                 !TryReadUInt32(ctx, packetAddress + 20, out commandCount) ||
-                !TryReadUInt32(ctx, packetAddress + 24, out stride))
+                !TryReadUInt32(ctx, packetAddress + 32, out stride))
             {
                 return false;
             }
 
-            stride = Math.Max(stride, commandSize);
-            commandCount = commandCount == 0
-                ? DrawIndexedIndirectMaxScan
-                : Math.Min(commandCount, 4096u);
+            if ((multiControl & (1u << 27)) != 0)
+            {
+                TraceAgc("agc.indirect_multi unsupported use_vgprs=1");
+                return false;
+            }
+            if (commandCount == 0) return true;
+            if (stride < commandSize || (stride & 3) != 0) return false;
+            if ((multiControl & (1u << 30)) != 0)
+            {
+                if (!TryReadUInt64(ctx, packetAddress + 24, out var countAddress)) return false;
+                EnsureIndirectArgumentsCpuVisible(ctx, gpuState, countAddress, 1, 4, 4);
+                if (!TryReadUInt32(ctx, countAddress, out var memoryCount)) return false;
+                commandCount = Math.Min(commandCount, memoryCount);
+            }
+            commandCount = Math.Min(commandCount, 4096u);
+            if (commandCount == 0) return true;
         }
 
         EnsureIndirectArgumentsCpuVisible(
@@ -6867,10 +6883,10 @@ public static partial class AgcExports
             stride,
             commandSize);
 
-        // Single indirect packets name the SH registers receiving base vertex
+        // Indirect packets name the SH registers receiving base vertex
         // and first instance. These are persistent user-data writes, not just
-        // host draw offsets. Multi packets have additional controls handled separately.
-        var writesUserData = op is ItDrawIndirect or ItDrawIndexIndirect;
+        // host draw offsets. Multi packets can also request index/draw-ID writes.
+        var writesUserData = op is ItDrawIndirect or ItDrawIndexIndirect or ItDrawIndexIndirectMulti;
         uint vertexRegister = 0, instanceRegister = 0;
         if (writesUserData &&
             (!TryReadUInt32(ctx, packetAddress + 8, out vertexRegister) ||
@@ -6896,12 +6912,6 @@ public static partial class AgcExports
                 // draw observes the last decoded value until another packet replaces it.
                 // Restoring the pre-indirect value here broke instanced render sequences.
                 state.InstanceCount = instanceCount;
-                if (op == ItDrawIndexIndirectMulti && commandCount == DrawIndexedIndirectMaxScan &&
-                    elementCount == 0 && instanceCount == 0)
-                {
-                    break;
-                }
-
                 if (elementCount == 0 || instanceCount == 0)
                 {
                     continue;
@@ -6928,6 +6938,10 @@ public static partial class AgcExports
                         break;
                     state.ShRegisters[vertexRegister & 0xFFFFu] = baseVertex;
                     state.ShRegisters[instanceRegister & 0xFFFFu] = firstInstance;
+                    if ((multiControl & (1u << 28)) != 0)
+                        state.ShRegisters[vertexRegister >> 16] = firstElement;
+                    if ((multiControl & (1u << 31)) != 0)
+                        state.ShRegisters[multiControl & 0xFFFFu] = draw;
                 }
 
                 state.UcRegisters[GeIndxOffset] = baseVertex;

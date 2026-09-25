@@ -226,10 +226,24 @@ frames are red/red/blue; the old parser leaves the third frame red. The single
 indexed and non-indexed packet variants also have argument-copy unit coverage.
 References: AMD [BuildDrawIndirect](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp)
 and the [PFP packet fields](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_pfp_pm4_packets.h).
-Multi-draw packet controls and general base-instance semantics are separate work.
+General base-instance semantics are separate work; the indexed multi case below
+adds coverage for its packet controls.
 
 The triangle runner waits for the exact launched app-host process to exit before
 reading its log. A 60-second timeout stops only that child and fails the test;
 nonzero exit codes and all existing guest/pixel checks still fail. This replaces
 the GUI-executable invocation plus 20-second log polling, which could report failure
 while a slower guest was still finishing successfully.
+
+`-IndirectMulti` adds the twenty-fourth case. Each 10-dword DRAW_INDEX_INDIRECT_MULTI
+packet uses a nonzero offset and two 32-byte records: an empty record followed by
+one indexed draw. It reuses the red/red/blue depth oracle. The old parser incorrectly
+read stride from dword 6 (count-address low) instead of dword 8 and failed to issue
+the expected draws. The builder and size query now also use the hardware 10-dword
+layout, preserving both count-address words before stride/draw initiator.
+The same AMD packet/header references above define these fields. Unit tests cover
+direct zero count (no scanning), memory count clamped to the packet maximum,
+start-index/draw-index destinations, and exact builder bounds. The native case
+currently uses a direct count; GPU-produced count-buffer synchronization is not
+established by it. `use_vgprs` is explicitly unsupported, and the existing 4096-draw
+host safety cap remains.

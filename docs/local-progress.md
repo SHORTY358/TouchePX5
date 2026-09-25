@@ -6,8 +6,16 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/indirect-register-build.log`).
-- All 1,249 unit tests passed (`artifacts/indirect-register-tests.log`).
+- Latest Release build: no warnings/errors (`artifacts/indirect-multi-build.log`).
+- All 1,255 unit tests passed (`artifacts/indirect-multi-tests.log`).
+- Indexed indirect multi-draw now uses the hardware 10-dword packet, correct
+  stride offset, direct/memory-count limits and shader register destinations.
+  The native two-record probe failed before the fix and passes afterward:
+  `artifacts/indirect-multi-before-guest.log`, `artifacts/indirect-multi-after.log`.
+  Six unit cases verify count/stride/register behavior and exact builder bounds.
+  The expanded 24-case native aggregate and refreshed general run are pending.
+  VGPR destination mode remains unsupported; GPU-produced count synchronization
+  is not covered by the native direct-count fixture.
 - Single indirect draws now copy argument values into the packet-selected shader
   registers. A native depth probe failed before this fix (third frame remained red)
   and passed afterward (red/red/blue): `artifacts/indirect-register-before-guest.log`
@@ -15,8 +23,7 @@ percentage or release-date estimate.
   variants, nonzero argument offsets and a signed indexed base-vertex bit pattern.
   All **23/23** native cases passed on clean source `38a14ab`:
   `artifacts/native-gpu/20260925-224622-652/report.json`. The 22-case and general
-  runs below predate this fix. Multi-draw controls and general base-instance
-  semantics remain separate.
+  runs below predate this fix. General base-instance semantics remain separate.
 - The first post-fix probe hit the old runner's 20-second log deadline although
   its guest later completed successfully. Preserved log:
   `artifacts/indirect-register-after-timeout-guest.log`. The runner now waits for

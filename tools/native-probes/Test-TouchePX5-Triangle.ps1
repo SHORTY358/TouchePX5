@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($IndirectMulti) { $Indirect=$true }
 if($Indirect) {
     if($Scissor -or $Blend -or $IndexBits) { throw 'Indirect probe requires its standalone depth layout.' }
     $Depth=$true
@@ -52,6 +53,7 @@ if($MipCachePressure) { $root += '-pressure' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
 if($Indirect) { $root += '-indirect' }
+if($IndirectMulti) { $root += '-multi' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
 if($Scissor) { $root += '-scissor' }
@@ -77,6 +79,7 @@ if($MipOdd) { $defines += '-DTEST_MIP_ODD=1' }
 if($MipCachePressure) { $defines += '-DTEST_MIP_CACHE_PRESSURE=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Indirect) { $defines += '-DTEST_INDIRECT=1' }
+if($IndirectMulti) { $defines += '-DTEST_INDIRECT_MULTI=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -317,6 +320,7 @@ public static class TextureUvVerifierV3 {
     $report = [ordered]@{
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
         Indirect=[bool]$Indirect
+        IndirectMulti=[bool]$IndirectMulti
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect
         TextureUv=[bool]$TextureUv
