@@ -156,6 +156,16 @@ int _start(void) {
     reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)|(3u<<30)); // width=4
     reg(0x76,0xe,3u<<14); // height=4
     reg(0x76,0x10,3); // pitch=4, hardware rows still 256 bytes
+#ifdef TEST_MIP_ODD
+    // Mip1 storage is ceil(5/2)xceil(3/2)=3x2, but its sampled extent
+    // is floor(5/2)x floor(3/2)=2x1. Poison unused physical texels green.
+    texel[0]=0xff0000ff; texel[1]=0xffff0000; texel[2]=0xff00ff00;
+    texel[64]=texel[65]=texel[66]=0xff00ff00;
+    for(u32 y=0;y<3;y++) for(u32 x=0;x<5;x++) texel[128+y*64+x]=0xff0000ff;
+    reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)); // width-1 low 2 bits = 0
+    reg(0x76,0xe,1u|(2u<<14)); // width-1 high bits = 1, height-1 = 2
+    reg(0x76,0x10,4); // pitch=5
+#endif
 #endif
     reg(0x76,0xf,0x90010fac); // last mip=1
 #ifdef TEST_MIP_BASE_ONLY
@@ -264,7 +274,11 @@ int _start(void) {
     n=0;
 #ifdef TEST_MIP
 #ifdef TEST_MIP_2D
+#ifdef TEST_MIP_ODD
+    texel[1]=0xff0000ff; // second visible texel; storage padding stays green
+#else
     texel[65]=0xff0000ff; // rewrite bottom-right texel of 2x2 lower mip
+#endif
 #else
     texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged
 #endif

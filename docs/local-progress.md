@@ -35,6 +35,10 @@ percentage or release-date estimate.
   modification and added runtime config; all behaved correctly. The local runtime
   manifest contains 248 files (`artifacts/runtime-manifest-current.json`). This runner
   enhancement postdates the 17-case run; no newer whole-suite pass is claimed.
+- A 5x3 base with odd-sized mip storage passed native red/blue/red checks
+  (`artifacts/mip-odd-native.log`). Green unused storage texels ensure the shader
+  cannot accidentally sample the ceiling-rounded physical extent. It is now the
+  eighteenth aggregate case; a combined 18-case run is pending.
 - All 27 general engineering cases passed after the mip-upload fix:
   `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
   This general run predates the mip-view/cache extensions.
@@ -75,9 +79,9 @@ chains and broad commercial-game compatibility remain separate work.
 
 Next task: use the expanded diagnostics if presentation recreation recurs. Diagnose
 why the surface intermittently becomes zero-sized and loses captures before
-attributing it to minimization. Do not weaken pixel/count checks. Other useful texture
-work includes non-power-of-two native mip sampling and additional formats, with an
-independent layout reference before broadening the supported CPU upload subset.
+attributing it to minimization. Do not weaken pixel/count checks. Next texture work
+can cover additional formats, with an independent layout reference before broadening
+the supported CPU upload subset. Native odd-sized mip sampling is now covered.
 
 Use `tools/native-probes/Test-TouchePX5-NativeGpu.ps1` for GPU checks. Keep sources and
 builds under `C:\Dev\TouchePX5`; the old OneDrive triangle runner is obsolete. General

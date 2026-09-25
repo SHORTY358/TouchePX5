@@ -160,6 +160,12 @@ bottom-right lower texel when LOD becomes 1, then that texel changes from blue t
 red. Red/blue/red proves lower-level row pitch and coordinates, which the 1x1
 lower level could not exercise. This is the seventeenth aggregate case.
 
+`-MipOdd` uses a 5x3 base and a lower mip with physical storage 3x2 but sampled
+extent 2x1, following the same AddrLib ceiling-storage/floor-visible distinction.
+Unused physical texels are green; sampling UV=(0.75,0.75) must pick the blue
+second visible texel, then its red replacement. Selecting the extra physical
+column or row fails the color oracle. This is the eighteenth aggregate case.
+
 Aggregate reports include SHA-256 manifests for the runtime's EXE/DLL files,
 including nested libraries, and .NET deps/runtimeconfig files. The same manifest
 must match at completion; a rebuild that leaves the app-host EXE unchanged but
