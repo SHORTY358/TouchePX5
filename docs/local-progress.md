@@ -16,7 +16,7 @@ percentage or release-date estimate.
   (`artifacts/mip-cache-final-Mip*.log`) and the new pressure case
   (`artifacts/mip-cache-pressure.log`). Pressure verified 43 draws, 42 uploads,
   one cache hit and one deferred eviction of 32 entries, with correct pixels.
-- The expanded 16-case aggregate has NOT passed as a whole: runs
+- Earlier expanded aggregate attempts
   `20260925-005926-364` and `20260925-010003-464` under `artifacts/native-gpu`
   failed on missing captures in ordinary triangle / blend respectively. Logs show
   `vkQueuePresentKHR: ErrorOutOfDateKhr` and a zero surface extent. They remain
@@ -26,7 +26,15 @@ percentage or release-date estimate.
   framebuffer size, window state and shutdown requests. No presentation fix is claimed.
 - A nonuniform 2x2 lower mip under a 4x4 base passed native red/blue/red checks,
   including second-row texel selection and rewriting (`artifacts/mip-2d-native.log`).
-  The aggregate now contains 17 cases; a combined pass is still pending.
+  All **17/17** aggregate cases subsequently passed together on clean source
+  `b25a8ce`: `artifacts/native-gpu/20260925-010649-774/report.json`.
+  This successful run does not establish that the intermittent surface issue is fixed.
+- The runner now records and compares a manifest of EXE/DLL files (including
+  subdirectories), deps and runtime configuration, instead of checking only the
+  app host EXE. The helper was checked with unchanged files, a same-length DLL
+  modification and added runtime config; all behaved correctly. The local runtime
+  manifest contains 248 files (`artifacts/runtime-manifest-current.json`). This runner
+  enhancement postdates the 17-case run; no newer whole-suite pass is claimed.
 - All 27 general engineering cases passed after the mip-upload fix:
   `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
   This general run predates the mip-view/cache extensions.
@@ -65,9 +73,11 @@ width-derived pitch and no existing backend image at the allocation address. It 
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.
 
-Next task: run the expanded aggregate and use the new diagnostics if presentation
-recreation recurs. Diagnose why the surface intermittently becomes zero-sized and
-loses captures before attributing it to minimization. Do not weaken pixel/count checks.
+Next task: use the expanded diagnostics if presentation recreation recurs. Diagnose
+why the surface intermittently becomes zero-sized and loses captures before
+attributing it to minimization. Do not weaken pixel/count checks. Other useful texture
+work includes non-power-of-two native mip sampling and additional formats, with an
+independent layout reference before broadening the supported CPU upload subset.
 
 Use `tools/native-probes/Test-TouchePX5-NativeGpu.ps1` for GPU checks. Keep sources and
 builds under `C:\Dev\TouchePX5`; the old OneDrive triangle runner is obsolete. General

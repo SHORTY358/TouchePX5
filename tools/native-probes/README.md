@@ -159,3 +159,9 @@ level at offset 0, both with 256-byte rows. Fixed UV=(0.75,0.75) selects the
 bottom-right lower texel when LOD becomes 1, then that texel changes from blue to
 red. Red/blue/red proves lower-level row pitch and coordinates, which the 1x1
 lower level could not exercise. This is the seventeenth aggregate case.
+
+Aggregate reports include SHA-256 manifests for the runtime's EXE/DLL files,
+including nested libraries, and .NET deps/runtimeconfig files. The same manifest
+must match at completion; a rebuild that leaves the app-host EXE unchanged but
+replaces a managed DLL invalidates the run. Capture/source hashes remain in the
+per-case reports. The manifest does not claim to hash external drivers or caches.

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'RuntimeManifest.ps1')
 $sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $reportRoot=Join-Path $sourceRoot ('artifacts\native-gpu\'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
@@ -11,6 +12,7 @@ $report=[ordered]@{
     SourceCommit=(& git -C $sourceRoot rev-parse HEAD)
     SourceChanges=@(& git -C $sourceRoot status --porcelain)
     ExecutableSha256=(Get-FileHash -LiteralPath $exe).Hash
+    RuntimeFiles=@(Get-ToucheRuntimeManifest -Directory (Split-Path $exe))
     Cases=$results
 }
 $reportPath=Join-Path $reportRoot 'report.json'
@@ -60,7 +62,11 @@ try {
         }
         Write-Output "PASS: $($case.Name)"
     }
-    if((Get-FileHash -LiteralPath $exe).Hash -ne $report.ExecutableSha256) { throw 'Executable changed during checks.' }
+    $runtimeAfter=@(Get-ToucheRuntimeManifest -Directory (Split-Path $exe))
+    if((ConvertTo-Json -InputObject $runtimeAfter -Depth 4 -Compress) -cne
+       (ConvertTo-Json -InputObject $report.RuntimeFiles -Depth 4 -Compress)) {
+        throw 'Runtime binaries or loading configuration changed during checks.'
+    }
     $report.Status='Passed'
 } catch { $report.Status='Failed'; throw }
 finally { $report.FinishedUtc=[DateTime]::UtcNow.ToString('o'); Save-Report; Write-Output "Report: $reportPath" }
