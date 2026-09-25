@@ -66,8 +66,11 @@ percentage or release-date estimate.
   Extending the block-aware reader to 16-byte BC3 blocks fixed the native probe:
   `artifacts/mip-bc3-after.log`. Frames verify red/blue/red with alpha 128/128/64,
   one cache hit and two uploads. Unit cases cover odd dimensions, rows above
-  256 bytes, truncation and unsupported BC3 sRGB. The expanded 22-case aggregate
-  and general engineering run are pending for this runtime revision.
+  256 bytes, truncation and unsupported BC3 sRGB. All **22/22** native cases passed
+  on clean source `47ec2fc`: `artifacts/native-gpu/20260925-223516-947/report.json`.
+  The general engineering run also passed all 27 cases:
+  `artifacts/engineering/20260925-135039-796/report.json`. A runtime manifest saved
+  at resumption matches all 248 entries of the new native GPU report.
 
 The native cases cover compute, repeated raster draws, clipping, blending, depth,
 texture CPU rewrites, 2D texel selection, interpolated UVs, perspective correction,
