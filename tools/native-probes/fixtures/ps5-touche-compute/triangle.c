@@ -14,7 +14,11 @@ static u64 addresses[1];
 static volatile u32 completed;
 static u32 commands[256];
 #ifdef TEST_TEXTURE
+#ifdef TEST_MIP_2D
+static volatile u32 texel[384] __attribute__((aligned(256)));
+#else
 static volatile u32 texel[192] __attribute__((aligned(256)));
+#endif
 #endif
 #ifdef TEST_DEPTH
 static u32 depth[320*180] __attribute__((aligned(256)));
@@ -59,6 +63,9 @@ static const u32 pixel[] __attribute__((aligned(256))) = {
     0x7e0002f0, 0x7e0202f0, // sample at (0.5,0.5)
 #endif
 #ifdef TEST_MIP
+#ifdef TEST_MIP_2D
+    0x7e0002ff,0x3f400000,0x7e0202ff,0x3f400000, // u=v=0.75 independent of LOD
+#endif
     0x7e04020c, // v2=explicit LOD from s12
     0xf0900f08,0x00400400, // image_sample_l v[4:7],v[0:2],s[0:7],s[8:11],dim2D
 #else
@@ -142,6 +149,14 @@ int _start(void) {
     // GFX10 linear allocation: smaller mip precedes mip0 (AMD AddrLib).
     texel[64]=texel[65]=texel[128]=texel[129]=0xff0000ff; // base level red at +256
     texel[0]=0xffff0000; // 1x1 mip at allocation start
+#ifdef TEST_MIP_2D
+    // Two padded rows for mip1, then four padded rows for mip0.
+    texel[0]=0xff0000ff; texel[1]=texel[64]=0xff00ff00; texel[65]=0xffff0000;
+    for(u32 y=0;y<4;y++) for(u32 x=0;x<4;x++) texel[128+y*64+x]=0xff0000ff;
+    reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)|(3u<<30)); // width=4
+    reg(0x76,0xe,3u<<14); // height=4
+    reg(0x76,0x10,3); // pitch=4, hardware rows still 256 bytes
+#endif
     reg(0x76,0xf,0x90010fac); // last mip=1
 #ifdef TEST_MIP_BASE_ONLY
     reg(0x76,0xf,0x90000fac); // resource has two levels, but the view exposes only mip0
@@ -248,7 +263,11 @@ int _start(void) {
 #endif
     n=0;
 #ifdef TEST_MIP
+#ifdef TEST_MIP_2D
+    texel[65]=0xff0000ff; // rewrite bottom-right texel of 2x2 lower mip
+#else
     texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged
+#endif
 #endif
 #ifdef TEST_DEPTH
     reg(0x76,0xcc,0x3e000000); // nearer blue Z=0.125 must pass

@@ -22296,13 +22296,17 @@ internal static unsafe class VulkanVideoPresenter
                     _swapchainRecreateDeferred = true;
                     Console.Error.WriteLine(
                         "[LOADER][INFO] Vulkan VideoOut swapchain recreate " +
-                        $"using fallback extent (window reported {surfaceWidth}x{surfaceHeight})");
+                        $"using fallback extent (surface reported {surfaceWidth}x{surfaceHeight})");
                 }
             }
 
             _swapchainRecreateDeferred = false;
             Console.Error.WriteLine(
-                $"[LOADER][INFO] Vulkan VideoOut recreating swapchain after {operation}: {result}");
+                $"[LOADER][INFO] Vulkan VideoOut recreating swapchain after {operation}: {result} " +
+                $"surface={surfaceWidth}x{surfaceHeight} fixed={hasFixedExtent} " +
+                $"framebuffer={framebufferSize.X}x{framebufferSize.Y} " +
+                $"windowState={_window?.WindowState.ToString() ?? "embedded"} " +
+                $"closeRequested={Volatile.Read(ref _presenterCloseRequested)}");
             _vk.DeviceWaitIdle(_device);
             DrainFrameSlots();
             CollectCompletedGuestSubmissions(waitForOldest: false);

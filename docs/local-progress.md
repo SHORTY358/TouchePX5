@@ -7,6 +7,8 @@ percentage or release-date estimate.
 ## Latest verified state
 
 - Release build: no warnings/errors (`artifacts/mip-cache-final-build.log`).
+  The later presentation-diagnostic-only build also passed with no warnings/errors
+  (`artifacts/present-diagnostic-build.log`).
 - All 1,239 unit tests passed (`artifacts/mip-cache-final-tests.log`).
 - Initial cache revision passed all 15 native Vulkan cases:
   `artifacts/native-gpu/20260925-005443-656/report.json`.
@@ -19,6 +21,12 @@ percentage or release-date estimate.
   failed on missing captures in ordinary triangle / blend respectively. Logs show
   `vkQueuePresentKHR: ErrorOutOfDateKhr` and a zero surface extent. They remain
   failed evidence, not retries silently converted to success.
+- Three subsequent blend diagnostic runs passed (`artifacts/present-diagnostic-blend-*.log`)
+  without triggering recreation. The diagnostic logs now distinguish surface extent,
+  framebuffer size, window state and shutdown requests. No presentation fix is claimed.
+- A nonuniform 2x2 lower mip under a 4x4 base passed native red/blue/red checks,
+  including second-row texel selection and rewriting (`artifacts/mip-2d-native.log`).
+  The aggregate now contains 17 cases; a combined pass is still pending.
 - All 27 general engineering cases passed after the mip-upload fix:
   `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
   This general run predates the mip-view/cache extensions.
@@ -57,11 +65,9 @@ width-derived pitch and no existing backend image at the allocation address. It 
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.
 
-Next task: diagnose why the presentation surface intermittently becomes zero-sized
-and loses captures during aggregate probes. Current logging calls this a window size,
-but actually reports surface capabilities; log the real framebuffer and window state
-before attributing it to minimization. Do not weaken pixel/count checks.
-Afterwards, extend native mip coverage to a nonuniform lower mip larger than 1x1.
+Next task: run the expanded aggregate and use the new diagnostics if presentation
+recreation recurs. Diagnose why the surface intermittently becomes zero-sized and
+loses captures before attributing it to minimization. Do not weaken pixel/count checks.
 
 Use `tools/native-probes/Test-TouchePX5-NativeGpu.ps1` for GPU checks. Keep sources and
 builds under `C:\Dev\TouchePX5`; the old OneDrive triangle runner is obsolete. General

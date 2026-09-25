@@ -1,9 +1,9 @@
 [CmdletBinding()]
-param([switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
-if($MipBaseOnly -or $MipLowerView -or $MipCachePressure) { $Mip=$true }
+if($MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Mip2D) { $Mip=$true }
 if($Mip) {
     if($LinearFilter -or $Perspective -or $TextureUv) { throw 'Mip test uses explicit constant LOD.' }
     $TextureSelect=$true
@@ -26,6 +26,7 @@ if($LinearFilter) { $root += '-linear' }
 if($Mip) { $root += '-mip' }
 if($MipBaseOnly) { $root += '-base-only' }
 if($MipLowerView) { $root += '-lower-view' }
+if($Mip2D) { $root += '-2d' }
 if($MipCachePressure) { $root += '-pressure' }
 if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a separate scenario.' }
 if($Depth) { $root += '-depth' }
@@ -46,6 +47,7 @@ if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
 if($Mip) { $defines += '-DTEST_MIP=1' }
 if($MipBaseOnly) { $defines += '-DTEST_MIP_BASE_ONLY=1' }
 if($MipLowerView) { $defines += '-DTEST_MIP_LOWER_VIEW=1' }
+if($Mip2D) { $defines += '-DTEST_MIP_2D=1' }
 if($MipCachePressure) { $defines += '-DTEST_MIP_CACHE_PRESSURE=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
@@ -245,6 +247,7 @@ public static class TextureUvVerifierV3 {
         MipUploads=$mipUploads
         MipCacheTrims=$mipCacheTrims
         MipCachePressure=[bool]$MipCachePressure
+        Mip2D=[bool]$Mip2D
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash

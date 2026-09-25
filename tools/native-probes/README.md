@@ -153,3 +153,9 @@ draws, 42 uploads, one cache hit and at least one deferred eviction of 32 entrie
 followed by the same red/blue/red pixel checks. This is the sixteenth aggregate
 case. Padding changes deliberately count as content changes; this conservative
 cache does not try to infer which texels a future shader might access.
+
+`-Mip2D` uses a red 4x4 base at allocation offset 512 and a nonuniform 2x2 lower
+level at offset 0, both with 256-byte rows. Fixed UV=(0.75,0.75) selects the
+bottom-right lower texel when LOD becomes 1, then that texel changes from blue to
+red. Red/blue/red proves lower-level row pitch and coordinates, which the 1x1
+lower level could not exercise. This is the seventeenth aggregate case.
