@@ -1,9 +1,13 @@
 [CmdletBinding()]
-param([switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
+if($MipBc3) {
+    if($MipBc1 -or $MipSrgb -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC3 mip probe requires its standalone layout.' }
+    $Mip=$true
+}
 if($MipBc1) {
     if($MipSrgb -or $MipOdd -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure) { throw 'BC1 mip probe supports only its default or 2D layout.' }
     $Mip=$true
@@ -35,6 +39,7 @@ if($LinearFilter) { $root += '-linear' }
 if($Mip) { $root += '-mip' }
 if($MipSrgb) { $root += '-srgb' }
 if($MipBc1) { $root += '-bc1' }
+if($MipBc3) { $root += '-bc3' }
 if($MipBaseOnly) { $root += '-base-only' }
 if($MipLowerView) { $root += '-lower-view' }
 if($Mip2D) { $root += '-2d' }
@@ -59,6 +64,7 @@ if($LinearFilter) { $defines += '-DTEST_LINEAR_FILTER=1' }
 if($Mip) { $defines += '-DTEST_MIP=1' }
 if($MipSrgb) { $defines += '-DTEST_MIP_SRGB=1' }
 if($MipBc1) { $defines += '-DTEST_MIP_BC1=1' }
+if($MipBc3) { $defines += '-DTEST_MIP_BC3=1' }
 if($MipBaseOnly) { $defines += '-DTEST_MIP_BASE_ONLY=1' }
 if($MipLowerView) { $defines += '-DTEST_MIP_LOWER_VIEW=1' }
 if($Mip2D) { $defines += '-DTEST_MIP_2D=1' }
@@ -147,11 +153,11 @@ public static class TrianglePixelVerifierV5 {
 }
 "@
     }
-    if($MipSrgb -and -not ('SrgbMipVerifierV1' -as [type])) {
+    if(($MipSrgb -or $MipBc3) -and -not ('UniformMipVerifierV2' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
-public static class SrgbMipVerifierV1 {
-    public static int Check(byte[] data,int width,int height,bool blue,int encoded,bool srgbOutput,bool decode) {
+public static class UniformMipVerifierV2 {
+    public static int Check(byte[] data,int width,int height,bool blue,int encoded,bool srgbOutput,bool decode,int expectedAlpha) {
         if(data.Length!=checked(width*height*4)) throw new Exception("Invalid capture size");
         double c=encoded/255.0;
         if(decode) c=c<=0.04045 ? c/12.92 : Math.Pow((c+0.055)/1.055,2.4);
@@ -164,14 +170,14 @@ public static class SrgbMipVerifierV1 {
             double diagonal=(sx-40)/240+(sy-22.5)/135;
             bool inside=sx>42 && sy>24.5 && diagonal<0.98;
             bool outside=sx<38 || sy<20.5 || diagonal>1.02;
-            bool color=Math.Abs(data[p+channel]-expected)<=1 && data[p+3]==128;
+            bool color=Math.Abs(data[p+channel]-expected)<=1 && data[p+3]==expectedAlpha;
             bool black=data[p]==0 && data[p+1]==0 && data[p+2]==0 && data[p+3]==0;
-            if(data[p+other]!=0 || data[p+1]!=0 || data[p+3]>128 ||
+            if(data[p+other]!=0 || data[p+1]!=0 || data[p+3]>expectedAlpha ||
                data[p+channel]>expected+1 || (inside && !color) || (outside && !black))
-                throw new Exception("sRGB color/alpha/coverage mismatch at "+x+","+y+" expected="+expected);
+                throw new Exception("Mip color/alpha/coverage mismatch at "+x+","+y+" expected="+expected);
             if(color) count++;
         }
-        if(count<width*(long)height*0.27 || count>width*(long)height*0.30) throw new Exception("Wrong sRGB triangle area");
+        if(count<width*(long)height*0.27 || count>width*(long)height*0.30) throw new Exception("Wrong mip triangle area");
         return count;
     }
 }
@@ -225,17 +231,26 @@ public static class TextureUvVerifierV3 {
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
-    if($MipSrgb) {
-        $encoded=if($frameIndex -eq 3) { 64 } else { 128 }
+    if($MipSrgb -or $MipBc3) {
+        $encoded=if($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
+        $expectedAlpha=if($MipBc3 -and $frameIndex -eq 3) { 64 } else { 128 }
         $srgbOutput=$capture -match 'Srgb\.bgra$'
-        $coloredPixels=[SrgbMipVerifierV1]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$true)
-        $rejectedNoDecode=$false
-        try { [SrgbMipVerifierV1]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$false) | Out-Null } catch { $rejectedNoDecode=$true }
-        if(-not $rejectedNoDecode) { throw 'sRGB mip output passed the incorrect non-decoding oracle.' }
+        $coloredPixels=[UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,[bool]$MipSrgb,$expectedAlpha)
+        if($MipSrgb) {
+            $rejectedNoDecode=$false
+            try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$false,$expectedAlpha) | Out-Null } catch { $rejectedNoDecode=$true }
+            if(-not $rejectedNoDecode) { throw 'sRGB mip output passed the incorrect non-decoding oracle.' }
+        }
+        if($MipBc3) {
+            $rejectedOpaque=$false
+            try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$false,255) | Out-Null } catch { $rejectedOpaque=$true }
+            if(-not $rejectedOpaque) { throw 'BC3 mip output passed the incorrect opaque-alpha oracle.' }
+        }
         if($frameIndex -eq 1) {
-            $rejectedBlank=$false
-            try { [SrgbMipVerifierV1]::Check([byte[]]::new(320*180*4),320,180,$false,$encoded,$srgbOutput,$true) | Out-Null } catch { $rejectedBlank=$true }
-            if(-not $rejectedBlank) { throw 'sRGB mip verifier accepted a blank frame.' }
+            $rejectedBlank=$false; $rejectedWrongColor=$false
+            try { [UniformMipVerifierV2]::Check([byte[]]::new(320*180*4),320,180,$false,$encoded,$srgbOutput,[bool]$MipSrgb,$expectedAlpha) | Out-Null } catch { $rejectedBlank=$true }
+            try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,(-not $expectBlue),$encoded,$srgbOutput,[bool]$MipSrgb,$expectedAlpha) | Out-Null } catch { $rejectedWrongColor=$true }
+            if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'Mip verifier accepted a negative control.' }
         }
     } elseif($TextureUv) {
         $coloredPixels=[TextureUvVerifierV3]::Check($gpuBytes,$width,$height,$false,[bool]$Perspective,[bool]$LinearFilter)
@@ -258,7 +273,7 @@ public static class TextureUvVerifierV3 {
     } else {
         $coloredPixels=[TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$expectBlue,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend)
     }
-    if($frameIndex -eq 1 -and -not $TextureUv -and -not $MipSrgb) {
+    if($frameIndex -eq 1 -and -not $TextureUv -and -not $MipSrgb -and -not $MipBc3) {
         $rejectedBlank=$false; $rejectedWrongColor=$false
         try { [TrianglePixelVerifierV5]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedBlank=$true }
         try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,(-not $expectBlue),[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedWrongColor=$true }
@@ -308,12 +323,14 @@ public static class TextureUvVerifierV3 {
         MipOdd=[bool]$MipOdd
         MipSrgb=[bool]$MipSrgb
         MipBc1=[bool]$MipBc1
+        MipBc3=[bool]$MipBc3
+        OpaqueAlphaOracleRejected=[bool]$MipBc3
         NonDecodingOracleRejected=[bool]$MipSrgb
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash
         RunnerSha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash
-        NegativeControls=$(if($MipSrgb) { 'Blank frame and incorrect non-decoding oracle rejected' } else { 'Blank frame and incorrect expected color rejected' })
+        NegativeControls=$(if($MipSrgb) { 'Blank frame and incorrect non-decoding oracle rejected' } elseif($MipBc3) { 'Blank frame, incorrect expected color and opaque alpha rejected' } else { 'Blank frame and incorrect expected color rejected' })
         AffineOracleRejected=[bool]$Perspective
         NearestOracleRejected=[bool]$LinearFilter
         Log=$log

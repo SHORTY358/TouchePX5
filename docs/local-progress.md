@@ -6,10 +6,8 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/mip-bc1-build.log`).
-  The later presentation-diagnostic-only build also passed with no warnings/errors
-  (`artifacts/present-diagnostic-build.log`).
-- All 1,243 unit tests passed (`artifacts/mip-bc1-tests.log`).
+- Latest Release build: no warnings/errors (`artifacts/mip-bc3-build.log`).
+- All 1,247 unit tests passed (`artifacts/mip-bc3-tests.log`).
 - Initial cache revision passed all 15 native Vulkan cases:
   `artifacts/native-gpu/20260925-005443-656/report.json`.
 - Final cache ownership/trace revision passed all three mip view cases
@@ -61,7 +59,15 @@ percentage or release-date estimate.
 - The new BC1 multi-row probe passed independently:
   `artifacts/mip-bc1-2d-native.log`. A 16x16 base follows an 8x8 lower level;
   sampling its bottom-right block gives blue, then red after a rewrite.
-  This adds the twenty-first aggregate case; a combined run is pending.
+  All **21/21** passed together on source `4398a1c`:
+  `artifacts/native-gpu/20260925-134214-928/report.json`.
+- BC3 UNORM reproduced blue instead of red at the base level before the fix:
+  `artifacts/mip-bc3-before-evidence.json` and `mip-bc3-before-guest.log`.
+  Extending the block-aware reader to 16-byte BC3 blocks fixed the native probe:
+  `artifacts/mip-bc3-after.log`. Frames verify red/blue/red with alpha 128/128/64,
+  one cache hit and two uploads. Unit cases cover odd dimensions, rows above
+  256 bytes, truncation and unsupported BC3 sRGB. The expanded 22-case aggregate
+  and general engineering run are pending for this runtime revision.
 
 The native cases cover compute, repeated raster draws, clipping, blending, depth,
 texture CPU rewrites, 2D texel selection, interpolated UVs, perspective correction,
@@ -87,6 +93,8 @@ reject the corresponding incorrect affine/nearest-neighbor expectations.
    the allocation's lowest mip as the base texture. Vulkan performs sRGB sampling.
 6. CPU BC1 UNORM mip chains calculate storage in compressed blocks, retain texel
    dimensions for sampling and provide texel-unit row lengths to Vulkan copies.
+7. CPU BC3 UNORM mip chains use the same layout with 16-byte blocks and preserve
+   independently encoded alpha during sampling and lower-level rewrites.
 
 Mip layout follows AMD AddrLib GFX10: smallest level first, ceiling-rounded storage
 sizes and 256-byte rows. Primary-source links and the supported subset are in
@@ -96,7 +104,7 @@ used as evidence for correct GFX10 layout.
 
 ## Scope and next work
 
-Full-chain Vulkan upload currently supports CPU-authored linear 2D RGBA8 UNORM/sRGB or BC1 UNORM with implicit
+Full-chain Vulkan upload currently supports CPU-authored linear 2D RGBA8 UNORM/sRGB or BC1/BC3 UNORM with implicit
 width-derived pitch and no existing backend image at the allocation address. It uses
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.

@@ -203,3 +203,15 @@ the 8x8 lower level has red/green blocks in the first row and green/blue in the
 second. UV=(0.75,0.75) selects the bottom-right blue block, then its red replacement.
 This checks block-row pitch and selection that a single-block lower level cannot
 distinguish. It retains the one-cache-hit / two-upload requirements.
+
+`-MipBc3` is the twenty-second case. An 8x8 red base follows a 4x4 blue lower
+level, then the lower level becomes red. Alpha is 128 for the first two frames
+and 64 for the third. Each 16-byte block contains alpha endpoints and selectors
+in the first eight bytes, then RGB565 endpoints and color selectors; all selectors
+choose endpoint zero. See [Khronos BC3 layout](https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html)
+and [Microsoft BC3 decoding](https://learn.microsoft.com/en-us/windows/win32/direct3d10/d3d10-graphics-programming-guide-resources-block-compression).
+The 256-byte block row is expressed as 64 texels in Vulkan copies. The pixel oracle
+checks exact alpha independently from color and rejects opaque-alpha, wrong-color
+and blank-image expectations. The unchanged draw reuses its upload; a lower-level
+rewrite creates a fresh upload. This tests endpoint selection, not interpolated
+BC3 alpha selectors or every BC3 encoding. BC3 sRGB remains outside this change.

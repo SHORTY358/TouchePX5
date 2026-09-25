@@ -183,6 +183,19 @@ int _start(void) {
     reg(0x76,0x15,256u<<12); // sampler max LOD=1
     reg(0x76,0x16,1u<<26); // nearest mip selection
     reg(0x76,0x18,0); // sample mip0
+#ifdef TEST_MIP_BC3
+    // BC3: alpha endpoints/selectors precede RGB565 endpoints/selectors.
+    // Each 16-byte block selects endpoint zero for every color and alpha.
+    for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
+    texel[0]=128; texel[2]=0x001f; // blue lower mip, alpha 128
+    for(u32 y=0;y<2;y++) for(u32 x=0;x<2;x++) {
+        u32 block=64+y*64+x*4;
+        texel[block]=128; texel[block+2]=0xf800;
+    }
+    reg(0x76,0xd,(u32)(texture>>40)|(173u<<20)|(3u<<30));
+    reg(0x76,0xe,1u|(7u<<14)); // 8x8 base, 4x4 lower level
+    reg(0x76,0x10,7);
+#endif
 #ifdef TEST_MIP_BC1
     // BC1: 8-byte blocks, 256-byte rows. 4x4 mip1 precedes 8x8 mip0.
     for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
@@ -301,6 +314,8 @@ int _start(void) {
 #else
     texel[0]=0xf800; // only the lower compressed block changes to red
 #endif
+#elif defined(TEST_MIP_BC3)
+    texel[0]=64; texel[2]=0xf800; // lower mip becomes red, alpha 64
 #elif defined(TEST_MIP_2D)
 #ifdef TEST_MIP_ODD
     texel[1]=0xff0000ff; // second visible texel; storage padding stays green
