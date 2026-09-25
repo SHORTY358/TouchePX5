@@ -13,8 +13,10 @@ percentage or release-date estimate.
   and passed afterward (red/red/blue): `artifacts/indirect-register-before-guest.log`
   and `artifacts/indirect-register-after.log`. Unit checks cover both single packet
   variants, nonzero argument offsets and a signed indexed base-vertex bit pattern.
-  The new 23-case aggregate is pending; the 22-case and general runs below predate
-  this fix. Multi-draw controls and general base-instance semantics remain separate.
+  All **23/23** native cases passed on clean source `38a14ab`:
+  `artifacts/native-gpu/20260925-224622-652/report.json`. The 22-case and general
+  runs below predate this fix. Multi-draw controls and general base-instance
+  semantics remain separate.
 - The first post-fix probe hit the old runner's 20-second log deadline although
   its guest later completed successfully. Preserved log:
   `artifacts/indirect-register-after-timeout-guest.log`. The runner now waits for
