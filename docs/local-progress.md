@@ -6,10 +6,10 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Release build: no warnings/errors (`artifacts/mip-cache-final-build.log`).
+- Latest Release build: no warnings/errors (`artifacts/mip-srgb-build.log`).
   The later presentation-diagnostic-only build also passed with no warnings/errors
   (`artifacts/present-diagnostic-build.log`).
-- All 1,239 unit tests passed (`artifacts/mip-cache-final-tests.log`).
+- All 1,239 unit tests passed (`artifacts/mip-srgb-tests.log`).
 - Initial cache revision passed all 15 native Vulkan cases:
   `artifacts/native-gpu/20260925-005443-656/report.json`.
 - Final cache ownership/trace revision passed all three mip view cases
@@ -34,11 +34,19 @@ percentage or release-date estimate.
   app host EXE. The helper was checked with unchanged files, a same-length DLL
   modification and added runtime config; all behaved correctly. The local runtime
   manifest contains 248 files (`artifacts/runtime-manifest-current.json`). This runner
-  enhancement postdates the 17-case run; no newer whole-suite pass is claimed.
+  enhancement was subsequently exercised by the 18-case run below.
 - A 5x3 base with odd-sized mip storage passed native red/blue/red checks
   (`artifacts/mip-odd-native.log`). Green unused storage texels ensure the shader
   cannot accidentally sample the ceiling-rounded physical extent. It is now the
-  eighteenth aggregate case; a combined 18-case run is pending.
+  eighteenth aggregate case. All **18/18** passed together on clean source `ec8cc06`:
+  `artifacts/native-gpu/20260925-011332-977/report.json`, including verification of
+  all 248 runtime manifest entries.
+- Native sRGB mip test reproduced a wrong first-level sample (blue=55 instead of
+  red=55, alpha=128). Allowing RGBA8 number type 9 through the full-chain reader
+  fixed the same probe: `artifacts/mip-srgb-before.log`, `mip-srgb-before-guest.log`,
+  `mip-srgb-after.log`. Three frames verify RGB decoding (128 -> 55, 64 -> 13 on
+  UNORM output), alpha remaining 128, cache reuse and lower-level-only changes.
+  The aggregate now has 19 cases; a combined run including sRGB is pending.
 - All 27 general engineering cases passed after the mip-upload fix:
   `artifacts/engineering/20260924-120558-722/report.json` (source 64ec821).
   This general run predates the mip-view/cache extensions.
@@ -63,6 +71,8 @@ reject the corresponding incorrect affine/nearest-neighbor expectations.
    layout, view or sampler gets a separate resource. CPU snapshots remain fresh.
    Cache admission is capped at 32 entries / 16 MiB of CPU payload; GPU and staging
    allocations are additional. Retirement waits for previously submitted GPU work.
+5. CPU RGBA8 sRGB mip chains now use the full-chain path instead of interpreting
+   the allocation's lowest mip as the base texture. Vulkan performs sRGB sampling.
 
 Mip layout follows AMD AddrLib GFX10: smallest level first, ceiling-rounded storage
 sizes and 256-byte rows. Primary-source links and the supported subset are in
@@ -72,7 +82,7 @@ used as evidence for correct GFX10 layout.
 
 ## Scope and next work
 
-Full-chain upload currently supports CPU-authored linear 2D RGBA8 UNORM with implicit
+Full-chain Vulkan upload currently supports CPU-authored linear 2D RGBA8 UNORM/sRGB with implicit
 width-derived pitch and no existing backend image at the allocation address. It uses
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.

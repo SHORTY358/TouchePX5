@@ -149,6 +149,11 @@ int _start(void) {
     // GFX10 linear allocation: smaller mip precedes mip0 (AMD AddrLib).
     texel[64]=texel[65]=texel[128]=texel[129]=0xff0000ff; // base level red at +256
     texel[0]=0xffff0000; // 1x1 mip at allocation start
+#ifdef TEST_MIP_SRGB
+    reg(0x76,0xd,(u32)(texture>>40)|(130u<<20)|(1u<<30)); // RGBA8 sRGB
+    texel[64]=texel[65]=texel[128]=texel[129]=0x80000080; // R=128, A=128
+    texel[0]=0x80800000; // B=128, A=128
+#endif
 #ifdef TEST_MIP_2D
     // Two padded rows for mip1, then four padded rows for mip0.
     texel[0]=0xff0000ff; texel[1]=texel[64]=0xff00ff00; texel[65]=0xffff0000;
@@ -281,6 +286,9 @@ int _start(void) {
 #endif
 #else
     texel[0]=0xff0000ff; // rewrite only mip1; leave LOD=1 and descriptor unchanged
+#ifdef TEST_MIP_SRGB
+    texel[0]=0x80000040; // R=64, A=128: RGB must decode, alpha must not
+#endif
 #endif
 #endif
 #ifdef TEST_DEPTH

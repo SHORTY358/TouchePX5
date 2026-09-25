@@ -10470,7 +10470,7 @@ public static partial class AgcExports
         // that lower levels are unchanged. Tiled/array/storage layouts keep their
         // existing paths until their full-chain layout is implemented.
         if (!isStorage && !isArrayed && descriptor.Type == Gen5TextureType2D &&
-            descriptor.TileMode == 0 && descriptor.Format == 10 && descriptor.NumberType == 0 &&
+            descriptor.TileMode == 0 && descriptor.Format == 10 && descriptor.NumberType is 0 or 9 &&
             descriptor.ResourceMipLevels > 1 &&
             !GuestGpu.Current.TryGetGuestImageExtent(descriptor.Address, out _, out _, out _) &&
             TryReadLinearRgba8MipChain(ctx.Memory, descriptor.Address, descriptor.Width,

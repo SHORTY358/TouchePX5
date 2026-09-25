@@ -44,6 +44,7 @@ public sealed class CpuMipSnapshotTests
             source with { ResourceMipLevels = 3 },
             source with { Sampler = new(1, 0, 0, 0) },
             source with { DstSelect = 0 },
+            source with { NumberType = 9 }, // same bytes, different sRGB sampling semantics
             source with { Pitch = 128 },
             source with { AdditionalMips = [new(1, 1, 128, new byte[256])] },
             source with { AdditionalMips = [new(2, 1, 64, new byte[256])] },

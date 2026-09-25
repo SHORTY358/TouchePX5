@@ -117,7 +117,7 @@ Expected captures are red/blue/red. The initial reproducer failed at LOD 1 becau
 standalone Vulkan upload allocated only one mip. The fix transports independent CPU
 snapshots for the lower levels and uploads each to its own image subresource.
 
-Scope: CPU-authored linear 2D RGBA8 UNORM, implicit width-derived pitch, with no existing backend
+Scope: CPU-authored linear 2D RGBA8 UNORM/sRGB, implicit width-derived pitch, with no existing backend
 image at that address. Tiled, array, storage and GPU-written mip
 chains retain their existing behavior. Full chains retain per-draw CPU snapshots,
 but exact matches reuse an immutable Vulkan upload. The separate cache compares
@@ -165,6 +165,16 @@ extent 2x1, following the same AddrLib ceiling-storage/floor-visible distinction
 Unused physical texels are green; sampling UV=(0.75,0.75) must pick the blue
 second visible texel, then its red replacement. Selecting the extra physical
 column or row fails the color oracle. This is the eighteenth aggregate case.
+
+`-MipSrgb` is the nineteenth case. RGBA8 sRGB (unified format 130) stores red=128
+in the base, blue=128 in the lower level, then rewrites the lower level to red=64.
+Alpha is always 128. The color oracle uses the [Khronos sRGB transfer function](https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html)
+and [Vulkan sampling rules](https://docs.vulkan.org/spec/latest/chapters/textures.html),
+including 8-bit UNORM target quantization and the capture's output encoding. On
+the tested UNORM swapchain, the expected color channels are 55, 55 and 13 while
+alpha remains 128. It rejects a blank image and the incorrect no-decoding oracle.
+The pre-fix probe sampled blue from the allocation's first mip instead of red
+from the base: the full-chain AGC path previously excluded sRGB number type 9.
 
 Aggregate reports include SHA-256 manifests for the runtime's EXE/DLL files,
 including nested libraries, and .NET deps/runtimeconfig files. The same manifest
