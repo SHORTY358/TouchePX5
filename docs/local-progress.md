@@ -14,7 +14,8 @@ percentage or release-date estimate.
   Native before: four computes but only two raster draws
   (`artifacts/indirect-gpu-count-before-guest.log`). Native after: four computes,
   four raster draws and correct red/red/blue pixels
-  (`artifacts/indirect-gpu-count-after.log`). The new 25-case aggregate is pending.
+  (`artifacts/indirect-gpu-count-after.log`). All **25/25** native cases passed
+  on clean source `ee2af67`: `artifacts/native-gpu/20260926-040303-359/report.json`.
   GPU-produced argument records remain a separate synchronization question.
 - Indexed indirect multi-draw now uses the hardware 10-dword packet, correct
   stride offset, direct/memory-count limits and shader register destinations.
