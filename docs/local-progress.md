@@ -6,8 +6,16 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/indirect-multi-stride-build.log`).
-- All 1,256 unit tests passed (`artifacts/indirect-multi-stride-tests.log`).
+- Latest Release build: no warnings/errors (`artifacts/indirect-gpu-count-build.log`).
+- All 1,256 unit tests passed (`artifacts/indirect-gpu-count-tests.log`).
+- GPU-produced multi-draw counts now use a fresh ordered four-byte readback on
+  every counted packet, with checked completion. Reusing the argument helper's
+  throttling previously consumed stale counts after later compute dispatches.
+  Native before: four computes but only two raster draws
+  (`artifacts/indirect-gpu-count-before-guest.log`). Native after: four computes,
+  four raster draws and correct red/red/blue pixels
+  (`artifacts/indirect-gpu-count-after.log`). The new 25-case aggregate is pending.
+  GPU-produced argument records remain a separate synchronization question.
 - Indexed indirect multi-draw now uses the hardware 10-dword packet, correct
   stride offset, direct/memory-count limits and shader register destinations.
   The native two-record probe failed before the fix and passes afterward:
@@ -19,7 +27,7 @@ percentage or release-date estimate.
   All 27 general cases passed on `abd5b6a` before the final
   zero-stride refinement: `artifacts/engineering/20260925-225914-436/report.json`.
   VGPR destination mode remains unsupported; GPU-produced count synchronization
-  is not covered by the native direct-count fixture.
+  is covered separately by the new fixture above.
 - The preceding general run `artifacts/engineering/20260925-225645-871/report.json`
   failed on its two-frame test. This time diagnostics explicitly reported
   `windowState=Minimized`, framebuffer/surface 0x0 and ErrorOutOfDateKhr, losing

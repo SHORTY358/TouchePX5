@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($IndirectGpuCount) { $IndirectMulti=$true }
 if($IndirectMulti) { $Indirect=$true }
 if($Indirect) {
     if($Scissor -or $Blend -or $IndexBits) { throw 'Indirect probe requires its standalone depth layout.' }
@@ -54,6 +55,7 @@ if($Texture -and ($Depth -or $Blend)) { throw 'Texture currently requires a sepa
 if($Depth) { $root += '-depth' }
 if($Indirect) { $root += '-indirect' }
 if($IndirectMulti) { $root += '-multi' }
+if($IndirectGpuCount) { $root += '-gpu-count' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
 if($Scissor) { $root += '-scissor' }
@@ -80,6 +82,7 @@ if($MipCachePressure) { $defines += '-DTEST_MIP_CACHE_PRESSURE=1' }
 if($Depth) { $defines += '-DTEST_DEPTH=1' }
 if($Indirect) { $defines += '-DTEST_INDIRECT=1' }
 if($IndirectMulti) { $defines += '-DTEST_INDIRECT_MULTI=1' }
+if($IndirectGpuCount) { $defines += '-DTEST_INDIRECT_GPU_COUNT=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -124,6 +127,7 @@ try {
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Triangle guest failed: $log" }
     if ($output.Contains('agc.shader_color_clear')) { throw 'Triangle unexpectedly became a fullscreen clear.' }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
+    if($IndirectGpuCount -and [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 4) { throw 'Expected four GPU count-producing dispatches.' }
     $expectedDraws=if($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
     if($MipCachePressure) { $expectedDraws += 40 }
     $expectedCaptures=if($Depth -or $Texture) { 4 } else { 3 }
@@ -321,6 +325,7 @@ public static class TextureUvVerifierV3 {
         Status='Passed'; CompletedUtc=[DateTime]::UtcNow.ToString('o'); Frames=$verifiedFrames; Scissor=[bool]$Scissor; IndexBits=$IndexBits; Blend=[bool]$Blend; Depth=[bool]$Depth
         Indirect=[bool]$Indirect
         IndirectMulti=[bool]$IndirectMulti
+        IndirectGpuCount=[bool]$IndirectGpuCount
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect
         TextureUv=[bool]$TextureUv

@@ -247,3 +247,16 @@ start-index/draw-index destinations, and exact builder bounds. The native case
 currently uses a direct count; GPU-produced count-buffer synchronization is not
 established by it. `use_vgprs` is explicitly unsupported, and the existing 4096-draw
 host safety cap remains.
+
+`-IndirectGpuCount` adds the twenty-fifth case. Before each of four multi packets,
+a real Vulkan compute dispatch writes count=2; the CPU location is deliberately
+initialized to stale count=1. The packet maximum is 3. Three records are empty,
+real draw and poison draw respectively, so stale count misses a draw and ignoring
+the memory count executes an extra draw. The same red/red/blue depth oracle and
+exactly four translated compute and four raster executions are required.
+The pre-fix run executed four computes but only two raster draws: count readback
+incorrectly reused the empty-argument throttling heuristic. Counted packets now
+order a fresh four-byte readback after earlier work and check completion before
+reading/clamping the count. Timeout fails that packet instead of consuming stale
+CPU data. This validates the compute-to-count path on this fixture; it does not
+establish general GPU-produced argument-record synchronization or performance.

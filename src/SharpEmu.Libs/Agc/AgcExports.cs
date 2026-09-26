@@ -6869,7 +6869,18 @@ public static partial class AgcExports
             if ((multiControl & (1u << 30)) != 0)
             {
                 if (!TryReadUInt64(ctx, packetAddress + 24, out var countAddress)) return false;
-                EnsureIndirectArgumentsCpuVisible(ctx, gpuState, countAddress, 1, 4, 4);
+                // A scalar count is not a draw record. The argument helper's
+                // nonzero/empty heuristics and throttling can reuse stale counts
+                // after later compute dispatches. Order this four-byte read after
+                // all earlier guest work on every counted packet.
+                var countReadback = GuestGpu.Current.SubmitOrderedGuestBufferReadback(
+                    countAddress, sizeof(uint), $"indirect_count_readback 0x{countAddress:X16}");
+                if (countReadback != 0 && !GuestGpu.Current.WaitForGuestWork(
+                        countReadback, IndirectArgumentReadbackTimeoutMilliseconds))
+                {
+                    TraceAgc($"agc.indirect_count_wait_timeout address=0x{countAddress:X16}");
+                    return false;
+                }
                 if (!TryReadUInt32(ctx, countAddress, out var memoryCount)) return false;
                 commandCount = Math.Min(commandCount, memoryCount);
             }

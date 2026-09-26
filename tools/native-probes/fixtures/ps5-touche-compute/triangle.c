@@ -12,7 +12,7 @@ static u32 pixels[320*180] __attribute__((aligned(256)));
 static unsigned char attribute[40];
 static u64 addresses[1];
 static volatile u32 completed;
-static u32 commands[256];
+static u32 commands[512];
 #ifdef TEST_TEXTURE
 #ifdef TEST_MIP_2D
 static volatile u32 texel[384] __attribute__((aligned(256)));
@@ -97,6 +97,21 @@ static const u32 indirect_args[][4] __attribute__((aligned(16))) = {
 static u32 indirect_draw;
 #ifdef TEST_INDIRECT_MULTI
 static const unsigned short multi_indices[3]={0,1,2};
+#ifdef TEST_INDIRECT_GPU_COUNT
+static volatile u32 gpu_count[16] __attribute__((aligned(256)));
+static const u32 count_shader[] __attribute__((aligned(256))) = {
+    0xBFA10001, 0x7E000200, // v0 = raw s0
+    0xE0700000,0x80020000, // buffer_store_dword v0, s[8:11], offset=0
+    0xBF810000
+};
+// GPU count=2 includes empty+real draw, but excludes a third poison draw.
+static const u32 multi_args[][8] __attribute__((aligned(16))) = {
+    {0}, {0}, {3,1,0,0,0x3e800000}, {3,1,0,0,0},
+    {0}, {3,1,0,0,0x3e800000}, {3,1,0,0,0},
+    {0}, {3,1,0,0,0x3f400000}, {3,1,0,0,0},
+    {0}, {3,1,0,0,0x3e000000}, {3,1,0,0,0}
+};
+#else
 // Two records per packet, 32-byte stride: empty record then a real indexed draw.
 static const u32 multi_args[][8] __attribute__((aligned(16))) = {
     {0}, {0}, {3,1,0,0,0x3e800000}, {0}, {3,1,0,0,0x3e800000},
@@ -104,19 +119,42 @@ static const u32 multi_args[][8] __attribute__((aligned(16))) = {
 };
 #endif
 #endif
+#endif
 static void draw(void) {
 #ifdef TEST_INDIRECT
 #ifdef TEST_INDIRECT_MULTI
     u64 address=(u64)multi_args, index=(u64)multi_indices;
+#ifdef TEST_INDIRECT_GPU_COUNT
+    u64 code=(u64)count_shader, count_buffer=(u64)gpu_count;
+    gpu_count[0]=1; // stale CPU count selects only the empty record
+    commands[n++]=0xc0027602; commands[n++]=0x20c;
+    commands[n++]=(u32)(code>>8); commands[n++]=(u32)(code>>40);
+    commands[n++]=0xc0017602; commands[n++]=0x213; commands[n++]=12<<1;
+    commands[n++]=0xc0037602; commands[n++]=0x207;
+    commands[n++]=1; commands[n++]=1; commands[n++]=1;
+    commands[n++]=0xc0017602; commands[n++]=0x240; commands[n++]=2;
+    commands[n++]=0xc0047602; commands[n++]=0x248;
+    commands[n++]=(u32)count_buffer; commands[n++]=(u32)(count_buffer>>32);
+    commands[n++]=64; commands[n++]=0;
+    commands[n++]=0xc0031502;
+    commands[n++]=1; commands[n++]=1; commands[n++]=1; commands[n++]=5;
+#endif
     commands[n++]=0xc0017600; commands[n++]=0xcc; commands[n++]=0x3f800000;
     commands[n++]=0xc0002a00; commands[n++]=0; // 16-bit indices
     commands[n++]=0xc0012600; commands[n++]=(u32)index; commands[n++]=(u32)(index>>32);
     commands[n++]=0xc0001300; commands[n++]=3;
     commands[n++]=0xc0021100; commands[n++]=1;
     commands[n++]=(u32)address; commands[n++]=(u32)(address>>32);
-    commands[n++]=0xc0083800; commands[n++]=(++indirect_draw)*64-32;
+    commands[n++]=0xc0083800;
+#ifdef TEST_INDIRECT_GPU_COUNT
+    commands[n++]=(++indirect_draw)*96-64;
+    commands[n++]=0xcd; commands[n++]=0xcc; commands[n++]=1u<<30;
+    commands[n++]=3; commands[n++]=(u32)count_buffer; commands[n++]=(u32)(count_buffer>>32);
+#else
+    commands[n++]=(++indirect_draw)*64-32;
     commands[n++]=0xcd; commands[n++]=0xcc; commands[n++]=0;
     commands[n++]=2; commands[n++]=0; commands[n++]=0;
+#endif
     commands[n++]=32; commands[n++]=0;
 #else
     u64 address=(u64)indirect_args;
