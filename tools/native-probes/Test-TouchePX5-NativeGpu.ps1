@@ -21,6 +21,7 @@ Save-Report
 try {
     foreach($case in @(
         @{Name='compute-repeat'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute\compute.log'; Parameters=@{}},
+        @{Name='compute-indirect-dimensions'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-indirect-dimensions\compute.log'; Parameters=@{IndirectDimensions=$true}},
         @{Name='triangle-repeat'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle\triangle.log'; Parameters=@{}},
         @{Name='triangle-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor\triangle.log'; Parameters=@{Scissor=$true}},
         @{Name='triangle-blend'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-blend\triangle.log'; Parameters=@{Blend=$true}},
@@ -55,7 +56,7 @@ try {
             $parameters=$case.Parameters
             & (Join-Path $PSScriptRoot $case.Script) @parameters *> $result.Log
             if(-not $?) { throw "Failed: $($case.Name)" }
-            if($case.Name -ne 'compute-repeat') {
+            if($case.Script -eq 'Test-TouchePX5-Triangle.ps1') {
                 $verification=Join-Path (Split-Path (Join-Path $sourceRoot ('artifacts\'+$case.Guest))) 'verification.json'
                 Copy-Item -LiteralPath $verification -Destination (Join-Path $reportRoot ($case.Name+'-verification.json'))
             }

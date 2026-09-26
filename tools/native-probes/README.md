@@ -271,3 +271,18 @@ every packet, producing red/red/blue. It no longer throttles empty-record reads
 or caps synchronization to the first 1024 records while parsing up to 4096.
 Address-span overflow and failed completion reject the packet. These synchronous
 readbacks prioritize correct ordering; their performance cost has not been tuned.
+
+`Test-TouchePX5-Compute.ps1 -IndirectDimensions` adds the twenty-seventh case.
+A direct atomic increment first establishes a working translated consumer. Four
+GPU producers then replace CPU dimension X values: 1->2, 2->1, 0->2 and 2->0.
+Each indirect consumer increments its own counter once per invocation. The guest
+checks exact counts, dimensions, completion and surrounding sentinel words; the
+runner also requires exactly eight Vulkan dispatches (six 1x1x1 and two 2x1x1),
+with no CPU semantic substitution. The absolute indirect packet is used here.
+The old parser consumed stale nonzero dimensions and failed the first producer
+case with guest code 91; ordered 12-byte readback fixes it. A synchronized zero
+dimension submits no work. This is narrow compute-to-compute coverage, not a
+general game-compatibility claim. The atomic instruction encoding is independently
+checked against [LLVM GFX10 MC fixtures](https://github.com/llvm/llvm-project/blob/main/llvm/test/MC/AMDGPU/gfx10_asm_mubuf.s).
+The compute runner now uses the same bounded child-process wait as the raster
+runner, so log inspection happens only after that process exits.

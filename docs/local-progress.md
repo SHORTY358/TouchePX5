@@ -6,8 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/indirect-gpu-args-build.log`).
-- All 1,256 unit tests passed (`artifacts/indirect-gpu-args-tests.log`).
+- Latest Release build: no warnings/errors (`artifacts/indirect-dimensions-build.log`).
+- All 1,256 unit tests passed (`artifacts/indirect-dimensions-tests.log`).
+- Indirect compute now synchronizes its 12-byte dimension buffer before CPU
+  interpretation. The native atomic counter baseline passed before the fix, but
+  the following GPU producer changed X from 1 to 2 while the consumer still ran
+  once (guest result 91): `artifacts/indirect-dimensions-before-guest.log`.
+  The corrected fixture passes 1->2, 2->1, 0->2 and 2->0, including completion
+  and adjacent-buffer guards: `artifacts/indirect-dimensions-zero-after.log`.
+  The unused retry-address output and misleading zero-means-pending comments
+  were removed; a synchronized zero emits no compute work. Base-relative address
+  addition is overflow checked. This adds native case 27; the full combined run
+  for this revision is pending. Only the absolute indirect packet and X changes
+  are covered by this new native fixture; readback performance is not optimized.
 - GPU-produced argument records are now synchronized even when CPU counts are
   already nonzero. The before probe issued all four computes and four draws but
   sampled stale depth (last frame red): `artifacts/indirect-gpu-args-before-guest.log`.

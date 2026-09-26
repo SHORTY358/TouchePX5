@@ -4197,8 +4197,7 @@ public static partial class AgcExports
                         currentAddress,
                         length,
                         op,
-                        out var dispatch,
-                        out _))
+                        out var dispatch))
                 {
                     state.FrameDispatchCount++;
                     ObserveComputeDispatch(ctx, gpuState, state, dispatch);
@@ -11730,14 +11729,9 @@ public static partial class AgcExports
         ulong packetAddress,
         uint packetLength,
         uint opcode,
-        out ComputeDispatch dispatch,
-        out ulong indirectDimsRetryAddress)
+        out ComputeDispatch dispatch)
     {
         dispatch = default;
-        // Non-zero only when this is an INDIRECT dispatch whose dimensions read as
-        // zero — meaning the producing GPU dispatch that computes them has not run
-        // yet. The caller suspends on this address instead of dropping the work.
-        indirectDimsRetryAddress = 0;
         ulong dimensionsAddress;
         uint initiator;
         string dispatchSource;
@@ -11772,11 +11766,20 @@ public static partial class AgcExports
                 return false;
             }
 
+            if (state.IndirectArgsAddress > ulong.MaxValue - dataOffset)
+            {
+                return false;
+            }
+
             dimensionsAddress = state.IndirectArgsAddress + dataOffset;
             dispatchSource = "base-indirect";
         }
 
+        // Dimensions may be nonzero yet stale after a preceding GPU producer.
+        // Make all three words visible before interpreting them on the CPU.
         if ((initiator & 1) == 0 ||
+            (opcode == ItDispatchIndirect &&
+                !EnsureIndirectArgumentsCpuVisible(dimensionsAddress, 1, 0, 12)) ||
             !TryReadUInt32(ctx, dimensionsAddress, out var dispatchEndX) ||
             !TryReadUInt32(ctx, dimensionsAddress + 4, out var dispatchEndY) ||
             !TryReadUInt32(ctx, dimensionsAddress + 8, out var dispatchEndZ))
@@ -11786,17 +11789,7 @@ public static partial class AgcExports
 
         if (dispatchEndX == 0 || dispatchEndY == 0 || dispatchEndZ == 0)
         {
-            // Indirect dispatches read their dimensions from a guest buffer a
-            // prior GPU dispatch fills. Zero here means that producer has not run
-            // yet — signal the caller to suspend on the dims buffer and retry,
-            // rather than dropping the work (which black-screens GPU-driven games
-            // like Astro Bot). Direct dispatches carry dims inline, so a zero is
-            // genuinely malformed and still rejected.
-            if (opcode == ItDispatchIndirect)
-            {
-                indirectDimsRetryAddress = dimensionsAddress;
-            }
-
+            // A synchronized zero dimension has no work to submit.
             return RejectComputeDispatch(
                 dimensionsAddress,
                 initiator,
