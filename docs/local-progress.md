@@ -16,9 +16,16 @@ percentage or release-date estimate.
   and adjacent-buffer guards: `artifacts/indirect-dimensions-zero-after.log`.
   The unused retry-address output and misleading zero-means-pending comments
   were removed; a synchronized zero emits no compute work. Base-relative address
-  addition is overflow checked. This adds native case 27; the full combined run
-  for this revision is pending. Only the absolute indirect packet and X changes
-  are covered by this new native fixture; readback performance is not optimized.
+  addition is overflow checked. All **27/27** native cases passed on clean source
+  `501aeeb`: `artifacts/native-gpu/20260926-094145-880/report.json`.
+  Readback performance is not optimized.
+- A subsequent fixture extension tests the base-relative three-dword indirect
+  packet with a nonzero 16-byte offset, poison prefix dimensions, and GPU changes
+  to X, Y and Z. Both extended variants passed individually without runtime
+  changes: `artifacts/indirect-dimensions-base-after.log` and
+  `artifacts/indirect-dimensions-expanded-after.log`. This adds native case 28;
+  the 27-case combined report above predates this fixture extension. Separate
+  asynchronous compute-queue submission is not established by either variant.
 - GPU-produced argument records are now synchronized even when CPU counts are
   already nonzero. The before probe issued all four computes and four draws but
   sampled stale depth (last frame red): `artifacts/indirect-gpu-args-before-guest.log`.

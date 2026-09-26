@@ -22,6 +22,7 @@ try {
     foreach($case in @(
         @{Name='compute-repeat'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute\compute.log'; Parameters=@{}},
         @{Name='compute-indirect-dimensions'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-indirect-dimensions\compute.log'; Parameters=@{IndirectDimensions=$true}},
+        @{Name='compute-indirect-base'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-indirect-dimensions-base-relative\compute.log'; Parameters=@{BaseRelative=$true}},
         @{Name='triangle-repeat'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle\triangle.log'; Parameters=@{}},
         @{Name='triangle-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor\triangle.log'; Parameters=@{Scissor=$true}},
         @{Name='triangle-blend'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-blend\triangle.log'; Parameters=@{Blend=$true}},

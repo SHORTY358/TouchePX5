@@ -286,3 +286,14 @@ general game-compatibility claim. The atomic instruction encoding is independent
 checked against [LLVM GFX10 MC fixtures](https://github.com/llvm/llvm-project/blob/main/llvm/test/MC/AMDGPU/gfx10_asm_mubuf.s).
 The compute runner now uses the same bounded child-process wait as the raster
 runner, so log inspection happens only after that process exits.
+
+`Test-TouchePX5-Compute.ps1 -BaseRelative` adds case 28. It uses SET_BASE plus the
+three-dword graphics DISPATCH_INDIRECT packet at a 16-byte offset. Prefix words
+contain a plausible but wrong 1x1x1; only the selected dimensions may change.
+Producers grow Y, shrink Z, enable X from zero and disable Y to zero. All counters
+and guards must match, with six 1x1x1 executions, one 1x2x1 and one 2x1x1.
+Packet layouts are defined in AMD's
+[ME header](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_me_pm4_packets.h)
+and [MEC header](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h).
+Both fixture variants use the existing graphics submission harness; accepting
+the absolute MEC-format packet there is not proof of asynchronous queue support.

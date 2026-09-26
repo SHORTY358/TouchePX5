@@ -1,6 +1,9 @@
 // SDK-free compute-to-dispatch test; counters verify actual GPU invocation counts.
 typedef unsigned int u32;
 typedef unsigned long long u64;
+#ifndef INDIRECT_BASE_RELATIVE
+#define INDIRECT_BASE_RELATIVE 0
+#endif
 extern int (*open_slot)(int,int,int,void*);
 extern int (*attribute_slot)(void*,u32,u32,u32,u32,u32,u32);
 extern int (*register_slot)(int,int,u64*,int,void*);
@@ -12,7 +15,7 @@ static u32 pixels[320*180] __attribute__((aligned(256)));
 static unsigned char attribute[40];
 static u64 addresses[1];
 static volatile u32 counters[5][16] __attribute__((aligned(256)));
-static volatile u32 dimensions[16] __attribute__((aligned(256)));
+static volatile u32 dimensions[32] __attribute__((aligned(256)));
 static volatile u32 completed;
 static u32 commands[128];
 static int n;
@@ -53,23 +56,35 @@ int _start(void) {
     const u32 initialCounts[5]={1,1,2,0,2};
     for(int pass=0;pass<5;pass++) {
         u32 expected=expectedCounts[pass];
+        int axis=INDIRECT_BASE_RELATIVE ? pass%3 : 0;
+        int dimOffset=INDIRECT_BASE_RELATIVE ? 4 : 0;
+        volatile u32* dims=&dimensions[dimOffset];
         for(int i=0;i<16;i++) {
             counters[pass][i]=0xdeadbeef;
-            dimensions[i]=0xdeadbeef;
         }
+        for(int i=0;i<32;i++) dimensions[i]=0xdeadbeef;
+        // A wrong base-relative offset reads a plausible but incorrect 1x1x1.
+        if(INDIRECT_BASE_RELATIVE) dimensions[0]=dimensions[1]=dimensions[2]=1;
         counters[pass][0]=0;
-        dimensions[0]=initialCounts[pass]; // stale nonzero and zero sizes
-        dimensions[1]=dimensions[2]=1;
+        dims[0]=dims[1]=dims[2]=1;
+        dims[axis]=initialCounts[pass]; // stale nonzero and zero sizes
         completed=0; n=0;
         if(pass) {
-            bind((u64)producer,(u64)dimensions,expected);
+            bind((u64)producer,(u64)&dims[axis],expected);
             direct();
         }
         bind((u64)consumer,(u64)counters[pass],0);
         if(pass) {
-            u64 dims=(u64)dimensions;
-            commands[n++]=0xc0021602;
-            commands[n++]=(u32)dims; commands[n++]=(u32)(dims>>32); commands[n++]=5;
+            if(INDIRECT_BASE_RELATIVE) {
+                u64 base=(u64)dimensions;
+                commands[n++]=0xc0021102; commands[n++]=1;
+                commands[n++]=(u32)base; commands[n++]=(u32)(base>>32);
+                commands[n++]=0xc0011602; commands[n++]=16; commands[n++]=0x41;
+            } else {
+                u64 address=(u64)dims;
+                commands[n++]=0xc0021602;
+                commands[n++]=(u32)address; commands[n++]=(u32)(address>>32); commands[n++]=5;
+            }
         } else direct(); // independently establish that the atomic consumer works
         u64 label=(u64)&completed;
         commands[n++]=0xc0064902; commands[n++]=0x14; commands[n++]=1u<<29;
@@ -80,10 +95,14 @@ int _start(void) {
         for(int i=0;i<5000 && completed!=1;i++) sleep_slot(1000);
         if(completed!=1) result=85;
         else if(counters[pass][0]!=expected) result=90+pass;
-        else if(pass && dimensions[0]!=expected) result=110+pass;
-        else if(dimensions[1]!=1 || dimensions[2]!=1) result=120;
+        else if(pass && dims[axis]!=expected) result=110+pass;
+        for(int i=0;i<3;i++) if(i!=axis && dims[i]!=1) result=120;
         for(int i=1;i<16;i++) if(counters[pass][i]!=0xdeadbeef) result=121;
-        for(int i=3;i<16;i++) if(dimensions[i]!=0xdeadbeef) result=122;
+        for(int i=0;i<32;i++) {
+            if(i>=dimOffset && i<dimOffset+3) continue;
+            u32 guard=INDIRECT_BASE_RELATIVE && i<3 ? 1 : 0xdeadbeef;
+            if(dimensions[i]!=guard) result=122;
+        }
         if(result) break;
     }
     for(int i=0;i<320*180;i++) pixels[i]=result ? 0xffa02020 : 0xff20a060;
