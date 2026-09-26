@@ -13,8 +13,10 @@ percentage or release-date estimate.
   The native two-record probe failed before the fix and passes afterward:
   `artifacts/indirect-multi-before-guest.log`, `artifacts/indirect-multi-after.log`.
   Seven unit cases verify count/stride/register behavior and exact builder bounds,
-  including literal zero stride reusing one record. The expanded 24-case native
-  aggregate is pending. All 27 general cases passed on `abd5b6a` before the final
+  including literal zero stride reusing one record. All **24/24** native cases
+  passed on clean source `84ae366`:
+  `artifacts/native-gpu/20260926-035337-215/report.json`.
+  All 27 general cases passed on `abd5b6a` before the final
   zero-stride refinement: `artifacts/engineering/20260925-225914-436/report.json`.
   VGPR destination mode remains unsupported; GPU-produced count synchronization
   is not covered by the native direct-count fixture.
