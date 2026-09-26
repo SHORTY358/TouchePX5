@@ -109,13 +109,14 @@ public sealed class AgcIndirectDrawSizeTests
     }
 
     [Theory]
-    [InlineData(false, 2u, 0u, 29)]
-    [InlineData(false, 0u, 0u, null)]
-    [InlineData(true, 2u, 1u, 7)]
-    [InlineData(true, 2u, 99u, 29)]
-    [InlineData(true, 2u, 0u, null)]
+    [InlineData(false, 2u, 0u, 29, 32u)]
+    [InlineData(false, 0u, 0u, null, 32u)]
+    [InlineData(true, 2u, 1u, 7, 32u)]
+    [InlineData(true, 2u, 99u, 29, 32u)]
+    [InlineData(true, 2u, 0u, null, 32u)]
+    [InlineData(false, 2u, 0u, 7, 0u)]
     public void MultiIndirectDrawUsesHardwareStrideCountAndRegisterFields(
-        bool counted, uint maximumCount, uint memoryCount, int? expectedInstance)
+        bool counted, uint maximumCount, uint memoryCount, int? expectedInstance, uint stride)
     {
         const ulong commands = BaseAddress + 0x400, arguments = BaseAddress + 0x800;
         const ulong submit = BaseAddress + 0x900, countAddress = BaseAddress + 0xA00;
@@ -124,7 +125,7 @@ public sealed class AgcIndirectDrawSizeTests
         uint control = 0xCF | (1u << 28) | (1u << 31) | (counted ? 1u << 30 : 0);
         uint[] packet = [0xC0021100, 1, unchecked((uint)arguments), (uint)(arguments >> 32),
             0xC0083800, 32, 0x00CE00CC, 0xCD, control, maximumCount,
-            unchecked((uint)countAddress), (uint)(countAddress >> 32), 32, 0];
+            unchecked((uint)countAddress), (uint)(countAddress >> 32), stride, 0];
         for (var i = 0; i < packet.Length; i++) WriteUInt32(memory, commands + (ulong)i * 4, packet[i]);
         uint[] first = [3, 3, 4, 11, 7], second = [3, 5, 6, 13, 29];
         for (var i = 0; i < first.Length; i++)
@@ -144,7 +145,8 @@ public sealed class AgcIndirectDrawSizeTests
             var last = expectedInstance == 29;
             Assert.Equal(last ? 13u : 11u, AgcExports.GetSubmittedGraphicsShRegisterForDiagnostics(ctx, 0xCC));
             Assert.Equal(last ? 6u : 4u, AgcExports.GetSubmittedGraphicsShRegisterForDiagnostics(ctx, 0xCE));
-            Assert.Equal(last ? 1u : 0u, AgcExports.GetSubmittedGraphicsShRegisterForDiagnostics(ctx, 0xCF));
+            var executed = counted ? Math.Min(maximumCount, memoryCount) : maximumCount;
+            Assert.Equal(executed - 1, AgcExports.GetSubmittedGraphicsShRegisterForDiagnostics(ctx, 0xCF));
         }
     }
 

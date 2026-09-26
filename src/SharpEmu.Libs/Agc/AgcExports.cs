@@ -6863,7 +6863,9 @@ public static partial class AgcExports
                 return false;
             }
             if (commandCount == 0) return true;
-            if (stride < commandSize || (stride & 3) != 0) return false;
+            // Use the packet's byte stride literally, including zero (reuse
+            // the same argument record). Do not silently force tightly packed records.
+            if ((stride & 3) != 0) return false;
             if ((multiControl & (1u << 30)) != 0)
             {
                 if (!TryReadUInt64(ctx, packetAddress + 24, out var countAddress)) return false;
