@@ -14,7 +14,8 @@ percentage or release-date estimate.
   Fresh ordered argument-span readback fixes the same probe to red/red/blue:
   `artifacts/indirect-gpu-args-after.log`. Completion is checked, range overflow
   rejected, and the old empty-read throttling/1024-record partial synchronization
-  removed. The expanded 26-case aggregate is pending. Synchronous readback cost
+  removed. All **26/26** native cases passed on clean source `a5626f9`:
+  `artifacts/native-gpu/20260926-041323-524/report.json`. Synchronous readback cost
   is not yet optimized; this establishes one controlled compute-to-draw path.
 - GPU-produced multi-draw counts now use a fresh ordered four-byte readback on
   every counted packet, with checked completion. Reusing the argument helper's
