@@ -260,3 +260,14 @@ order a fresh four-byte readback after earlier work and check completion before
 reading/clamping the count. Timeout fails that packet instead of consuming stale
 CPU data. This validates the compute-to-count path on this fixture; it does not
 establish general GPU-produced argument-record synchronization or performance.
+
+`-IndirectGpuArgs` adds the twenty-sixth case. All argument records already have
+valid nonzero vertex/instance counts; their raw first-instance field initially
+encodes stale Z=1. Four translated compute dispatches overwrite that field with
+the intended depths before four single indirect draws. The old nonzero-count
+shortcut skipped readback entirely: all draws executed but the last frame stayed
+red. The updated path orders and waits for the full selected argument span on
+every packet, producing red/red/blue. It no longer throttles empty-record reads
+or caps synchronization to the first 1024 records while parsing up to 4096.
+Address-span overflow and failed completion reject the packet. These synchronous
+readbacks prioritize correct ordering; their performance cost has not been tuned.

@@ -6,8 +6,16 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Latest Release build: no warnings/errors (`artifacts/indirect-gpu-count-build.log`).
-- All 1,256 unit tests passed (`artifacts/indirect-gpu-count-tests.log`).
+- Latest Release build: no warnings/errors (`artifacts/indirect-gpu-args-build.log`).
+- All 1,256 unit tests passed (`artifacts/indirect-gpu-args-tests.log`).
+- GPU-produced argument records are now synchronized even when CPU counts are
+  already nonzero. The before probe issued all four computes and four draws but
+  sampled stale depth (last frame red): `artifacts/indirect-gpu-args-before-guest.log`.
+  Fresh ordered argument-span readback fixes the same probe to red/red/blue:
+  `artifacts/indirect-gpu-args-after.log`. Completion is checked, range overflow
+  rejected, and the old empty-read throttling/1024-record partial synchronization
+  removed. The expanded 26-case aggregate is pending. Synchronous readback cost
+  is not yet optimized; this establishes one controlled compute-to-draw path.
 - GPU-produced multi-draw counts now use a fresh ordered four-byte readback on
   every counted packet, with checked completion. Reusing the argument helper's
   throttling previously consumed stale counts after later compute dispatches.
@@ -16,7 +24,7 @@ percentage or release-date estimate.
   four raster draws and correct red/red/blue pixels
   (`artifacts/indirect-gpu-count-after.log`). All **25/25** native cases passed
   on clean source `ee2af67`: `artifacts/native-gpu/20260926-040303-359/report.json`.
-  GPU-produced argument records remain a separate synchronization question.
+  GPU-produced argument-record coverage is added separately above.
 - Indexed indirect multi-draw now uses the hardware 10-dword packet, correct
   stride offset, direct/memory-count limits and shader register destinations.
   The native two-record probe failed before the fix and passes afterward:

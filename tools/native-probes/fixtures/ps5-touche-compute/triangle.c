@@ -89,12 +89,24 @@ static const u32 stale_indices[3]={0,1,2};
 #ifdef TEST_INDIRECT
 // The command processor copies firstInstance into the selected user register.
 // This test deliberately treats its raw float bits as vertex depth.
+#ifdef TEST_INDIRECT_GPU_ARGS
+static volatile u32 indirect_args[][4] __attribute__((aligned(16))) = {
+#else
 static const u32 indirect_args[][4] __attribute__((aligned(16))) = {
+#endif
     {0,0,0,0}, // ignoring the nonzero packet offset draws nothing
     {3,1,0,0x3e800000}, {3,1,0,0x3e800000},
     {3,1,0,0x3f400000}, {3,1,0,0x3e000000}
 };
 static u32 indirect_draw;
+#ifdef TEST_INDIRECT_GPU_ARGS
+static const u32 args_shader[] __attribute__((aligned(256))) = {
+    0xBFA10001, 0x7E000200,
+    0xE070000C,0x80020000, // write only firstInstance at offset 12
+    0xBF810000
+};
+static const u32 args_depth[4]={0x3e800000,0x3e800000,0x3f400000,0x3e000000};
+#endif
 #ifdef TEST_INDIRECT_MULTI
 static const unsigned short multi_indices[3]={0,1,2};
 #ifdef TEST_INDIRECT_GPU_COUNT
@@ -158,10 +170,26 @@ static void draw(void) {
     commands[n++]=32; commands[n++]=0;
 #else
     u64 address=(u64)indirect_args;
+    u32 record=++indirect_draw;
+#ifdef TEST_INDIRECT_GPU_ARGS
+    u64 code=(u64)args_shader, buffer=(u64)&indirect_args[record][0];
+    indirect_args[record][3]=0x3f800000; // nonempty record, stale Z=1
+    commands[n++]=0xc0027602; commands[n++]=0x20c;
+    commands[n++]=(u32)(code>>8); commands[n++]=(u32)(code>>40);
+    commands[n++]=0xc0017602; commands[n++]=0x213; commands[n++]=12<<1;
+    commands[n++]=0xc0037602; commands[n++]=0x207;
+    commands[n++]=1; commands[n++]=1; commands[n++]=1;
+    commands[n++]=0xc0017602; commands[n++]=0x240; commands[n++]=args_depth[record-1];
+    commands[n++]=0xc0047602; commands[n++]=0x248;
+    commands[n++]=(u32)buffer; commands[n++]=(u32)(buffer>>32);
+    commands[n++]=16; commands[n++]=0;
+    commands[n++]=0xc0031502;
+    commands[n++]=1; commands[n++]=1; commands[n++]=1; commands[n++]=5;
+#endif
     commands[n++]=0xc0017600; commands[n++]=0xcc; commands[n++]=0x3f800000;
     commands[n++]=0xc0021100; commands[n++]=1;
     commands[n++]=(u32)address; commands[n++]=(u32)(address>>32);
-    commands[n++]=0xc0032400; commands[n++]=(++indirect_draw)*16;
+    commands[n++]=0xc0032400; commands[n++]=record*16;
     commands[n++]=0xcd; commands[n++]=0xcc; commands[n++]=2;
 #endif
 #else

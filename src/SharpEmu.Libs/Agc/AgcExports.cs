@@ -48,7 +48,6 @@ public static partial class AgcExports
     private const uint ItDrawIndexOffset2 = 0x35;
     private const uint ItDrawIndexIndirectMulti = 0x38;
     private const uint DrawIndexedIndirectArgsSize = 20;
-    private const uint DrawIndexedIndirectMaxScan = 1024;
     private const uint ItWriteData = 0x37;
     private const uint ItDispatchDirect = 0x15;
     private const uint ItDispatchIndirect = 0x16;
@@ -776,7 +775,6 @@ public static partial class AgcExports
         public uint NextResource { get; set; } = 1;
         public ulong WorkSequence { get; set; }
         public ulong SubmissionSequence { get; set; }
-        public Dictionary<ulong, uint> EmptyIndirectArgumentReads { get; } = new();
         public bool WaitMonitorRunning { get; set; }
         public object WaitMonitorSignalGate { get; } = new();
         public long WaitMonitorSignalVersion { get; set; }
@@ -6869,10 +6867,9 @@ public static partial class AgcExports
             if ((multiControl & (1u << 30)) != 0)
             {
                 if (!TryReadUInt64(ctx, packetAddress + 24, out var countAddress)) return false;
-                // A scalar count is not a draw record. The argument helper's
-                // nonzero/empty heuristics and throttling can reuse stale counts
-                // after later compute dispatches. Order this four-byte read after
-                // all earlier guest work on every counted packet.
+                // Counts can change after every compute dispatch. Order this
+                // four-byte read after earlier guest work on every counted packet;
+                // a nonzero CPU value alone does not establish freshness.
                 var countReadback = GuestGpu.Current.SubmitOrderedGuestBufferReadback(
                     countAddress, sizeof(uint), $"indirect_count_readback 0x{countAddress:X16}");
                 if (countReadback != 0 && !GuestGpu.Current.WaitForGuestWork(
@@ -6888,13 +6885,13 @@ public static partial class AgcExports
             if (commandCount == 0) return true;
         }
 
-        EnsureIndirectArgumentsCpuVisible(
-            ctx,
-            gpuState,
-            state.IndirectArgsAddress + dataOffset,
-            commandCount,
-            stride,
-            commandSize);
+        if (state.IndirectArgsAddress > ulong.MaxValue - dataOffset ||
+            !EnsureIndirectArgumentsCpuVisible(
+                state.IndirectArgsAddress + dataOffset,
+                commandCount,
+                stride,
+                commandSize))
+            return false;
 
         // Indirect packets name the SH registers receiving base vertex
         // and first instance. These are persistent user-data writes, not just
@@ -6980,56 +6977,31 @@ public static partial class AgcExports
     }
 
     private const int IndirectArgumentReadbackTimeoutMilliseconds = 250;
-    private const uint EmptyIndirectArgumentReadbackInterval = 60;
 
-    private static void EnsureIndirectArgumentsCpuVisible(
-        CpuContext ctx,
-        SubmittedGpuState gpuState,
+    private static bool EnsureIndirectArgumentsCpuVisible(
         ulong argumentsAddress,
         uint commandCount,
         uint stride,
         uint commandSize)
     {
-        var readableCommands = Math.Min(commandCount, DrawIndexedIndirectMaxScan);
-        var hasExecutableDraw = false;
-        for (var draw = 0u; draw < readableCommands; draw++)
-        {
-            var address = argumentsAddress + ((ulong)draw * stride);
-            if (TryReadUInt32(ctx, address, out var elementCount) &&
-                TryReadUInt32(ctx, address + 4, out var instanceCount) &&
-                elementCount != 0 && instanceCount != 0)
-            {
-                hasExecutableDraw = true;
-                break;
-            }
-        }
-
-        if (hasExecutableDraw)
-        {
-            gpuState.EmptyIndirectArgumentReads.Remove(argumentsAddress);
-            return;
-        }
-
-        var emptyReads = gpuState.EmptyIndirectArgumentReads.GetValueOrDefault(argumentsAddress) + 1;
-        gpuState.EmptyIndirectArgumentReads[argumentsAddress] = emptyReads;
-        if (emptyReads != 1 && emptyReads % EmptyIndirectArgumentReadbackInterval != 0)
-        {
-            return;
-        }
-
-        var byteCount = readableCommands == 0
-            ? commandSize
-            : ((ulong)(readableCommands - 1) * stride) + commandSize;
+        if (commandCount == 0) return true;
+        var byteCount = ((ulong)(commandCount - 1) * stride) + commandSize;
+        if (argumentsAddress == 0 || argumentsAddress > ulong.MaxValue - byteCount)
+            return false;
+        // Nonzero counts do not prove freshness: preceding GPU work can change
+        // any field of an already executable record. Cover the whole selected
+        // range and wait before taking CPU snapshots, including repeated packets.
         var sequence = GuestGpu.Current.SubmitOrderedGuestBufferReadback(
             argumentsAddress,
             byteCount,
             $"indirect_args_readback 0x{argumentsAddress:X16}+0x{byteCount:X}");
-        if (sequence != 0)
+        if (sequence != 0 && !GuestGpu.Current.WaitForGuestWork(
+                sequence, IndirectArgumentReadbackTimeoutMilliseconds))
         {
-            GuestGpu.Current.WaitForGuestWork(
-                sequence,
-                IndirectArgumentReadbackTimeoutMilliseconds);
+            TraceAgc($"agc.indirect_args_wait_timeout address=0x{argumentsAddress:X16} bytes=0x{byteCount:X}");
+            return false;
         }
+        return true;
     }
 
     private static void TryTranslateGuestDraw(
