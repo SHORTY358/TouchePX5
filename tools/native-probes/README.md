@@ -297,3 +297,11 @@ Packet layouts are defined in AMD's
 and [MEC header](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h).
 Both fixture variants use the existing graphics submission harness; accepting
 the absolute MEC-format packet there is not proof of asynchronous queue support.
+
+`Test-TouchePX5-Compute.ps1 -ComputeQueue` adds case 29. It runs the same absolute
+dimension transitions through `sceAgcDriverSubmitAcb`, owner 7, instead of the
+graphics submit entry. The runner requires five ACB submissions and no DCB
+submissions in addition to all counters, guards, completion and dispatch-size
+checks. This validates one compute queue with repeated submissions, not actual
+hardware concurrency or dependencies between separate guest queues. The
+base-relative graphics packet mode cannot be combined with this switch.

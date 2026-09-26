@@ -6,6 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- All **28/28 native GPU cases** and **27/27 general engineering cases** passed
+  on clean source `d0c0584`:
+  `artifacts/native-gpu/20260926-095224-350/report.json` and
+  `artifacts/engineering/20260926-094941-679/report.json`.
+  The 248-entry GPU runtime manifest exactly matches the general run's
+  `runtime-after.json`; that snapshot also matches one taken during the general
+  run after its build completed. The build/unit stage again passed all 1,256 tests.
+- After those full runs, the fixture gained a separate ACB compute-queue mode.
+  Five submissions to owner 7 pass the direct atomic baseline and four indirect
+  dimension transitions, with exact GPU execution counts, completion and guards:
+  `artifacts/indirect-dimensions-acb-after.log`. The ordinary compute, absolute
+  graphics-queue and base-relative variants were all rerun after the shared import
+  extension (`artifacts/indirect-dimensions-final-{compute,absolute,base}.log`).
+  No emulator/runtime change was needed. This is newly integrated case 29, tested
+  individually; the full 28-case report above predates the fixture extension.
+  Cross-queue producer/consumer dependencies and concurrency are not established.
 - Latest Release build: no warnings/errors (`artifacts/indirect-dimensions-build.log`).
 - All 1,256 unit tests passed (`artifacts/indirect-dimensions-tests.log`).
 - Indirect compute now synchronizes its 12-byte dimension buffer before CPU
@@ -24,8 +40,8 @@ percentage or release-date estimate.
   to X, Y and Z. Both extended variants passed individually without runtime
   changes: `artifacts/indirect-dimensions-base-after.log` and
   `artifacts/indirect-dimensions-expanded-after.log`. This adds native case 28;
-  the 27-case combined report above predates this fixture extension. Separate
-  asynchronous compute-queue submission is not established by either variant.
+  the later full result is recorded above. Separate compute-queue submission is
+  tested by the subsequent ACB fixture above, not by either graphics variant.
 - GPU-produced argument records are now synchronized even when CPU counts are
   already nonzero. The before probe issued all four computes and four draws but
   sampled stale depth (last frame red): `artifacts/indirect-gpu-args-before-guest.log`.

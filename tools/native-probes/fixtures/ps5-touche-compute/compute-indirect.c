@@ -4,6 +4,9 @@ typedef unsigned long long u64;
 #ifndef INDIRECT_BASE_RELATIVE
 #define INDIRECT_BASE_RELATIVE 0
 #endif
+#ifndef INDIRECT_COMPUTE_QUEUE
+#define INDIRECT_COMPUTE_QUEUE 0
+#endif
 extern int (*open_slot)(int,int,int,void*);
 extern int (*attribute_slot)(void*,u32,u32,u32,u32,u32,u32);
 extern int (*register_slot)(int,int,u64*,int,void*);
@@ -11,6 +14,7 @@ extern int (*flip_slot)(int,int,int,u64);
 extern int (*close_slot)(int);
 extern int (*sleep_slot)(u32);
 extern int (*submit_slot)(void*);
+extern int (*submit_acb_slot)(u32,void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
 static unsigned char attribute[40];
 static u64 addresses[1];
@@ -91,7 +95,9 @@ int _start(void) {
         commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
         commands[n++]=1; commands[n++]=0; commands[n++]=0;
         submission.address=(u64)commands; submission.count=(u32)n;
-        if(submit_slot(&submission)!=0) return 84;
+        int submitted=INDIRECT_COMPUTE_QUEUE
+            ? submit_acb_slot(7,&submission) : submit_slot(&submission);
+        if(submitted!=0) return 84;
         for(int i=0;i<5000 && completed!=1;i++) sleep_slot(1000);
         if(completed!=1) result=85;
         else if(counters[pass][0]!=expected) result=90+pass;

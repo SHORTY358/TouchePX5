@@ -40,6 +40,7 @@ IMPORT flip_slot, "U46NwOiJpys#B#B", 4
 IMPORT close_slot, "uquVH4-Du78#B#B", 5
 IMPORT sleep_slot, "1jfXLRVzisc#C#C", 6
 IMPORT submit_slot, "UglJIZjGssM#D#D", 7
+IMPORT submit_acb_slot, "gSRnr79F8tQ#D#D", 8
 .section .guest_dynstr,"a"
 guest_dynstr_end:
 .section .guest_dynsym,"a"
