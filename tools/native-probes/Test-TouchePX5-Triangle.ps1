@@ -1,6 +1,8 @@
 [CmdletBinding()]
-param([switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($CrossQueueReuse) { $CrossQueue=$true }
+if($CrossQueue) { $IndirectGpuArgs=$true }
 if($IndirectGpuArgs) {
     if($IndirectGpuCount -or $IndirectMulti) { throw 'GPU argument probe requires a single indirect draw.' }
     $Indirect=$true
@@ -61,6 +63,8 @@ if($Indirect) { $root += '-indirect' }
 if($IndirectMulti) { $root += '-multi' }
 if($IndirectGpuCount) { $root += '-gpu-count' }
 if($IndirectGpuArgs) { $root += '-gpu-args' }
+if($CrossQueue) { $root += '-cross-queue' }
+if($CrossQueueReuse) { $root += '-reuse' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
 if($Scissor) { $root += '-scissor' }
@@ -89,6 +93,8 @@ if($Indirect) { $defines += '-DTEST_INDIRECT=1' }
 if($IndirectMulti) { $defines += '-DTEST_INDIRECT_MULTI=1' }
 if($IndirectGpuCount) { $defines += '-DTEST_INDIRECT_GPU_COUNT=1' }
 if($IndirectGpuArgs) { $defines += '-DTEST_INDIRECT_GPU_ARGS=1' }
+if($CrossQueue) { $defines += '-DTEST_CROSS_QUEUE=1' }
+if($CrossQueueReuse) { $defines += '-DTEST_CROSS_QUEUE_REUSE=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -113,6 +119,8 @@ $settings = @{
     SHARPEMU_OVERLAY='0'
 }
 $previous = @{}
+if($CrossQueue) { $settings.SHARPEMU_GPU_WAIT_MODE='suspend' }
+if($CrossQueueReuse) { $settings.SHARPEMU_GPU_DEADLOCK_BREAK_MS='500' }
 try {
     foreach($name in $settings.Keys) {
         $previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')
@@ -132,6 +140,13 @@ try {
     $output = if (Test-Path -LiteralPath $log) { '' + (Get-Content -LiteralPath $log -Raw) } else { '' }
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Triangle guest failed: $log" }
     if ($output.Contains('agc.shader_color_clear')) { throw 'Triangle unexpectedly became a fullscreen clear.' }
+    if($CrossQueue -and ($output.Contains('agc.deadlock_break ') -or
+       $output.Contains('forced=True') -or $output.Contains('agc.compute_semantic_fast_path'))) {
+        throw 'Cross-queue probe used a fallback instead of its ordered producer.'
+    }
+    if($CrossQueue -and
+       ([regex]::Matches($output,'agc.driver_submit_acb owner=7 ').Count -ne 4 -or
+        [regex]::Matches($output,'agc.dcb.suspended ').Count -lt 3)) { throw 'Missing cross-queue producer submissions or consumer suspensions.' }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
     if(($IndirectGpuCount -or $IndirectGpuArgs) -and [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 4) { throw 'Expected four GPU indirect-data-producing dispatches.' }
     $expectedDraws=if($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
@@ -333,6 +348,8 @@ public static class TextureUvVerifierV3 {
         IndirectMulti=[bool]$IndirectMulti
         IndirectGpuCount=[bool]$IndirectGpuCount
         IndirectGpuArgs=[bool]$IndirectGpuArgs
+        CrossQueue=[bool]$CrossQueue
+        CrossQueueReuse=[bool]$CrossQueueReuse
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect
         TextureUv=[bool]$TextureUv

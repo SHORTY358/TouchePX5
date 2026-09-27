@@ -518,8 +518,9 @@ internal static class GpuWaitRegistry
     /// (and removes) waiters that have been stuck longer than
     /// <paramref name="minAgeTicks"/> and whose condition is satisfied by the
     /// last value a real producer wrote to their label — even though guest
-    /// memory has since been reset. Never fabricates a value: a waiter is only
-    /// released when an actual producer signalled it at least once.
+    /// memory has since been reset. Satisfaction must have been latched while
+    /// this waiter was registered; a prior use of the same address cannot release
+    /// a newly registered waiter.
     /// </summary>
     public static List<WaitingDcb>? CollectDeadlockBroken(
         object memory,
@@ -536,6 +537,7 @@ internal static class GpuWaitRegistry
                 {
                     var waiter = list[i];
                     if (!ReferenceEquals(waiter.Memory, memory) ||
+                        !waiter.Latched ||
                         nowTicks - waiter.RegisteredTicks < minAgeTicks ||
                         !_lastProduced.TryGetValue((memory, address), out var produced) ||
                         !Compare(waiter, produced))

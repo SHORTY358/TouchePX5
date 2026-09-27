@@ -10,6 +10,31 @@ public sealed class GpuWaitRegistryProducedRetentionTests
 {
     private const ulong WatchedLabel = 0x7020_0000_1000UL;
 
+    [Fact]
+    public void ReusedLabelRequiresAProducerAfterWaitRegistration()
+    {
+        GpuWaitRegistry.Clear();
+        var memory = new object();
+        try
+        {
+            Assert.False(GpuWaitRegistry.RecordProduced(memory, WatchedLabel, 1));
+            // The guest reset the address before submitting its next consumer.
+            GpuWaitRegistry.Register(WatchedLabel, NewWaiter(memory, WatchedLabel));
+            Assert.Null(GpuWaitRegistry.CollectDeadlockBroken(memory, 1_000_000, 1));
+            Assert.Equal(1, GpuWaitRegistry.CountForMemory(memory));
+            Assert.Null(GpuWaitRegistry.CollectSatisfied(memory, (_, _) => 0, out var remaining));
+            Assert.Equal(1, remaining);
+
+            Assert.True(GpuWaitRegistry.RecordProduced(memory, WatchedLabel, 1));
+            // A subsequent reset must not lose this waiter's actual signal.
+            var ready = GpuWaitRegistry.CollectSatisfied(memory, (_, _) => 0, out remaining);
+            Assert.NotNull(ready);
+            Assert.Single(ready!);
+            Assert.Equal(0, remaining);
+        }
+        finally { GpuWaitRegistry.Clear(); }
+    }
+
     // A suspended DCB whose label the guest has recycled can only be released by
     // replaying the value a real producer wrote to that label. Recording enough
     // unrelated producers to cross the table's soft bound must not discard that

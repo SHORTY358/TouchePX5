@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-09-26
+# Local engineering checkpoint — 2026-09-27
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed premature cross-queue wakeup after CPU reset/reuse of a completion label.
+  `CollectDeadlockBroken` now requires satisfaction latched for the current waiter;
+  an older producer value cannot release a later waiter just because 500 ms elapsed.
+  The native before case returned 77 after `agc.deadlock_break` resumed graphics
+  before its new compute producer was submitted:
+  `artifacts/cross-queue-reuse-before-guest.log`. After the fix, both ordinary
+  and reused-label tests pass red/red/blue pixels, four GPU computes/four draws,
+  genuine suspension/resume and no fallback: `artifacts/cross-queue-after.log`
+  and `artifacts/cross-queue-reuse-after.log`. The consumer is submitted first;
+  the reused-label case withholds producers for 750 ms and checks that completion
+  does not advance. Release builds passed and all **1,257 unit tests** passed
+  (`artifacts/cross-queue-build.log`, `artifacts/cross-queue-tests.log`). The new
+  unit regression also verifies a fresh signal survives a subsequent label reset.
+  Native suite now contains 31 cases; its full run for this change is pending.
+  This verifies one compute queue feeding graphics, not general queue concurrency.
 - All **28/28 native GPU cases** and **27/27 general engineering cases** passed
   on clean source `d0c0584`:
   `artifacts/native-gpu/20260926-095224-350/report.json` and

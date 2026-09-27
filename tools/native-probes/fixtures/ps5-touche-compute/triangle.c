@@ -8,6 +8,7 @@ extern int (*flip_slot)(int,int,int,u64);
 extern int (*close_slot)(int);
 extern int (*sleep_slot)(u32);
 extern int (*submit_slot)(void*);
+extern int (*submit_acb_slot)(u32,void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
 static unsigned char attribute[40];
 static u64 addresses[1];
@@ -24,6 +25,36 @@ static volatile u32 texel[192] __attribute__((aligned(256)));
 static u32 depth[320*180] __attribute__((aligned(256)));
 #endif
 static struct { u64 address; u32 count; u32 reserved; } submission;
+#ifdef TEST_CROSS_QUEUE
+static u32 producer_commands[4][64];
+static u32 producer_lengths[4];
+static volatile u32 producer_labels[4];
+static u32 producer_pending, producer_submitted;
+#endif
+static int submit_graphics(void) {
+#ifdef TEST_CROSS_QUEUE
+    u32 before=completed;
+#endif
+    int result=submit_slot(&submission);
+#ifdef TEST_CROSS_QUEUE
+    if(result) return result;
+    // The consumer must suspend; no producer has been submitted yet.
+#ifdef TEST_CROSS_QUEUE_REUSE
+    sleep_slot(750000); // exceed the default historical-signal fallback age
+#else
+    sleep_slot(20000);
+#endif
+    if(completed!=before) return 90;
+    while(producer_submitted<producer_pending) {
+        u32 index=producer_submitted++;
+        struct { u64 address; u32 count; u32 reserved; } packet={
+            (u64)producer_commands[index],producer_lengths[index],0};
+        result=submit_acb_slot(7,&packet);
+        if(result) return result;
+    }
+#endif
+    return result;
+}
 static const u32 vertex[] __attribute__((aligned(256))) = {
     0x36000a81, // v_and_b32 v0, 1, v5 (vertex index)
     0x36020a82, // v_and_b32 v1, 2, v5
@@ -174,6 +205,9 @@ static void draw(void) {
 #ifdef TEST_INDIRECT_GPU_ARGS
     u64 code=(u64)args_shader, buffer=(u64)&indirect_args[record][0];
     indirect_args[record][3]=0x3f800000; // nonempty record, stale Z=1
+#ifdef TEST_CROSS_QUEUE
+    int producer_start=n;
+#endif
     commands[n++]=0xc0027602; commands[n++]=0x20c;
     commands[n++]=(u32)(code>>8); commands[n++]=(u32)(code>>40);
     commands[n++]=0xc0017602; commands[n++]=0x213; commands[n++]=12<<1;
@@ -185,6 +219,27 @@ static void draw(void) {
     commands[n++]=16; commands[n++]=0;
     commands[n++]=0xc0031502;
     commands[n++]=1; commands[n++]=1; commands[n++]=1; commands[n++]=5;
+#ifdef TEST_CROSS_QUEUE
+    u32 index=record-1, length=(u32)(n-producer_start);
+    for(u32 i=0;i<length;i++) producer_commands[index][i]=commands[producer_start+i];
+#ifdef TEST_CROSS_QUEUE_REUSE
+    u32 label_index=index%2;
+#else
+    u32 label_index=index;
+#endif
+    producer_labels[label_index]=0;
+    u64 ready=(u64)&producer_labels[label_index];
+    u32* producer=producer_commands[index];
+    producer[length++]=0xc0064902; producer[length++]=0x14; producer[length++]=1u<<29;
+    producer[length++]=(u32)ready; producer[length++]=(u32)(ready>>32);
+    producer[length++]=1; producer[length++]=0; producer[length++]=0;
+    producer_lengths[index]=length; producer_pending=record;
+    n=producer_start;
+    // WAIT_REG_MEM: equal, memory space, 32-bit signal from the ACB producer.
+    commands[n++]=0xc0053c00; commands[n++]=0x13;
+    commands[n++]=(u32)ready; commands[n++]=(u32)(ready>>32);
+    commands[n++]=1; commands[n++]=0xffffffff; commands[n++]=4;
+#endif
 #endif
     commands[n++]=0xc0017600; commands[n++]=0xcc; commands[n++]=0x3f800000;
     commands[n++]=0xc0021100; commands[n++]=1;
@@ -352,7 +407,7 @@ int _start(void) {
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=1; commands[n++]=0; commands[n++]=0;
     submission.address=(u64)commands; submission.count=(u32)n;
-    if(submit_slot(&submission)!=0) return 74;
+    if(submit_graphics()!=0) return 74;
     for(int i=0;i<5000 && !completed;i++) sleep_slot(1000);
     if(completed!=1) return 75;
     if(flip_slot(video,0,1,1)!=0) return 76;
@@ -390,7 +445,7 @@ int _start(void) {
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=2; commands[n++]=0; commands[n++]=0;
     submission.count=(u32)n;
-    if(submit_slot(&submission)!=0) return 77;
+    if(submit_graphics()!=0) return 77;
     for(int i=0;i<5000 && completed!=2;i++) sleep_slot(1000);
     if(completed!=2) return 78;
     if(flip_slot(video,0,1,2)!=0) return 79;
@@ -408,7 +463,7 @@ int _start(void) {
         commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
         commands[n++]=100+version; commands[n++]=0; commands[n++]=0;
         submission.count=(u32)n;
-        if(submit_slot(&submission)!=0) return 83;
+        if(submit_graphics()!=0) return 83;
         for(int i=0;i<5000 && completed!=100+version;i++) sleep_slot(1000);
         if(completed!=100+version) return 84;
     }
@@ -445,7 +500,7 @@ int _start(void) {
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=3; commands[n++]=0; commands[n++]=0;
     submission.count=(u32)n;
-    if(submit_slot(&submission)!=0) return 80;
+    if(submit_graphics()!=0) return 80;
     for(int i=0;i<5000 && completed!=3;i++) sleep_slot(1000);
     if(completed!=3) return 81;
     if(flip_slot(video,0,1,3)!=0) return 82;

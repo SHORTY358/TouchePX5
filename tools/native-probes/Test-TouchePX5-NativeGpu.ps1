@@ -32,6 +32,8 @@ try {
         @{Name='triangle-depth-indirect-multi'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-multi\triangle.log'; Parameters=@{IndirectMulti=$true}},
         @{Name='triangle-depth-indirect-gpu-count'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-multi-gpu-count\triangle.log'; Parameters=@{IndirectGpuCount=$true}},
         @{Name='triangle-depth-indirect-gpu-args'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-gpu-args\triangle.log'; Parameters=@{IndirectGpuArgs=$true}},
+        @{Name='triangle-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-gpu-args-cross-queue\triangle.log'; Parameters=@{CrossQueue=$true}},
+        @{Name='triangle-cross-queue-reuse'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-gpu-args-cross-queue-reuse\triangle.log'; Parameters=@{CrossQueueReuse=$true}},
         @{Name='triangle-texture'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture\triangle.log'; Parameters=@{Texture=$true}},
         @{Name='triangle-texture-select'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select\triangle.log'; Parameters=@{TextureSelect=$true}},
         @{Name='triangle-texture-uv'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-uv\triangle.log'; Parameters=@{TextureUv=$true}},

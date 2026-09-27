@@ -305,3 +305,19 @@ submissions in addition to all counters, guards, completion and dispatch-size
 checks. This validates one compute queue with repeated submissions, not actual
 hardware concurrency or dependencies between separate guest queues. The
 base-relative graphics packet mode cannot be combined with this switch.
+
+`Test-TouchePX5-Triangle.ps1 -CrossQueue` and `-CrossQueueReuse` add cases 30/31.
+The depth oracle now consumes arguments produced on ACB owner 7. Graphics is
+submitted first and suspends on a standard WAIT_REG_MEM equality check; only
+after a deliberate delay are the compute producers submitted. Four producer
+dispatches signal RELEASE_MEM after writing their arguments. The guest checks
+that graphics completion cannot advance during the producer-free interval.
+The regular mode uses distinct labels and 20 ms delay. Reuse resets two previous
+labels to zero and waits 750 ms, exceeding the configured 500 ms fallback age.
+The old historical-signal fallback prematurely resumed a new waiter in reuse
+mode. Requiring satisfaction latched for the current waiter fixes that failure
+while preserving signals written during an active wait even if memory resets.
+Both modes require red/red/blue pixels, exact compute/draw counts, at least three
+suspensions and no deadlock-break, forced-resume or CPU semantic replacement.
+The packet layout follows AMD's ME header linked above. Tests exercise one
+compute-to-graphics dependency, not general hardware concurrency or game readiness.
