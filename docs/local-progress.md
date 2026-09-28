@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-09-27
+# Local engineering checkpoint — 2026-09-28
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,6 +6,23 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- The full 31-case run on `db78dfa` **failed after 26 passed cases**, at BC1
+  presentation: `artifacts/native-gpu/20260927-124329-243/report.json`.
+  Its guest log explicitly reports `windowState=Minimized`, a 0x0 surface and
+  `ErrorOutOfDateKhr`; two captures are missing. Both cross-queue cases passed
+  in that run. Do not describe this as 31/31 passed.
+- Work in progress: defer taking a queued presentation while the native window
+  is minimized or has a zero-size framebuffer, continue guest GPU work, and
+  recreate the swapchain before taking the next presentation after restoration.
+  Build passes (`artifacts/window-recovery-build.log`), all 1,257 unit tests pass
+  (`artifacts/window-recovery-tests.log`). The window diagnostic has reproduced
+  the original missing capture (`artifacts/window-recovery-before-guest.log`).
+  A later run observed deferral but could not complete restoration through the
+  UI tool (repeated user-input conflict), so end-to-end recovery remains unverified.
+  An earlier interrupted run observed deferral/restoration but its window closed
+  before the fixture completed: `artifacts/window-recovery-interrupted-guest.log`.
+  This guard does not yet address minimization racing with an already-taken frame,
+  or retaining every historical image when guest buffers are reused while hidden.
 - Fixed premature cross-queue wakeup after CPU reset/reuse of a completion label.
   `CollectDeadlockBroken` now requires satisfaction latched for the current waiter;
   an older producer value cannot release a later waiter just because 500 ms elapsed.

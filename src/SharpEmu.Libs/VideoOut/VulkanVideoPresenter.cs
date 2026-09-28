@@ -18370,6 +18370,8 @@ internal static unsafe class VulkanVideoPresenter
             }
         }
 
+        private bool _windowPresentationDeferred;
+
         private void RenderCore()
         {
             if (Volatile.Read(ref _presenterCloseRequested))
@@ -18670,6 +18672,29 @@ internal static unsafe class VulkanVideoPresenter
 
             FlushBatchedGuestCommands();
             CollectAbandonedGuestImageVersions();
+
+            // Continue draining guest GPU work above while minimized, but leave
+            // its completed flips queued until the native window can present.
+            // Taking a flip on a zero-size surface loses it on OutOfDate.
+            if (_window is not null)
+            {
+                var framebuffer = _window.FramebufferSize;
+                if (_window.WindowState == WindowState.Minimized ||
+                    framebuffer.X <= 0 || framebuffer.Y <= 0)
+                {
+                    if (!_windowPresentationDeferred)
+                        Console.Error.WriteLine("[LOADER][INFO] vk.present_deferred window-unavailable");
+                    _windowPresentationDeferred = true;
+                    return;
+                }
+
+                if (_windowPresentationDeferred)
+                {
+                    RecreateSwapchainResources("window restored", Result.SuboptimalKhr);
+                    _windowPresentationDeferred = false;
+                    Console.Error.WriteLine("[LOADER][INFO] vk.present_resumed window-restored");
+                }
+            }
 
             Presentation presentation;
             if (!TryTakePresentation(_presentedSequence, out presentation))

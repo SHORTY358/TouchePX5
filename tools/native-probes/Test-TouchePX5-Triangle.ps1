@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$WindowRecovery, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 if($CrossQueueReuse) { $CrossQueue=$true }
 if($CrossQueue) { $IndirectGpuArgs=$true }
@@ -65,6 +65,7 @@ if($IndirectGpuCount) { $root += '-gpu-count' }
 if($IndirectGpuArgs) { $root += '-gpu-args' }
 if($CrossQueue) { $root += '-cross-queue' }
 if($CrossQueueReuse) { $root += '-reuse' }
+if($WindowRecovery) { $root += '-window-recovery' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
 if($Scissor) { $root += '-scissor' }
@@ -74,6 +75,7 @@ Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorActi
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $defines=@()
+if($WindowRecovery) { $defines += '-DFRAME_PAUSE_US=20000000' }
 if($Texture) { $defines += '-DTEST_TEXTURE=1' }
 if($TextureSelect) { $defines += '-DTEST_TEXTURE_SELECT=1' }
 if($TextureUv) { $defines += '-DTEST_TEXTURE_UV=1' }
@@ -121,6 +123,7 @@ $settings = @{
 $previous = @{}
 if($CrossQueue) { $settings.SHARPEMU_GPU_WAIT_MODE='suspend' }
 if($CrossQueueReuse) { $settings.SHARPEMU_GPU_DEADLOCK_BREAK_MS='500' }
+if($WindowRecovery) { $settings.SHARPEMU_STALL_WATCHDOG_SECONDS='120' }
 try {
     foreach($name in $settings.Keys) {
         $previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')
@@ -130,15 +133,20 @@ try {
     # before it exits. Wait for this exact child before inspecting its final log.
     $guestProcess=Start-Process -FilePath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe' -ArgumentList @('--cpu-engine=native','--fps-limit=60','--log-level=info',"--log-file=$log",$guest) -WindowStyle Hidden -PassThru
     try {
-        if(-not $guestProcess.WaitForExit(60000)) {
+        if(-not $guestProcess.WaitForExit($(if($WindowRecovery) { 120000 } else { 60000 }))) {
             $guestProcess.Kill()
             $guestProcess.WaitForExit(5000) | Out-Null
-            throw "Triangle guest timed out after 60 seconds: $log"
+            throw "Triangle guest timed out: $log"
         }
         if($guestProcess.ExitCode -ne 0) { throw "Triangle launch failed ($($guestProcess.ExitCode)): $log" }
     } finally { $guestProcess.Dispose() }
     $output = if (Test-Path -LiteralPath $log) { '' + (Get-Content -LiteralPath $log -Raw) } else { '' }
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Triangle guest failed: $log" }
+    if($WindowRecovery -and
+       (-not $output.Contains('vk.present_deferred window-unavailable') -or
+        -not $output.Contains('vk.present_resumed window-restored'))) {
+        throw 'Window-recovery diagnostic did not observe both suspension and restoration.'
+    }
     if ($output.Contains('agc.shader_color_clear')) { throw 'Triangle unexpectedly became a fullscreen clear.' }
     if($CrossQueue -and ($output.Contains('agc.deadlock_break ') -or
        $output.Contains('forced=True') -or $output.Contains('agc.compute_semantic_fast_path'))) {
@@ -350,6 +358,7 @@ public static class TextureUvVerifierV3 {
         IndirectGpuArgs=[bool]$IndirectGpuArgs
         CrossQueue=[bool]$CrossQueue
         CrossQueueReuse=[bool]$CrossQueueReuse
+        WindowRecovery=[bool]$WindowRecovery
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect
         TextureUv=[bool]$TextureUv

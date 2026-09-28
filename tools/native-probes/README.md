@@ -321,3 +321,13 @@ Both modes require red/red/blue pixels, exact compute/draw counts, at least thre
 suspensions and no deadlock-break, forced-resume or CPU semantic replacement.
 The packet layout follows AMD's ME header linked above. Tests exercise one
 compute-to-graphics dependency, not general hardware concurrency or game readiness.
+
+`-MipBc1 -WindowRecovery` is an interactive diagnostic, not an unattended suite
+case. It keeps each checked frame for 20 seconds, raises only this child's stall
+watchdog to 120 seconds, and bounds the child lifetime at 120 seconds. Restore
+the window after its second draw, before the third draw reuses the same target.
+Success requires both `vk.present_deferred` and `vk.present_resumed`, normal
+guest completion, and the existing red/blue/red pixel oracle. A run without an
+observed minimize/restore cycle must fail rather than claiming recovery coverage.
+The original settings are restored on exit. Current end-to-end recovery status
+and interrupted/failed attempts are recorded in `docs/local-progress.md`.

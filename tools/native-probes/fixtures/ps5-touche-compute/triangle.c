@@ -1,6 +1,9 @@
 // Synthetic gfx10 vertex/pixel programs. All triangle pixels must come from GPU rasterization.
 typedef unsigned int u32;
 typedef unsigned long long u64;
+#ifndef FRAME_PAUSE_US
+#define FRAME_PAUSE_US 3000000
+#endif
 extern int (*open_slot)(int,int,int,void*);
 extern int (*attribute_slot)(void*,u32,u32,u32,u32,u32,u32);
 extern int (*register_slot)(int,int,u64*,int,void*);
@@ -272,7 +275,7 @@ int _start(void) {
     if(register_slot(video,0,addresses,1,attribute)<0) return 72;
     for(int i=0;i<320*180;i++) pixels[i]=0xff202020;
     if(flip_slot(video,0,1,0)!=0) return 73;
-    sleep_slot(3000000);
+    sleep_slot(FRAME_PAUSE_US);
     u64 vs=(u64)vertex, ps=(u64)pixel, target=(u64)pixels, label=(u64)&completed;
     reg(0x76,0xc8,(u32)(vs>>8)); reg(0x76,0xc9,(u32)(vs>>40));
     reg(0x76,0x8,(u32)(ps>>8)); reg(0x76,0x9,(u32)(ps>>40));
@@ -411,7 +414,7 @@ int _start(void) {
     for(int i=0;i<5000 && !completed;i++) sleep_slot(1000);
     if(completed!=1) return 75;
     if(flip_slot(video,0,1,1)!=0) return 76;
-    sleep_slot(3000000);
+    sleep_slot(FRAME_PAUSE_US);
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
 #ifdef TEST_TEXTURE
@@ -449,7 +452,7 @@ int _start(void) {
     for(int i=0;i<5000 && completed!=2;i++) sleep_slot(1000);
     if(completed!=2) return 78;
     if(flip_slot(video,0,1,2)!=0) return 79;
-    sleep_slot(3000000);
+    sleep_slot(FRAME_PAUSE_US);
 #if defined(TEST_DEPTH) || defined(TEST_TEXTURE)
 #ifdef TEST_MIP_CACHE_PRESSURE
     // Distinct snapshots exceed the bounded host cache. Mutate padding in the
@@ -504,7 +507,7 @@ int _start(void) {
     for(int i=0;i<5000 && completed!=3;i++) sleep_slot(1000);
     if(completed!=3) return 81;
     if(flip_slot(video,0,1,3)!=0) return 82;
-    sleep_slot(3000000);
+    sleep_slot(FRAME_PAUSE_US);
 #endif
     close_slot(video);
     return 0;
