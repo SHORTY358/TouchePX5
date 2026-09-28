@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added and passed `-DmaImageCrossQueue`: `artifacts/dma-image-cross-queue.log`.
+  The graphics queue genuinely suspends twice while ACB owner 7 fills/copies an
+  existing image, then resumes through separate ready/completion labels. All
+  three GPU captures pass the existing pixel oracle; both complete image updates
+  and their deferred callbacks execute on ACB. No forced resume or deadlock
+  fallback occurred. This adds suite case 35, without changing emulator runtime.
+  It verifies full-image transfer completion between queues, not transient waits
+  on image data. An initial fixture pointer lacked relocation; materializing it
+  at runtime corrected the guest. The runner counts wait diagnostics because
+  detailed packet traces are throttled. The full-suite result below remains the
+  previous 34-case run; do not report it as a 35-case aggregate.
+  Sequential DMA image and ordinary triangle regressions also pass:
+  `artifacts/dma-image-sequential-regression.log` and
+  `artifacts/dma-image-triangle-regression.log`. The last build/unit result is
+  unchanged because this change only extends native fixtures and runners.
 - Added and passed a native existing-image DMA baseline, without a runtime fix:
   `artifacts/dma-image-native.log`. A red triangle establishes the image, then
   DMA fills it blue and copies a red source into it. All 57,600 CPU words are
@@ -308,9 +323,10 @@ per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-
 chains and broad commercial-game compatibility remain separate work.
 
 Next tasks: validate minimize/restore with a functioning window-control path,
-and build a DMA image-mirror ordering regression before changing its completion
-semantics. The regression must distinguish the CPU copy, queued GPU image update,
-and waiter release, including a reset between them and failed/unreadable writes.
+and extend DMA image-mirror coverage beyond the passing sequential and cross-queue
+full-image transfers before changing its completion semantics. A transient-image
+wait regression must distinguish the CPU copy, queued GPU image update, and waiter
+release, including a reset between them and failed/unreadable writes.
 Plain-memory DMA and rewind patches now have separate regressions above.
 Minimized 0x0 surfaces are confirmed in the earlier failed
 aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work

@@ -37,6 +37,7 @@ try {
         @{Name='triangle-cross-queue-write-data'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-gpu-args-cross-queue-write-data\triangle.log'; Parameters=@{CrossQueueWriteData=$true}},
         @{Name='triangle-cross-queue-dma'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-depth-indirect-gpu-args-cross-queue-dma\triangle.log'; Parameters=@{CrossQueueDma=$true}},
         @{Name='triangle-dma-image'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image\triangle.log'; Parameters=@{DmaImage=$true}},
+        @{Name='triangle-dma-image-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-cross-queue\triangle.log'; Parameters=@{DmaImageCrossQueue=$true}},
         @{Name='triangle-texture'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture\triangle.log'; Parameters=@{Texture=$true}},
         @{Name='triangle-texture-select'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select\triangle.log'; Parameters=@{TextureSelect=$true}},
         @{Name='triangle-texture-uv'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-uv\triangle.log'; Parameters=@{TextureUv=$true}},

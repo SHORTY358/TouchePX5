@@ -31,6 +31,10 @@ static volatile u32 texel[192] __attribute__((aligned(256)));
 static u32 depth[320*180] __attribute__((aligned(256)));
 #endif
 static struct { u64 address; u32 count; u32 reserved; } submission;
+#ifdef TEST_DMA_IMAGE_CROSS_QUEUE
+static u32 dma_image_producer[512], dma_image_consumer[15];
+static volatile u32 dma_image_ready;
+#endif
 #ifdef TEST_CROSS_QUEUE
 static u32 producer_commands[4][64];
 static u32 producer_lengths[4];
@@ -38,6 +42,32 @@ static volatile u32 producer_labels[4];
 static u32 producer_pending, producer_submitted;
 #endif
 static int submit_graphics(void) {
+#ifdef TEST_DMA_IMAGE_CROSS_QUEUE
+    if(completed>=1) {
+        u32 before=completed, expected=before+1, count=submission.count;
+        if(count<8 || count>512) return 94;
+        for(u32 i=0;i<count;i++) dma_image_producer[i]=commands[i];
+        dma_image_ready=0;
+        u64 ready=(u64)&dma_image_ready, done=(u64)&completed;
+        // Producer completion signals a separate label. Only the waiting
+        // graphics consumer can publish the completion observed by the guest.
+        dma_image_producer[count-5]=(u32)ready;
+        dma_image_producer[count-4]=(u32)(ready>>32);
+        u32 consumer[]={0xc0053c00,0x13,(u32)ready,(u32)(ready>>32),expected,0xffffffff,4,
+            0xc0064900,0x14,1u<<29,(u32)done,(u32)(done>>32),expected,0,0};
+        for(u32 i=0;i<15;i++) dma_image_consumer[i]=consumer[i];
+        // The minimal guest linker does not emit relocations for pointer-valued
+        // constant aggregates. Materialize this address at runtime instead.
+        volatile u64 consumer_address=(u64)dma_image_consumer;
+        struct {u64 address;u32 count;u32 reserved;} wait_packet={consumer_address,15,0};
+        int result=submit_slot(&wait_packet);
+        if(result) return result;
+        sleep_slot(20000);
+        if(completed!=before) return 95;
+        struct {u64 address;u32 count;u32 reserved;} producer_packet={(u64)dma_image_producer,count,0};
+        return submit_acb_slot(7,&producer_packet);
+    }
+#endif
 #ifdef TEST_CROSS_QUEUE
     u32 before=completed;
 #endif

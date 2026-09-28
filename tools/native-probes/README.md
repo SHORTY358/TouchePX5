@@ -356,6 +356,18 @@ with blank and wrong-color negative controls. No runtime change was needed for
 this baseline. It verifies sequential image mirroring through completion and
 presentation, not transient waits on image memory or general cross-queue races.
 
+`-DmaImageCrossQueue` adds case 35 using the same image and pixel oracle. Each
+image update runs on ACB owner 7, after a graphics consumer has suspended on a
+separate ready label. The ACB submission updates the image and releases that
+label; only the resumed graphics consumer can publish the CPU completion label.
+Both waits, resumes, DMA operations and deferred completion callbacks are required,
+with no forced resume or deadlock fallback. CPU readback and source overwrite
+checks remain enabled. This covers full-image DMA fill/copy through cross-queue
+completion and presentation, not compute shaders or transient waits on image data.
+No runtime change was needed. The fixture materializes the consumer packet address
+at runtime because its minimal linker does not relocate pointer-valued constant
+aggregates; an initial unrelocated packet failed before the fixture correction.
+
 `-MipBc1 -WindowRecovery` is an interactive diagnostic, not an unattended suite
 case. It keeps each checked frame for 20 seconds, raises only this child's stall
 watchdog to 120 seconds, and bounds the child lifetime at 120 seconds. Restore
