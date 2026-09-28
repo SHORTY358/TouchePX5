@@ -1,8 +1,9 @@
 [CmdletBinding()]
-param([switch]$WindowRecovery, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 if($CrossQueueWriteData -and $CrossQueueReuse) { throw 'Choose either WRITE_DATA reset or cross-submission label reuse.' }
-if($CrossQueueReuse -or $CrossQueueWriteData) { $CrossQueue=$true }
+if($CrossQueueDma -and ($CrossQueueReuse -or $CrossQueueWriteData)) { throw 'DMA reset requires its standalone cross-queue mode.' }
+if($CrossQueueReuse -or $CrossQueueWriteData -or $CrossQueueDma) { $CrossQueue=$true }
 if($CrossQueue) { $IndirectGpuArgs=$true }
 if($IndirectGpuArgs) {
     if($IndirectGpuCount -or $IndirectMulti) { throw 'GPU argument probe requires a single indirect draw.' }
@@ -67,6 +68,7 @@ if($IndirectGpuArgs) { $root += '-gpu-args' }
 if($CrossQueue) { $root += '-cross-queue' }
 if($CrossQueueReuse) { $root += '-reuse' }
 if($CrossQueueWriteData) { $root += '-write-data' }
+if($CrossQueueDma) { $root += '-dma' }
 if($WindowRecovery) { $root += '-window-recovery' }
 if($Depth -and $Blend) { throw 'Depth and Blend must be tested separately.' }
 if($Blend) { $root += '-blend' }
@@ -100,6 +102,7 @@ if($IndirectGpuArgs) { $defines += '-DTEST_INDIRECT_GPU_ARGS=1' }
 if($CrossQueue) { $defines += '-DTEST_CROSS_QUEUE=1' }
 if($CrossQueueReuse) { $defines += '-DTEST_CROSS_QUEUE_REUSE=1' }
 if($CrossQueueWriteData) { $defines += '-DTEST_CROSS_QUEUE_WRITE_DATA=1' }
+if($CrossQueueDma) { $defines += '-DTEST_CROSS_QUEUE_DMA=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -162,6 +165,11 @@ try {
        ([regex]::Matches($output,"vk.ordered_action queue=acb\.compute\[7\] [^\r\n]*name='write_data dst=0x[0-9A-F]+ count=2'").Count -ne 3 -or
         [regex]::Matches($output,'agc.dcb.write_data dst=5 [^\r\n]*count=2 increment=False[^\r\n]*wrote=True').Count -lt 1)) {
         throw 'Expected three nonincrementing WRITE_DATA signal/reset producers.'
+    }
+    if($CrossQueueDma -and
+       ([regex]::Matches($output,"vk.ordered_action queue=acb\.compute\[7\] [^\r\n]*name='dma_data dst=0x[0-9A-F]+ bytes=4'").Count -ne 6 -or
+        [regex]::Matches($output,'agc.dma_packet [^\r\n]*bytes=4 src_sel=2 fill=True copied=True').Count -ne 6)) {
+        throw 'Expected six successful DMA fills forming three signal/reset pairs.'
     }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
     if(($IndirectGpuCount -or $IndirectGpuArgs) -and [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 4) { throw 'Expected four GPU indirect-data-producing dispatches.' }
@@ -367,6 +375,7 @@ public static class TextureUvVerifierV3 {
         CrossQueue=[bool]$CrossQueue
         CrossQueueReuse=[bool]$CrossQueueReuse
         CrossQueueWriteData=[bool]$CrossQueueWriteData
+        CrossQueueDma=[bool]$CrossQueueDma
         WindowRecovery=[bool]$WindowRecovery
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect

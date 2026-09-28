@@ -5219,6 +5219,11 @@ public static partial class AgcExports
 
         if (!hasImage)
         {
+            // Ordinary memory has no deferred image mirror. Preserve a matching
+            // label now, before a later DMA resets it. Image-backed writes keep
+            // their existing completion path; latching those here could release
+            // dependent work before the queued GPU image update executes.
+            LatchWrittenLabels(ctx, destinationAddress, byteCount);
             return;
         }
 

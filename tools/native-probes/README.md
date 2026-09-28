@@ -334,6 +334,16 @@ red/red/blue pixels and no forced/deadlock/semantic fallback. This mode cannot
 be combined with `-CrossQueueReuse`. Six submitted-packet unit cases additionally
 cover standard/Gen5 encoding, overlapping 64-bit labels, and nonsatisfying writes.
 
+`-CrossQueueDma` adds case 33 using the same three already-suspended consumers.
+Each signal/reset pair uses two standard immediate DMA fills into ordinary label
+memory. The runner requires all six fills, exact compute/draw counts, completion,
+final reset labels and red/red/blue pixels without fallback. The before runtime
+lost a signal and returned 78; the corrected runtime passes. Unit regressions
+also cover copying a signal from memory and nonsatisfying copy/fill controls.
+Only destinations without a known backend image latch immediately. DMA writes
+that enqueue an image mirror still require separate completion-aware treatment;
+this test does not establish transient-label behavior for those destinations.
+
 `-MipBc1 -WindowRecovery` is an interactive diagnostic, not an unattended suite
 case. It keeps each checked frame for 20 seconds, raises only this child's stall
 watchdog to 120 seconds, and bounds the child lifetime at 120 seconds. Restore

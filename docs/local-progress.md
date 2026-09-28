@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Plain-memory DMA copy/fill now preserves a satisfied wait before a later DMA
+  resets the label. Two submitted-packet regressions failed before and two
+  nonsatisfying controls passed (`artifacts/dma-label-before.log`). The native
+  cross-queue fixture also failed before with guest result 78 after losing a
+  signal: `artifacts/dma-label-native-before-guest.log`. After the fix it passes
+  red/red/blue pixels, six immediate DMA fills, four computes/four draws, final
+  reset-label values and no fallback (`artifacts/dma-label-native-after.log`).
+  WRITE_DATA and reused-label native regressions pass on this same build:
+  `artifacts/dma-label-write-data-regression.log`,
+  `artifacts/dma-label-reuse-regression.log`. Release build has zero warnings/errors;
+  all **1,276 unit tests pass** (`artifacts/dma-label-build.log`,
+  `artifacts/dma-label-tests.log`). Native case 33 is added and passed individually;
+  the full 32-case report below predates this DMA fix, and no full 33-case pass is
+  claimed. Immediate latching is restricted to destinations without a known
+  backend image; image-mirror completion and transient labels remain separate work.
 - Rewind valid-bit patches now latch full overlapping label values, using the
   same width-aware path as GPU releases. Previously a 32-bit patch incorrectly
   satisfied a 64-bit equality wait for `0x80000000`, and missed the correct
@@ -13,7 +28,9 @@ percentage or release-date estimate.
   narrow-wait control passes (`artifacts/rewind-label-before.log`). All **1,272
   unit tests pass** after the fix, with zero build warnings/errors:
   `artifacts/rewind-label-build.log`, `artifacts/rewind-label-tests.log`.
-  The full expanded 32-case native regression is pending. DMA producers need a
+  All **32/32 native GPU cases pass** on clean source `3636660`, with unchanged
+  runtime files: `artifacts/native-gpu/20260928-075326-613/report.json`.
+  Image-backed DMA producers need a
   separate completion-aware design: their CPU copy can enqueue a later GPU image
   mirror, so immediately latching after the copy could wake dependent work early.
 - Fixed lost WRITE_DATA satisfaction when a later payload word resets a label
@@ -279,8 +296,11 @@ per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-
 chains and broad commercial-game compatibility remain separate work.
 
 Next tasks: validate minimize/restore with a functioning window-control path,
-and audit the remaining DMA/rewind label producers for matching write-width and
-completion semantics. Minimized 0x0 surfaces are confirmed in the earlier failed
+and build a DMA image-mirror ordering regression before changing its completion
+semantics. The regression must distinguish the CPU copy, queued GPU image update,
+and waiter release, including a reset between them and failed/unreadable writes.
+Plain-memory DMA and rewind patches now have separate regressions above.
+Minimized 0x0 surfaces are confirmed in the earlier failed
 aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work
 can cover additional formats, with an independent layout reference before broadening
 the supported CPU upload subset. Native odd-sized mip sampling is now covered.

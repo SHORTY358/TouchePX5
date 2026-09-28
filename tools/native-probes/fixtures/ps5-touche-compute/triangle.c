@@ -233,15 +233,24 @@ static void draw(void) {
     producer_labels[label_index]=0;
     u64 ready=(u64)&producer_labels[label_index];
     u32* producer=producer_commands[index];
-#ifdef TEST_CROSS_QUEUE_WRITE_DATA
-    // Signal and reset the same label in one ordered WRITE_DATA action. The
+#if defined(TEST_CROSS_QUEUE_WRITE_DATA) || defined(TEST_CROSS_QUEUE_DMA)
+    // Signal and reset the same label with WRITE_DATA or consecutive DMA fills. The
     // suspended consumer must retain the signal even though final memory is 0.
     // Producer 1 can finish before its wait is reached behind the first draw;
     // retain that signal instead of demanding historical-value replay.
     if(index!=1) {
+#ifdef TEST_CROSS_QUEUE_DMA
+        for(u32 reset=0;reset<2;reset++) {
+            producer[length++]=0xc0055002; producer[length++]=2u<<29;
+            producer[length++]=reset ? 0 : 1; producer[length++]=0;
+            producer[length++]=(u32)ready; producer[length++]=(u32)(ready>>32);
+            producer[length++]=4;
+        }
+#else
         producer[length++]=0xc0043702; producer[length++]=(5u<<8)|(1u<<16);
         producer[length++]=(u32)ready; producer[length++]=(u32)(ready>>32);
         producer[length++]=1; producer[length++]=0;
+#endif
     } else
 #endif
     {
@@ -522,7 +531,7 @@ int _start(void) {
     if(flip_slot(video,0,1,3)!=0) return 82;
     sleep_slot(FRAME_PAUSE_US);
 #endif
-#ifdef TEST_CROSS_QUEUE_WRITE_DATA
+#if defined(TEST_CROSS_QUEUE_WRITE_DATA) || defined(TEST_CROSS_QUEUE_DMA)
     for(u32 i=0;i<4;i++) if(producer_labels[i]!=(i==1 ? 1u : 0u)) return 91;
 #endif
     close_slot(video);
