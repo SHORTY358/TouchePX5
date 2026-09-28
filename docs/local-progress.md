@@ -13,7 +13,9 @@ percentage or release-date estimate.
   the final GPU image must remain red. Both full-image captures pass all 2,037,120
   BGRA pixels, with blank/wrong-color negative controls. Logs require two successful
   230,400-byte writes to an existing backend image and one translated draw.
-  This is aggregate case 34; the full 34-case run is pending. Sequential mirror
+  All **34/34 native GPU cases pass** on clean source `dced885` with unchanged
+  runtime files: `artifacts/native-gpu/20260928-103751-009/report.json`.
+  This includes the new DMA signal and image cases in one complete run. Sequential mirror
   ordering is established, not transient waits on image memory or a cross-queue
   mirror race. The runtime and last 1,276-test unit result are unchanged.
 - Plain-memory DMA copy/fill now preserves a satisfied wait before a later DMA
