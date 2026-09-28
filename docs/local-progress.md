@@ -6,6 +6,16 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added and passed a native existing-image DMA baseline, without a runtime fix:
+  `artifacts/dma-image-native.log`. A red triangle establishes the image, then
+  DMA fills it blue and copies a red source into it. All 57,600 CPU words are
+  checked after each completion. The source becomes green after copy completion;
+  the final GPU image must remain red. Both full-image captures pass all 2,037,120
+  BGRA pixels, with blank/wrong-color negative controls. Logs require two successful
+  230,400-byte writes to an existing backend image and one translated draw.
+  This is aggregate case 34; the full 34-case run is pending. Sequential mirror
+  ordering is established, not transient waits on image memory or a cross-queue
+  mirror race. The runtime and last 1,276-test unit result are unchanged.
 - Plain-memory DMA copy/fill now preserves a satisfied wait before a later DMA
   resets the label. Two submitted-packet regressions failed before and two
   nonsatisfying controls passed (`artifacts/dma-label-before.log`). The native

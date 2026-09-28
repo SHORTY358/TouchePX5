@@ -344,6 +344,18 @@ Only destinations without a known backend image latch immediately. DMA writes
 that enqueue an image mirror still require separate completion-aware treatment;
 this test does not establish transient-label behavior for those destinations.
 
+`-DmaImage` adds case 34: draw a red triangle to establish a backend image,
+then replace the same 320x180 target with a full blue DMA fill and a full red
+DMA copy. After each submission's completion label the guest checks all 57,600
+CPU words. After the copy it overwrites the source with green before presenting,
+so the final red capture also verifies independence from subsequent source reuse.
+The runner requires one draw, two successful 230,400-byte DMA operations against
+an existing backend image, and four captures including startup. The first checked
+frame uses the triangle oracle; both full images check every BGRA pixel exactly,
+with blank and wrong-color negative controls. No runtime change was needed for
+this baseline. It verifies sequential image mirroring through completion and
+presentation, not transient waits on image memory or general cross-queue races.
+
 `-MipBc1 -WindowRecovery` is an interactive diagnostic, not an unattended suite
 case. It keeps each checked frame for 20 seconds, raises only this child's stall
 watchdog to 120 seconds, and bounds the child lifetime at 120 seconds. Restore

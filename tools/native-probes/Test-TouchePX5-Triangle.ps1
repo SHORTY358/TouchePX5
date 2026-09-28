@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -ne 'DmaImage' }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
 if($CrossQueueWriteData -and $CrossQueueReuse) { throw 'Choose either WRITE_DATA reset or cross-submission label reuse.' }
 if($CrossQueueDma -and ($CrossQueueReuse -or $CrossQueueWriteData)) { throw 'DMA reset requires its standalone cross-queue mode.' }
 if($CrossQueueReuse -or $CrossQueueWriteData -or $CrossQueueDma) { $CrossQueue=$true }
@@ -16,6 +17,7 @@ if($Indirect) {
     $Depth=$true
 }
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($DmaImage) { $root += '-dma-image' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc3) {
@@ -103,6 +105,7 @@ if($CrossQueue) { $defines += '-DTEST_CROSS_QUEUE=1' }
 if($CrossQueueReuse) { $defines += '-DTEST_CROSS_QUEUE_REUSE=1' }
 if($CrossQueueWriteData) { $defines += '-DTEST_CROSS_QUEUE_WRITE_DATA=1' }
 if($CrossQueueDma) { $defines += '-DTEST_CROSS_QUEUE_DMA=1' }
+if($DmaImage) { $defines += '-DTEST_DMA_IMAGE=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -127,6 +130,7 @@ $settings = @{
     SHARPEMU_OVERLAY='0'
 }
 $previous = @{}
+if($DmaImage) { $settings.SHARPEMU_TRACE_DRAWS='1' }
 if($CrossQueue) { $settings.SHARPEMU_GPU_WAIT_MODE='suspend' }
 if($CrossQueueReuse) { $settings.SHARPEMU_GPU_DEADLOCK_BREAK_MS='500' }
 if($WindowRecovery) { $settings.SHARPEMU_STALL_WATCHDOG_SECONDS='120' }
@@ -173,9 +177,14 @@ try {
     }
     $captures = [regex]::Matches($output, 'vk.swapchain_dump path=([^\r\n]+)')
     if(($IndirectGpuCount -or $IndirectGpuArgs) -and [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 4) { throw 'Expected four GPU indirect-data-producing dispatches.' }
-    $expectedDraws=if($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
+    if($DmaImage -and
+       ([regex]::Matches($output,'\[DMA\] [^\r\n]*bytes=230400 [^\r\n]*image=True').Count -ne 2 -or
+        [regex]::Matches($output,'agc.dma_packet [^\r\n]*bytes=230400 [^\r\n]*copied=True').Count -ne 2)) {
+        throw 'Expected two successful DMA updates of an existing backend image.'
+    }
+    $expectedDraws=if($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
     if($MipCachePressure) { $expectedDraws += 40 }
-    $expectedCaptures=if($Depth -or $Texture) { 4 } else { 3 }
+    $expectedCaptures=if($DmaImage -or $Depth -or $Texture) { 4 } else { 3 }
     if($captures.Count -ne $expectedCaptures) { throw "Unexpected number of swapchain captures: $log" }
     $textureCount=if($Texture) { 1 } else { 0 }
     if([regex]::Matches($output,"vk.offscreen_draw mrt=1 size=320x180 textures=$textureCount").Count -ne $expectedDraws -or $output.Contains('agc.shader_translate_miss')) { throw 'Missing expected successful translated raster draws.' }
@@ -245,6 +254,21 @@ public static class UniformMipVerifierV2 {
 }
 "@
     }
+    if($DmaImage -and -not ('DmaImageVerifierV1' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+public static class DmaImageVerifierV1 {
+    public static int Check(byte[] data,int width,int height,bool blue) {
+        if(data.Length!=checked(width*height*4)) throw new Exception("Invalid DMA capture size");
+        for(int p=0;p<data.Length;p+=4) {
+            if(data[p]!=(blue?255:0) || data[p+1]!=0 || data[p+2]!=(blue?0:255) || data[p+3]!=255)
+                throw new Exception("DMA image mismatch at pixel "+(p/4));
+        }
+        return width*height;
+    }
+}
+"@
+    }
     $verifiedFrames = @()
     if($TextureUv -and -not ('TextureUvVerifierV3' -as [type])) {
         Add-Type -TypeDefinition @"
@@ -288,12 +312,19 @@ public static class TextureUvVerifierV3 {
     if($Mip) { $expectBlue=($frameIndex -eq 2) }
     if($MipBaseOnly) { $expectBlue=$false }
     if($MipLowerView) { $expectBlue=($frameIndex -lt 3) }
+    if($DmaImage) { $expectBlue=($frameIndex -eq 2) }
     $capture = $captures[$frameIndex].Groups[1].Value.Trim()
     $dimensions = [regex]::Match([IO.Path]::GetFileName($capture), '^present-\d+-(\d+)x(\d+)-B8G8R8A8Unorm\.bgra$')
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
-    if($MipSrgb -or $MipBc3) {
+    if($DmaImage -and $frameIndex -gt 1) {
+        $coloredPixels=[DmaImageVerifierV1]::Check($gpuBytes,$width,$height,$expectBlue)
+        $rejectedBlank=$false; $rejectedWrongColor=$false
+        try { [DmaImageVerifierV1]::Check([byte[]]::new(320*180*4),320,180,$expectBlue) | Out-Null } catch { $rejectedBlank=$true }
+        try { [DmaImageVerifierV1]::Check($gpuBytes,$width,$height,(-not $expectBlue)) | Out-Null } catch { $rejectedWrongColor=$true }
+        if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'DMA image verifier accepted a negative control.' }
+    } elseif($MipSrgb -or $MipBc3) {
         $encoded=if($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
         $expectedAlpha=if($MipBc3 -and $frameIndex -eq 3) { 64 } else { 128 }
         $srgbOutput=$capture -match 'Srgb\.bgra$'
@@ -342,7 +373,8 @@ public static class TextureUvVerifierV3 {
         if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'Triangle verifier accepted a negative control.' }
     }
     $color=if($TextureUv) { 'textured' } elseif($expectBlue -and $Blend) { 'purple' } elseif($expectBlue) { 'blue' } else { 'red' }
-    Write-Output "PASS: $color GPU triangle verified across $($width*$height) pixels ($coloredPixels colored)."
+    $shape=if($DmaImage -and $frameIndex -gt 1) { 'DMA image' } else { 'GPU triangle' }
+    Write-Output "PASS: $color $shape verified across $($width*$height) pixels ($coloredPixels colored)."
     $bitmap=[Drawing.Bitmap]::new($width,$height,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
     try {
         $locked=$bitmap.LockBits([Drawing.Rectangle]::new(0,0,$width,$height),[Drawing.Imaging.ImageLockMode]::WriteOnly,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -376,6 +408,7 @@ public static class TextureUvVerifierV3 {
         CrossQueueReuse=[bool]$CrossQueueReuse
         CrossQueueWriteData=[bool]$CrossQueueWriteData
         CrossQueueDma=[bool]$CrossQueueDma
+        DmaImage=[bool]$DmaImage
         WindowRecovery=[bool]$WindowRecovery
         Texture=[bool]$Texture
         TextureSelect=[bool]$TextureSelect

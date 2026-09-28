@@ -13,6 +13,9 @@ extern int (*sleep_slot)(u32);
 extern int (*submit_slot)(void*);
 extern int (*submit_acb_slot)(u32,void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
+#ifdef TEST_DMA_IMAGE
+static u32 dma_image_source[320*180] __attribute__((aligned(256)));
+#endif
 static unsigned char attribute[40];
 static u64 addresses[1];
 static volatile u32 completed;
@@ -465,7 +468,16 @@ int _start(void) {
     commands[n++]=0xc0012600;
     commands[n++]=(u32)stale; commands[n++]=(u32)(stale>>32);
 #endif
+#ifdef TEST_DMA_IMAGE
+    // The first draw established a backend image at target. Fill must update
+    // both CPU memory and that existing GPU image before the next flip.
+    commands[n++]=0xc0055000; commands[n++]=2u<<29;
+    commands[n++]=0xffff0000; commands[n++]=0;
+    commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
+    commands[n++]=sizeof(pixels);
+#else
     draw();
+#endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=2; commands[n++]=0; commands[n++]=0;
@@ -473,9 +485,12 @@ int _start(void) {
     if(submit_graphics()!=0) return 77;
     for(int i=0;i<5000 && completed!=2;i++) sleep_slot(1000);
     if(completed!=2) return 78;
+#ifdef TEST_DMA_IMAGE
+    for(u32 i=0;i<320*180;i++) if(((volatile u32*)pixels)[i]!=0xffff0000) return 92;
+#endif
     if(flip_slot(video,0,1,2)!=0) return 79;
     sleep_slot(FRAME_PAUSE_US);
-#if defined(TEST_DEPTH) || defined(TEST_TEXTURE)
+#if defined(TEST_DEPTH) || defined(TEST_TEXTURE) || defined(TEST_DMA_IMAGE)
 #ifdef TEST_MIP_CACHE_PRESSURE
     // Distinct snapshots exceed the bounded host cache. Mutate padding in the
     // lower mip so the displayed blue texel remains unchanged. Wait for each
@@ -520,7 +535,16 @@ int _start(void) {
     reg(0x76,0xcc,0x3e000000); // nearer blue Z=0.125 must pass
 #endif
     // Texture mode repeats unchanged blue after the CPU update.
+#ifdef TEST_DMA_IMAGE
+    for(u32 i=0;i<320*180;i++) dma_image_source[i]=0xff0000ff;
+    u64 source=(u64)dma_image_source;
+    commands[n++]=0xc0055000; commands[n++]=0;
+    commands[n++]=(u32)source; commands[n++]=(u32)(source>>32);
+    commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
+    commands[n++]=sizeof(pixels);
+#else
     draw();
+#endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=3; commands[n++]=0; commands[n++]=0;
@@ -528,6 +552,12 @@ int _start(void) {
     if(submit_graphics()!=0) return 80;
     for(int i=0;i<5000 && completed!=3;i++) sleep_slot(1000);
     if(completed!=3) return 81;
+#ifdef TEST_DMA_IMAGE
+    for(u32 i=0;i<320*180;i++) {
+        if(((volatile u32*)pixels)[i]!=0xff0000ff) return 93;
+        dma_image_source[i]=0xff00ff00; // completed copy must be independent of source reuse
+    }
+#endif
     if(flip_slot(video,0,1,3)!=0) return 82;
     sleep_slot(FRAME_PAUSE_US);
 #endif
