@@ -6,6 +6,24 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed lost WRITE_DATA satisfaction when a later payload word resets a label
+  (same-address writes) or changes the upper half of a wider label. Each successful
+  word write now latches matching overlapping waiters before the next word.
+  Four submitted-packet cases failed before; two nonsatisfying controls passed.
+  All six pass after: `artifacts/write-data-direct-{before,after}.log`.
+  The direct assertion runner was used after two transient VSTest socket 10013
+  errors; the normal full runner subsequently recovered without system changes.
+  Release builds with zero warnings/errors and **1,269 unit tests pass**:
+  `artifacts/write-data-wait-build.log`, `artifacts/write-data-wait-tests.log`.
+  The new native WRITE_DATA cross-queue probe passes red/red/blue pixel checks,
+  four computes/four draws and three signal/reset operations without fallback:
+  `artifacts/write-data-cross-queue-native.log`. The padded ABGR/AGC-fence native
+  regression passes too (`artifacts/write-data-fence-native.log`). Case 32 is
+  added to the aggregate; it has been tested individually, not in a full 32-case run.
+  An initial fixture incorrectly reset the second signal before its consumer
+  registered; it correctly remained suspended. That signal is now retained,
+  and transient resets test only already-registered waiters. Evidence retained
+  in `artifacts/write-data-native-fixture-ordering.log`.
 - Fixed partial RELEASE_MEM writes falsely satisfying a wider waiter. A real
   submitted 32-bit release wrote `0x1234567800000001`, but previously latched a
   64-bit equality wait for `1` using only the packet payload. The before test
@@ -16,7 +34,13 @@ percentage or release-date estimate.
   labels do not latch. Six regressions cover these cases. Release build has
   zero warnings/errors and all **1,263 unit tests pass**:
   `artifacts/partial-release-build.log`, `artifacts/partial-release-tests.log`.
-  Native regression of this change is pending.
+  All **31/31 native GPU cases pass** on clean source `87af501`:
+  `artifacts/native-gpu/20260928-010710-924/report.json`. The runner verified
+  unchanged runtime files throughout. A subsequent interactive recovery attempt
+  could not operate the window (`coordinate input geometry is unavailable`, then
+  `FrameArrived timed out`); its strict diagnostic correctly failed for absent
+  deferral/restoration markers. Evidence: `artifacts/window-recovery-87af501.log`
+  and `artifacts/window-recovery-87af501-guest.log`. Recovery remains unverified.
 - On the preceding `c4e0d7a` runtime, the five cases left unfinished by the
   interrupted aggregate passed individually: BC1, BC1 2D, BC3, index16 and
   index32/scissor (`artifacts/remaining-*.log`). The legacy padded ABGR/fence
@@ -244,9 +268,10 @@ width-derived pitch and no existing backend image at the allocation address. It 
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.
 
-Next task: use the expanded diagnostics if presentation recreation recurs. Diagnose
-why the surface intermittently becomes zero-sized and loses captures before
-attributing it to minimization. Do not weaken pixel/count checks. Next texture work
+Next tasks: validate minimize/restore with a functioning window-control path,
+and audit the remaining DMA/rewind label producers for matching write-width and
+completion semantics. Minimized 0x0 surfaces are confirmed in the earlier failed
+aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work
 can cover additional formats, with an independent layout reference before broadening
 the supported CPU upload subset. Native odd-sized mip sampling is now covered.
 

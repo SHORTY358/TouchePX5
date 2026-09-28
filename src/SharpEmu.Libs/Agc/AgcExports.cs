@@ -5431,6 +5431,13 @@ public static partial class AgcExports
                     var targetAddress = destinationAddress +
                         (incrementAddress ? (ulong)index * sizeof(uint) : 0);
                     wroteData = TryWriteUInt32(ctx, targetAddress, values[index]);
+                    if (wroteData)
+                    {
+                        // A later payload word may overwrite this same address
+                        // or the other half of a wide label. Preserve observed
+                        // satisfaction before that subsequent write occurs.
+                        LatchWrittenLabels(ctx, targetAddress, sizeof(uint));
+                    }
                 }
 
                 if (tracePacket)

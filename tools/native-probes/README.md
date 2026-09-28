@@ -322,6 +322,18 @@ suspensions and no deadlock-break, forced-resume or CPU semantic replacement.
 The packet layout follows AMD's ME header linked above. Tests exercise one
 compute-to-graphics dependency, not general hardware concurrency or game readiness.
 
+`Test-TouchePX5-Triangle.ps1 -CrossQueueWriteData` adds case 32. Three producers
+write `1` and then `0` to the same label with a nonincrementing WRITE_DATA packet.
+Their consumers are already suspended; satisfaction must survive the reset.
+The second producer in the first submission retains a RELEASE_MEM signal because
+its consumer can be reached only after the first draw: replaying a transient
+signal from before that wait is registered would test the wrong contract.
+The guest checks final label values, completion and producer-free suspension.
+The runner requires three executed WRITE_DATA actions, four computes/four draws,
+red/red/blue pixels and no forced/deadlock/semantic fallback. This mode cannot
+be combined with `-CrossQueueReuse`. Six submitted-packet unit cases additionally
+cover standard/Gen5 encoding, overlapping 64-bit labels, and nonsatisfying writes.
+
 `-MipBc1 -WindowRecovery` is an interactive diagnostic, not an unattended suite
 case. It keeps each checked frame for 20 seconds, raises only this child's stall
 watchdog to 120 seconds, and bounds the child lifetime at 120 seconds. Restore
