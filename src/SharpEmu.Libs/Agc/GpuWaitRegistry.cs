@@ -359,6 +359,58 @@ internal static class GpuWaitRegistry
     }
 
     /// <summary>
+    /// Latches waiters overlapping an ordered memory write using each waiter's
+    /// full memory value. A producer payload alone is insufficient when a narrow
+    /// write leaves the upper half of a 64-bit label unchanged, or when a waiter
+    /// watches the upper word of a wider write.
+    /// </summary>
+    public static bool LatchSatisfiedByMemoryWrite(
+        object memory,
+        ulong start,
+        ulong length,
+        Func<ulong, bool, ulong?> readValue)
+    {
+        if (length == 0)
+        {
+            return false;
+        }
+
+        var latchedAny = false;
+        lock (_gate)
+        {
+            foreach (var (address, list) in _waiters)
+            {
+                for (var i = 0; i < list.Count; i++)
+                {
+                    var waiter = list[i];
+                    var width = waiter.Is64Bit ? 8UL : 4UL;
+                    // Subtraction avoids overflow for ranges near ulong.MaxValue.
+                    var overlaps = address >= start
+                        ? address - start < length
+                        : start - address < width;
+                    if (waiter.Latched || !overlaps ||
+                        !ReferenceEquals(waiter.Memory, memory))
+                    {
+                        continue;
+                    }
+
+                    var value = readValue(address, waiter.Is64Bit);
+                    if (value is null || !Compare(waiter, value.Value))
+                    {
+                        continue;
+                    }
+
+                    waiter.Latched = true;
+                    list[i] = waiter;
+                    latchedAny = true;
+                }
+            }
+        }
+
+        return latchedAny;
+    }
+
+    /// <summary>
     /// Removes and returns waiters carrying a <see cref="WaitingDcb.RetryDeadlineTicks"/>
     /// that has elapsed. Used for indirect-dispatch dimension retries: the caller
     /// resumes them so a genuinely empty dispatch (dims that never become non-zero)

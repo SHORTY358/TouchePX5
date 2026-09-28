@@ -6416,13 +6416,11 @@ public static partial class AgcExports
                     _ => false,
                 });
 
-                // Record + latch the written value so a same-frame label reset
-                // cannot lose the wakeup, and so the deadlock breaker can release
-                // a cross-queue waiter later (see ApplySubmittedReleaseMem).
-                if (wroteData && dataSelection is 1 or 2)
+                // Read complete overlapping labels at the ordered write point;
+                // the payload may contain only half of a waiter's value.
+                if (wroteData)
                 {
-                    GpuWaitRegistry.RecordProduced(
-                        ctx.Memory, destinationAddress, dataSelection == 1 ? dataLo : data);
+                    LatchWrittenLabels(ctx, destinationAddress, writeLength);
                 }
                 else if (!wroteData && dataSelection is 1 or 2)
                 {
@@ -6524,21 +6522,17 @@ public static partial class AgcExports
                     _ => false,
                 };
 
-                // Latch waiters against the value we just wrote: the guest reuses
-                // these labels and can reset them to 0 before the wake pass reads
-                // memory, which otherwise loses the wakeup and stalls at a black
-                // screen (Astro Bot: graphics queue waiting on a compute EOP label).
-                if (wroteData && dataSelection is 1 or 2)
+                // Preserve satisfaction before a following guest reset, using
+                // the full label rather than zero-extending a narrow payload.
+                if (wroteData)
                 {
-                    GpuWaitRegistry.RecordProduced(
-                        ctx.Memory, destinationAddress, dataSelection == 1 ? dataLo : data);
+                    LatchWrittenLabels(ctx, destinationAddress, writeLength);
                 }
                 else if (!wroteData && dataSelection is 1 or 2)
                 {
                     // A label write that fails is not a benign miss: this packet
-                    // is the producer a suspended WAIT_REG_MEM is waiting for, and
-                    // RecordProduced above is skipped, so the deadlock breaker has
-                    // no value to replay either. The queue then never resumes.
+                    // is the producer a suspended WAIT_REG_MEM is waiting for.
+                    // No satisfaction can be latched; the queue may never resume.
                     // Never let that happen quietly.
                     ReportLabelWriteFailure("release_mem", destinationAddress, data, dataSelection);
                 }
@@ -6555,6 +6549,13 @@ public static partial class AgcExports
             dataSelection is 1 or 2 or 3 ? destinationAddress : 0,
             writeLength);
     }
+
+    private static void LatchWrittenLabels(CpuContext ctx, ulong address, ulong length) =>
+        GpuWaitRegistry.LatchSatisfiedByMemoryWrite(
+            ctx.Memory, address, length,
+            (label, is64Bit) => is64Bit
+                ? TryReadUInt64(ctx, label, out var value64) ? value64 : (ulong?)null
+                : TryReadUInt32(ctx, label, out var value32) ? value32 : (ulong?)null);
 
     private static void ApplySubmittedRegisters(
         CpuContext ctx,

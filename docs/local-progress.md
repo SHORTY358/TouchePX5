@@ -6,6 +6,23 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed partial RELEASE_MEM writes falsely satisfying a wider waiter. A real
+  submitted 32-bit release wrote `0x1234567800000001`, but previously latched a
+  64-bit equality wait for `1` using only the packet payload. The before test
+  fails with the waiter incorrectly removed: `artifacts/partial-release-before.log`.
+  Both standard and Gen5 releases now inspect complete overlapping labels at
+  the ordered write point. Upper-word waiters and narrow writes completing a
+  wide value retain satisfaction across a later reset; unreadable/unrelated
+  labels do not latch. Six regressions cover these cases. Release build has
+  zero warnings/errors and all **1,263 unit tests pass**:
+  `artifacts/partial-release-build.log`, `artifacts/partial-release-tests.log`.
+  Native regression of this change is pending.
+- On the preceding `c4e0d7a` runtime, the five cases left unfinished by the
+  interrupted aggregate passed individually: BC1, BC1 2D, BC3, index16 and
+  index32/scissor (`artifacts/remaining-*.log`). The legacy padded ABGR/fence
+  scenario also passed all 2,037,120 Vulkan pixels and 57,600 guest pixels:
+  `artifacts/window-guard-fence.log`. These individual results do not turn the
+  earlier failed aggregate into a passed run, or verify minimize/restore.
 - The full 31-case run on `db78dfa` **failed after 26 passed cases**, at BC1
   presentation: `artifacts/native-gpu/20260927-124329-243/report.json`.
   Its guest log explicitly reports `windowState=Minimized`, a 0x0 surface and
@@ -36,7 +53,7 @@ percentage or release-date estimate.
   does not advance. Release builds passed and all **1,257 unit tests** passed
   (`artifacts/cross-queue-build.log`, `artifacts/cross-queue-tests.log`). The new
   unit regression also verifies a fresh signal survives a subsequent label reset.
-  Native suite now contains 31 cases; its full run for this change is pending.
+  Native suite now contains 31 cases; the interrupted full run is recorded above.
   This verifies one compute queue feeding graphics, not general queue concurrency.
 - All **28/28 native GPU cases** and **27/27 general engineering cases** passed
   on clean source `d0c0584`:
