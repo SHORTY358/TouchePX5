@@ -6,6 +6,16 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Rewind valid-bit patches now latch full overlapping label values, using the
+  same width-aware path as GPU releases. Previously a 32-bit patch incorrectly
+  satisfied a 64-bit equality wait for `0x80000000`, and missed the correct
+  `0x1234567880000000` value. Both regressions fail before the change; the existing
+  narrow-wait control passes (`artifacts/rewind-label-before.log`). All **1,272
+  unit tests pass** after the fix, with zero build warnings/errors:
+  `artifacts/rewind-label-build.log`, `artifacts/rewind-label-tests.log`.
+  The full expanded 32-case native regression is pending. DMA producers need a
+  separate completion-aware design: their CPU copy can enqueue a later GPU image
+  mirror, so immediately latching after the copy could wake dependent work early.
 - Fixed lost WRITE_DATA satisfaction when a later payload word resets a label
   (same-address writes) or changes the upper half of a wider label. Each successful
   word write now latches matching overlapping waiters before the next word.

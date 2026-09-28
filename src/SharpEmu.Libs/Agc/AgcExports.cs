@@ -14942,10 +14942,9 @@ public static partial class AgcExports
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
 
-        if (valid)
-        {
-            GpuWaitRegistry.RecordProduced(ctx.Memory, bodyAddress, patched);
-        }
+        // This patch changes only one dword. Overlapping wide waits must observe
+        // the unchanged upper word as well, including when clearing the valid bit.
+        LatchWrittenLabels(ctx, bodyAddress, sizeof(uint));
 
         TraceAgc($"agc.rewind_patch addr=0x{bodyAddress:X16} valid={valid} body=0x{patched:X8}");
         ctx[CpuRegister.Rax] = 0;
