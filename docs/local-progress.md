@@ -6,6 +6,11 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **37/37 native GPU regression passed** on clean source `c9f231c`,
+  with unchanged runtime files throughout the run:
+  `artifacts/native-gpu/20260929-021256-372/report.json`.
+  This includes both formerly failing prefix-preservation variants and all
+  existing compute, queue, texture, mip, depth, blend and indexed-draw scenarios.
 - **Partial DMA preservation fixed for tested linear RGBA8 row updates.**
   Managed write tracking now retains up to 64 disjoint byte spans, merges adjacent
   chunks, and consumes spans plus their generation atomically. Vulkan uploads
