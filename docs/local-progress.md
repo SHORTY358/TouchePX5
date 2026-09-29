@@ -6,6 +6,10 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **43/43 native GPU regression passed** on clean source `926c1e2`,
+  with runtime files unchanged throughout:
+  `artifacts/native-gpu/20260929-124502-959/report.json`.
+  This includes all partial-row, dependent blending and texture-consumer cases.
 - Fixed a sampled-render-target overwrite when native write-fault tracking is
   disabled but managed write generations remain available. The legacy nonzero
   CPU-texel heuristic now applies only to untracked snapshots (generation -1),
