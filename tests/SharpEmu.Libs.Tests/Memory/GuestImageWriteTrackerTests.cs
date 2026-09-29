@@ -16,6 +16,77 @@ namespace SharpEmu.Libs.Tests.Memory;
 /// </summary>
 public sealed unsafe class GuestImageWriteTrackerTests
 {
+    [Fact]
+    public void ManagedWriteSpansMergeChunksButPreserveUntouchedGaps()
+    {
+        var address = AllocateTrackedPages(out var allocation);
+        try
+        {
+            GuestImageWriteTracker.Track(address, 4096, protect: false);
+            GuestImageWriteTracker.NotifyManagedWrite(address - 8, 24);
+            GuestImageWriteTracker.NotifyManagedWrite(address + 16, 16);
+            GuestImageWriteTracker.NotifyManagedWrite(address + 64, 16);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address, out var writes, out var consumedGeneration));
+            Assert.NotNull(writes);
+            Assert.Equal(2, writes.Length);
+            Assert.Contains((0UL, 32UL), writes);
+            Assert.Contains((64UL, 16UL), writes);
+            Assert.False(GuestImageWriteTracker.ConsumeDirty(address));
+            GuestImageWriteTracker.NotifyManagedWrite(address + 96, 16);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address, out writes));
+            Assert.Equal(new[] { (96UL, 16UL) }, writes);
+            Assert.True(GuestImageWriteTracker.TryGetWriteGeneration(address, out var nextGeneration));
+            Assert.True(nextGeneration > consumedGeneration);
+        }
+        finally
+        {
+            GuestImageWriteTracker.Untrack(address);
+            FreeTrackedPages(allocation);
+        }
+    }
+
+    [Fact]
+    public void OrdinaryDirtyConsumerAlsoResetsManagedSpans()
+    {
+        var address = AllocateTrackedPages(out var allocation);
+        try
+        {
+            GuestImageWriteTracker.Track(address, 4096, protect: false);
+            GuestImageWriteTracker.NotifyManagedWrite(address, 16);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address));
+            GuestImageWriteTracker.NotifyManagedWrite(address + 128, 16);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address, out var writes));
+            Assert.Equal(new[] { (128UL, 16UL) }, writes);
+        }
+        finally
+        {
+            GuestImageWriteTracker.Untrack(address);
+            FreeTrackedPages(allocation);
+        }
+    }
+
+    [Fact]
+    public void FragmentedManagedWritesFallBackWithoutUnboundedStorage()
+    {
+        var address = AllocateTrackedPages(out var allocation);
+        try
+        {
+            GuestImageWriteTracker.Track(address, 4096, protect: false);
+            for (ulong i = 0; i < 65; i++)
+                GuestImageWriteTracker.NotifyManagedWrite(address + i * 8, 4);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address, out var writes));
+            Assert.Null(writes);
+            GuestImageWriteTracker.NotifyManagedWrite(address, 4);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address, out writes));
+            Assert.Equal(new[] { (0UL, 4UL) }, writes);
+        }
+        finally
+        {
+            GuestImageWriteTracker.Untrack(address);
+            FreeTrackedPages(allocation);
+        }
+    }
+
     // The tracker aligns to the guest's 4 KiB pages; the mprotect underneath
     // operates on host pages, which are 16 KiB on Apple Silicon (the emulator
     // itself always runs with 4 KiB host pages under Rosetta, but this test

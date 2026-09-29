@@ -6,29 +6,30 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- **Open defect, reproduced on Vulkan:** `-DmaImagePrefix` updates only the first
-  90 rows of an existing 320x180 render target. Both the 115,200-byte fill and
-  copy complete with correct CPU words, but presentation destroys the untouched
-  lower half of the GPU-rendered triangle. The diagnostic fails at pixel (0,542)
-  on the second checked capture. Evidence:
-  `artifacts/dma-prefix-preservation-before.log` and
-  `artifacts/dma-prefix-preservation-before-guest.log`.
-  Blank and whole-image-overwrite negative controls are rejected; a constructed
-  correct prefix retaining the independently verified first frame passes.
-  This is an intentionally failing standalone diagnostic, not suite case 36.
-  No runtime fix is claimed. `MirrorDmaWriteToGuestImage` skips partial writes;
-  `PhysicalVirtualMemory.TryWrite` still marks the image dirty, and Vulkan's
-  `DrainGuestImageCpuSync` uploads all 230,400 CPU bytes, including the stale
-  lower half. `SHARPEMU_GUEST_IMAGE_CPU_SYNC=0` disables native fault tracking,
-  not managed write notifications, so it cannot isolate these paths.
-  The final fixture does not deliberately overwrite the untouched CPU region.
-  An earlier attempt did, making its preservation expectation ambiguous; those
-  earlier `dma-prefix-before*` artifacts are superseded by the preservation logs.
-  Existing full-image, cross-queue image and ordinary triangle checks still pass:
-  `artifacts/dma-prefix-full-regression.log`,
-  `artifacts/dma-prefix-cross-queue-regression.log`, and
-  `artifacts/dma-prefix-triangle-regression.log`. Only fixtures/runners changed;
-  runtime binaries and the previous unit-test result are unchanged.
+- **Partial DMA preservation fixed for tested linear RGBA8 row updates.**
+  Managed write tracking now retains up to 64 disjoint byte spans, merges adjacent
+  chunks, and consumes spans plus their generation atomically. Vulkan uploads
+  only those rows for initialized, single-mip/depth linear RGBA8 UNORM images
+  with tightly packed, whole-row writes. It does not clear unrelated later writes
+  or describe a partial mirror as a complete CPU snapshot. Failed reads re-dirty
+  their spans. Native fault tracking, unsupported layouts, partial rows and span
+  overflow retain the previous full-upload behavior; their preservation is not
+  claimed. Metal has not been changed.
+  The formerly failing `-DmaImagePrefix` now passes, as does its cross-queue
+  variant: `artifacts/dma-region-prefix-after.log` and
+  `artifacts/dma-region-prefix-cross-queue.log`. Both preserve the GPU-only lower
+  triangle through blue fill/red copy of the first 90 rows, CPU completion,
+  source reuse and presentation. These add suite cases 36/37. This is presentation
+  preservation coverage, not proof of immediate visibility to a dependent draw
+  before the CPU-image drain, or transient waits on image memory.
+  Clean Release build and **1,279 unit tests pass**, including merged/disjoint
+  spans, consume/reset, generation advancement and bounded-overflow controls:
+  `artifacts/dma-region-build.log`, `artifacts/dma-region-tests.log`.
+  Before evidence remains `artifacts/dma-prefix-preservation-before.log` and
+  `artifacts/dma-prefix-preservation-before-guest.log`: CPU words were correct,
+  but the second capture failed at (0,542) because a 230,400-byte CPU upload
+  overwrote untouched GPU pixels. Earlier `dma-prefix-before*` artifacts had an
+  ambiguous deliberate CPU write and are superseded by these preservation logs.
 - Added and passed `-DmaImageCrossQueue`: `artifacts/dma-image-cross-queue.log`.
   The graphics queue genuinely suspends twice while ACB owner 7 fills/copies an
   existing image, then resumes through separate ready/completion labels. All
@@ -346,17 +347,16 @@ per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-
 chains and broad commercial-game compatibility remain separate work.
 
 Next tasks: validate minimize/restore with a functioning window-control path,
-fix the reproduced partial-DMA preservation defect, and extend coverage beyond
+extend partial-DMA coverage to non-row-aligned and non-linear layouts, and go beyond
 the passing sequential and cross-queue
 full-image transfers before changing its completion semantics. A transient-image
 wait regression must distinguish the CPU copy, queued GPU image update, and waiter
 release, including a reset between them and failed/unreadable writes.
 Plain-memory DMA and rewind patches now have separate regressions above.
-Partial-DMA repair needs both a bounded image-region upload and a way to distinguish
-its managed GPU backing-memory write from independent CPU writes. Do not simply
-clear the whole dirty flag: that could discard an earlier or concurrent CPU write.
-Do not upload the entire CPU buffer to repair the missing image mirror: the new
-preservation oracle demonstrates why that loses GPU-only contents.
+The bounded row-upload path now preserves separate managed-write spans. Do not
+clear a dirty flag to suppress DMA writes: that could discard independent CPU
+writes. Further completion-order work must explicitly check dependent GPU work
+before presentation; the current successful prefix cases finish through a flip.
 Minimized 0x0 surfaces are confirmed in the earlier failed
 aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work
 can cover additional formats, with an independent layout reference before broadening

@@ -378,9 +378,9 @@ observed minimize/restore cycle must fail rather than claiming recovery coverage
 The original settings are restored on exit. Current end-to-end recovery status
 and interrupted/failed attempts are recorded in `docs/local-progress.md`.
 
-## Partial DMA image preservation (currently failing)
+## Partial DMA image preservation
 
-`Test-TouchePX5-Triangle.ps1 -DmaImagePrefix` is a standalone regression diagnostic.
+`Test-TouchePX5-Triangle.ps1 -DmaImagePrefix` covers suite case 36.
 After drawing a red triangle, it fills the first 90 of 180 rows blue, then copies
 red into those same rows. All CPU words are checked, including the untouched gray
 backing-memory suffix. That suffix intentionally differs from the GPU-only triangle.
@@ -389,9 +389,14 @@ the first, independently verified GPU capture; only a two-source-row boundary ba
 is excluded for presentation filtering. Positive and blank/full-overwrite negative
 controls are exercised before checking the actual output.
 
-The current runtime fails preservation: its managed DMA write dirties the image,
-then CPU-image synchronization uploads the entire backing buffer and replaces the
-untouched GPU pixels with gray. This diagnostic is not included in the
-35-case suite, and no fix is claimed. It also accepts `-DmaImageCrossQueue`, but the
-combined prefix diagnostic has not yet been validated. Full-image DMA results do
-not establish partial-image preservation or isolation from CPU-image synchronization.
+The before runtime destroyed the untouched GPU pixels with a full gray-backed CPU
+upload. Managed write tracking now records exact spans, and Vulkan uploads only
+whole changed rows for initialized, single-mip linear RGBA8 UNORM images. The
+prefix case and `-DmaImagePrefix -DmaImageCrossQueue` (case 37) pass. Three tracker
+unit tests cover adjacent chunk merging without merging gaps, later writes after
+consume, and bounded storage with fallback after 64 disjoint spans.
+
+This repair uses the CPU-image drain rather than adding immediate DMA image
+mirrors. It establishes preservation through presentation, not dependent sampling
+before that drain. Native page-fault tracking, unsupported formats/layouts, partial
+rows, and span overflow retain the older full-image behavior. Metal is unchanged.

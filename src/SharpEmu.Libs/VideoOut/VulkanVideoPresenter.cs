@@ -10582,7 +10582,7 @@ internal static unsafe class VulkanVideoPresenter
             {
                 foreach (var (address, width, height, byteCount) in extents)
                 {
-                    if (!SharpEmu.HLE.GuestImageWriteTracker.ConsumeDirty(address))
+                    if (!SharpEmu.HLE.GuestImageWriteTracker.ConsumeDirty(address, out var managedWrites, out var consumedGeneration))
                     {
                         continue;
                     }
@@ -10593,6 +10593,46 @@ internal static unsafe class VulkanVideoPresenter
                         byteCount > 128UL * 1024UL * 1024UL ||
                         !_guestImages.TryGetValue(address, out var target))
                     {
+                        continue;
+                    }
+
+                    // Managed DMA/HLE writes know their exact byte spans. For a
+                    // linear RGBA8 target, upload complete changed rows only;
+                    // untouched GPU-rendered rows need not exist in CPU memory.
+                    var rowBytes = (ulong)target.Width * 4;
+                    if (target.Initialized && target.TileMode == 0 && target.Depth == 1 &&
+                        target.MipLevels == 1 && target.Format == Format.R8G8B8A8Unorm &&
+                        rowBytes != 0 && byteCount == rowBytes * target.Height &&
+                        managedWrites is { Length: > 0 } &&
+                        managedWrites.All(write => write.Offset % rowBytes == 0 &&
+                            write.Length % rowBytes == 0 && write.Length != 0 &&
+                            write.Offset < byteCount && write.Length <= byteCount - write.Offset))
+                    {
+                        var allUploaded = true;
+                        foreach (var write in managedWrites)
+                        {
+                            var changedPixels = new byte[write.Length];
+                            if (!memory.TryRead(address + write.Offset, changedPixels))
+                            {
+                                // Retain failed spans for a later drain; never
+                                // acknowledge their generation as uploaded.
+                                SharpEmu.HLE.GuestImageWriteTracker.NotifyManagedWrite(
+                                    address + write.Offset, write.Length);
+                                allUploaded = false;
+                                continue;
+                            }
+                            UploadGuestImageInitialData(target, changedPixels,
+                                (uint)(write.Offset / rowBytes), (uint)(write.Length / rowBytes));
+                        }
+                        // A partial mirror is not a full CPU-content snapshot.
+                        target.IsCpuBacked = false;
+                        target.CpuContentFingerprint = 0;
+                        if (allUploaded)
+                        {
+                            lock (_gate)
+                                _cpuBackedUploadGenerations[address] = consumedGeneration;
+                        }
+                        (uploadedAddresses ??= []).Add(address);
                         continue;
                     }
 
@@ -16332,7 +16372,7 @@ internal static unsafe class VulkanVideoPresenter
         private static uint AlignUp(uint value, uint alignment) =>
             (value + alignment - 1) / alignment * alignment;
 
-        private void UploadGuestImageInitialData(GuestImageResource target, byte[] pixels)
+        private void UploadGuestImageInitialData(GuestImageResource target, byte[] pixels, uint firstRow = 0, uint rowCount = 0)
         {
             var guestDataFormat = (target.GuestFormat & 0x8000_0000u) != 0
                 ? (target.GuestFormat >> 8) & 0x1FFu
@@ -16340,10 +16380,16 @@ internal static unsafe class VulkanVideoPresenter
             var uploadPixels = guestDataFormat == 13
                 ? ExpandRgb32Pixels(pixels)
                 : pixels;
+            var uploadHeight = rowCount == 0 ? target.Height : rowCount;
+            if (rowCount != 0 && (!target.Initialized || target.Depth != 1 || target.MipLevels != 1 ||
+                target.TileMode != 0 || target.Format != Format.R8G8B8A8Unorm ||
+                firstRow >= target.Height || rowCount > target.Height - firstRow ||
+                (ulong)pixels.Length != (ulong)target.Width * rowCount * 4))
+                throw new InvalidOperationException("Invalid partial guest image upload");
             var expectedByteCount = GetVulkanImageByteCount(
                 target.Format,
                 target.Width,
-                target.Height,
+                uploadHeight,
                 target.Depth);
 
             // The guest can hand us linear pixel data whose rows are padded out
@@ -16438,10 +16484,10 @@ internal static unsafe class VulkanVideoPresenter
                         0,
                         0,
                         1),
-                    ImageOffset = default,
+                    ImageOffset = new Offset3D(0, (int)firstRow, 0),
                     ImageExtent = new Extent3D(
                         target.Width,
-                        target.Height,
+                        uploadHeight,
                         target.Depth),
                 };
                 _vk.CmdCopyBufferToImage(

@@ -30,6 +30,9 @@ public static unsafe class GuestImageWriteTracker
         public ulong Start;
         public ulong End;
         public int Dirty;
+        // Exact managed-write spans for watch-only ranges; guarded by _gate.
+        public List<(ulong Offset, ulong Length)>? ManagedWrites;
+        public bool ManagedWritesOverflow;
         public int Armed;
         /// <summary>
         /// When false the range is watch-only: managed writes still dirty it via
@@ -350,17 +353,32 @@ public static unsafe class GuestImageWriteTracker
     /// clearing the flag. The caller re-arms via <see cref="Rearm"/> after it
     /// finished reading the guest bytes.
     /// </summary>
-    public static bool ConsumeDirty(ulong address)
+    public static bool ConsumeDirty(ulong address) => ConsumeDirty(address, out _);
+
+    /// <summary>
+    /// Atomically consumes the dirty flag and precise managed-write spans.
+    /// Null spans require the historical full-range synchronization (native
+    /// fault tracking or a bounded span-list overflow). Later writes remain dirty.
+    /// </summary>
+    public static bool ConsumeDirty(ulong address, out (ulong Offset, ulong Length)[]? writes) =>
+        ConsumeDirty(address, out writes, out _);
+
+    public static bool ConsumeDirty(ulong address, out (ulong Offset, ulong Length)[]? writes, out long generation)
     {
+        writes = null;
+        generation = 0;
         lock (_gate)
         {
             if (!_rangesByAddress.TryGetValue(address, out var range))
-            {
                 return false;
-            }
-
             FlushPendingFirstCpuWrite(range);
-            return Interlocked.Exchange(ref range.Dirty, 0) != 0;
+            var dirty = Interlocked.Exchange(ref range.Dirty, 0) != 0;
+            generation = Volatile.Read(ref range.WriteGeneration);
+            if (dirty && !range.Protect && !range.ManagedWritesOverflow && range.ManagedWrites is { Count: > 0 })
+                writes = range.ManagedWrites.ToArray();
+            range.ManagedWrites?.Clear();
+            range.ManagedWritesOverflow = false;
+            return dirty;
         }
     }
 
@@ -487,11 +505,35 @@ public static unsafe class GuestImageWriteTracker
                 continue;
             }
 
-            var wasDirty = Interlocked.Exchange(ref range.Dirty, 1) != 0;
-            if (!wasDirty)
+            lock (_gate)
             {
-                Interlocked.Increment(ref range.WriteGeneration);
-                Interlocked.Increment(ref _dirtyEpoch);
+                if (!range.ManagedWritesOverflow)
+                {
+                    var startOffset = Math.Max(address, range.Address) - range.Address;
+                    var endOffset = Math.Min(end, rangeEnd) - range.Address;
+                    var writes = range.ManagedWrites ??= [];
+                    for (var i = writes.Count - 1; i >= 0; i--)
+                    {
+                        var previous = writes[i];
+                        if (previous.Offset > endOffset || previous.Offset + previous.Length < startOffset)
+                            continue;
+                        startOffset = Math.Min(startOffset, previous.Offset);
+                        endOffset = Math.Max(endOffset, previous.Offset + previous.Length);
+                        writes.RemoveAt(i);
+                    }
+                    writes.Add((startOffset, endOffset - startOffset));
+                    if (writes.Count > 64)
+                    {
+                        writes.Clear();
+                        range.ManagedWritesOverflow = true;
+                    }
+                }
+                var wasDirty = Interlocked.Exchange(ref range.Dirty, 1) != 0;
+                if (!wasDirty)
+                {
+                    Interlocked.Increment(ref range.WriteGeneration);
+                    Interlocked.Increment(ref _dirtyEpoch);
+                }
             }
         }
     }
