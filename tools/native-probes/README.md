@@ -377,3 +377,21 @@ guest completion, and the existing red/blue/red pixel oracle. A run without an
 observed minimize/restore cycle must fail rather than claiming recovery coverage.
 The original settings are restored on exit. Current end-to-end recovery status
 and interrupted/failed attempts are recorded in `docs/local-progress.md`.
+
+## Partial DMA image preservation (currently failing)
+
+`Test-TouchePX5-Triangle.ps1 -DmaImagePrefix` is a standalone regression diagnostic.
+After drawing a red triangle, it fills the first 90 of 180 rows blue, then copies
+red into those same rows. All CPU words are checked, including the untouched gray
+backing-memory suffix. That suffix intentionally differs from the GPU-only triangle.
+The pixel oracle requires the updated top half and compares the bottom half with
+the first, independently verified GPU capture; only a two-source-row boundary band
+is excluded for presentation filtering. Positive and blank/full-overwrite negative
+controls are exercised before checking the actual output.
+
+The current runtime fails preservation: its managed DMA write dirties the image,
+then CPU-image synchronization uploads the entire backing buffer and replaces the
+untouched GPU pixels with gray. This diagnostic is not included in the
+35-case suite, and no fix is claimed. It also accepts `-DmaImageCrossQueue`, but the
+combined prefix diagnostic has not yet been validated. Full-image DMA results do
+not establish partial-image preservation or isolation from CPU-image synchronization.

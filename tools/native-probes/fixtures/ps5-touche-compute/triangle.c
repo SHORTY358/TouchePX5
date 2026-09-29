@@ -504,7 +504,11 @@ int _start(void) {
     commands[n++]=0xc0055000; commands[n++]=2u<<29;
     commands[n++]=0xffff0000; commands[n++]=0;
     commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
+#ifdef TEST_DMA_IMAGE_PREFIX
+    commands[n++]=sizeof(pixels)/2;
+#else
     commands[n++]=sizeof(pixels);
+#endif
 #else
     draw();
 #endif
@@ -516,7 +520,13 @@ int _start(void) {
     for(int i=0;i<5000 && completed!=2;i++) sleep_slot(1000);
     if(completed!=2) return 78;
 #ifdef TEST_DMA_IMAGE
-    for(u32 i=0;i<320*180;i++) if(((volatile u32*)pixels)[i]!=0xffff0000) return 92;
+    for(u32 i=0;i<320*180;i++) {
+#ifdef TEST_DMA_IMAGE_PREFIX
+        if(((volatile u32*)pixels)[i]!=(i<320*90 ? 0xffff0000 : 0xff202020)) return 92;
+#else
+        if(((volatile u32*)pixels)[i]!=0xffff0000) return 92;
+#endif
+    }
 #endif
     if(flip_slot(video,0,1,2)!=0) return 79;
     sleep_slot(FRAME_PAUSE_US);
@@ -571,7 +581,11 @@ int _start(void) {
     commands[n++]=0xc0055000; commands[n++]=0;
     commands[n++]=(u32)source; commands[n++]=(u32)(source>>32);
     commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
+#ifdef TEST_DMA_IMAGE_PREFIX
+    commands[n++]=sizeof(pixels)/2;
+#else
     commands[n++]=sizeof(pixels);
+#endif
 #else
     draw();
 #endif
@@ -584,7 +598,11 @@ int _start(void) {
     if(completed!=3) return 81;
 #ifdef TEST_DMA_IMAGE
     for(u32 i=0;i<320*180;i++) {
+#ifdef TEST_DMA_IMAGE_PREFIX
+        if(((volatile u32*)pixels)[i]!=(i<320*90 ? 0xff0000ff : 0xff202020)) return 93;
+#else
         if(((volatile u32*)pixels)[i]!=0xff0000ff) return 93;
+#endif
         dma_image_source[i]=0xff00ff00; // completed copy must be independent of source reuse
     }
 #endif
