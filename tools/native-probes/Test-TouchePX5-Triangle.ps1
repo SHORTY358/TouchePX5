@@ -1,6 +1,10 @@
 [CmdletBinding()]
-param([switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($DmaImageSample) {
+    if($DmaImageDraw -or $DmaImageSpan) { throw 'Texture consumer requires its prefix layout.' }
+    $DmaImagePrefix=$true
+}
 if($DmaImageDraw) {
     if($DmaImageSpan) { throw 'Dependent draw requires its prefix layout.' }
     $DmaImagePrefix=$true
@@ -8,7 +12,7 @@ if($DmaImageDraw) {
 if($DmaImageSpan) { $DmaImagePrefix=$true }
 if($DmaImagePrefix) { $DmaImage=$true }
 if($DmaImageCrossQueue) { $DmaImage=$true }
-if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
+if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw','DmaImageSample') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
 if($CrossQueueWriteData -and $CrossQueueReuse) { throw 'Choose either WRITE_DATA reset or cross-submission label reuse.' }
 if($CrossQueueDma -and ($CrossQueueReuse -or $CrossQueueWriteData)) { throw 'DMA reset requires its standalone cross-queue mode.' }
 if($CrossQueueReuse -or $CrossQueueWriteData -or $CrossQueueDma) { $CrossQueue=$true }
@@ -29,6 +33,7 @@ if($DmaImageCrossQueue) { $root += '-cross-queue' }
 if($DmaImagePrefix) { $root += '-prefix' }
 if($DmaImageSpan) { $root += '-span' }
 if($DmaImageDraw) { $root += '-draw' }
+if($DmaImageSample) { $root += '-sample' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc3) {
@@ -121,6 +126,7 @@ if($DmaImageCrossQueue) { $defines += '-DTEST_DMA_IMAGE_CROSS_QUEUE=1' }
 if($DmaImagePrefix) { $defines += '-DTEST_DMA_IMAGE_PREFIX=1' }
 if($DmaImageSpan) { $defines += '-DTEST_DMA_IMAGE_SPAN=1' }
 if($DmaImageDraw) { $defines += '-DTEST_DMA_IMAGE_DRAW=1' }
+if($DmaImageSample) { $defines += '-DTEST_DMA_IMAGE_SAMPLE=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -203,6 +209,12 @@ try {
         throw 'Expected two genuinely suspended/resumed graphics consumers and two ACB image producers.'
     }
     $dmaBytesPattern=if($DmaImageSpan) { '115840' } elseif($DmaImagePrefix) { '115200' } else { '230400' }
+    if($DmaImageSample -and $DmaImageCrossQueue -and
+       ([regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=21 ').Count -ne 1 -or
+        [regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=15 ').Count -ne 1 -or
+        [regex]::Matches($output,'agc.queue_resumed queue=dcb.graphics [^\r\n]*remaining_dwords=65 ').Count -ne 2)) {
+        throw 'Expected DMA-only producers and two texture draws in resumed graphics consumers.'
+    }
     if($DmaImageDraw -and $DmaImageCrossQueue -and
        ([regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=21 ').Count -ne 1 -or
         [regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=15 ').Count -ne 1 -or
@@ -221,12 +233,13 @@ try {
         [regex]::Matches($output,"agc.dma_packet [^\r\n]*bytes=$dmaBytesPattern [^\r\n]*copied=True").Count -ne 2)) {
         throw 'Expected two successful DMA updates of an existing backend image.'
     }
-    $expectedDraws=if($DmaImageDraw) { 3 } elseif($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
+    $expectedDraws=if($DmaImageSample) { 3 } elseif($DmaImageDraw) { 3 } elseif($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
     if($MipCachePressure) { $expectedDraws += 40 }
     $expectedCaptures=if($DmaImage -or $Depth -or $Texture) { 4 } else { 3 }
     if($captures.Count -ne $expectedCaptures) { throw "Unexpected number of swapchain captures: $log" }
-    $textureCount=if($Texture) { 1 } else { 0 }
+    $textureCount=if($Texture -or $DmaImageSample) { 1 } else { 0 }
     if([regex]::Matches($output,"vk.offscreen_draw mrt=1 size=320x180 textures=$textureCount").Count -ne $expectedDraws -or $output.Contains('agc.shader_translate_miss')) { throw 'Missing expected successful translated raster draws.' }
+    if($DmaImageSample -and [regex]::Matches($output,'vk.offscreen_draw mrt=1 size=320x180 textures=0').Count -ne 1) { throw 'Missing initial GPU-only source draw.' }
     if(-not ('TrianglePixelVerifierV5' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
@@ -438,7 +451,13 @@ public static class TextureUvVerifierV3 {
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
-    if($DmaImageDraw -and $frameIndex -gt 1) {
+    if($DmaImageSample) {
+        $coloredPixels=[TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$expectBlue,$false,$false,$false)
+        $rejectedBlank=$false; $rejectedWrongColor=$false
+        try { [TrianglePixelVerifierV5]::Check([byte[]]::new($gpuBytes.Length),$width,$height,$expectBlue,$false,$false,$false) | Out-Null } catch { $rejectedBlank=$true }
+        try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,(-not $expectBlue),$false,$false,$false) | Out-Null } catch { $rejectedWrongColor=$true }
+        if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'Texture consumer oracle accepted blank/stale colors.' }
+    } elseif($DmaImageDraw -and $frameIndex -gt 1) {
         $blankRejected=$false
         try { [DmaDrawVerifierV1]::Check([byte[]]::new($gpuBytes.Length),$width,$height,$expectBlue) | Out-Null } catch { $blankRejected=$true }
         if(-not $blankRejected) { throw 'Dependent draw oracle accepted a blank frame.' }
@@ -551,6 +570,7 @@ public static class TextureUvVerifierV3 {
         CrossQueueReuse=[bool]$CrossQueueReuse
         CrossQueueWriteData=[bool]$CrossQueueWriteData
         CrossQueueDma=[bool]$CrossQueueDma
+        DmaImageSample=[bool]$DmaImageSample
         DmaImageDraw=[bool]$DmaImageDraw
         DmaImageSpan=[bool]$DmaImageSpan
         DmaImagePrefix=[bool]$DmaImagePrefix

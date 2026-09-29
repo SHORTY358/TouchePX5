@@ -6,6 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed a sampled-render-target overwrite when native write-fault tracking is
+  disabled but managed write generations remain available. The legacy nonzero
+  CPU-texel heuristic now applies only to untracked snapshots (generation -1),
+  so it cannot promote a tracked GPU-only render target into a stale CPU source.
+  `-DmaImageSample` renders a red source triangle while its CPU backing remains
+  gray, samples that source into a distinct output, then samples blue/red after
+  prefix DMA fill/copy. Before the fix the first output failed color checks:
+  `artifacts/dma-sample-before.log`, `artifacts/dma-sample-before-guest.log`.
+  All three captures now pass: `artifacts/dma-sample-native.log`. The cross-queue
+  form passes too: `artifacts/dma-sample-cross-queue.log`. It keeps DMA-only ACB
+  producers and executes texture draws in the resumed graphics consumers.
+  Cases 42/43 are added. Clean build and all 1,279 unit tests pass:
+  `artifacts/dma-sample-build.log`, `artifacts/dma-sample-tests.log`.
+  Ordinary texturing and cross-queue blending also pass. Native CPU writes with
+  fault tracking disabled remain unobserved; this does not establish their
+  coherence, arbitrary sampling coordinates/layouts or compute-image reads.
 - Cross-queue dependent blending now passes as well, without a runtime change:
   `artifacts/dma-draw-cross-queue.log`. `-DmaImageDraw -DmaImageCrossQueue`
   submits the waiting graphics consumer first, then ACB owner 7 performs the

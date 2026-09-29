@@ -10005,13 +10005,14 @@ internal static unsafe class VulkanVideoPresenter
                     _pendingAliasImageDumps.Enqueue(guestImage);
                 }
 
-                // With the write tracker off, AGC ships real texels again but
-                // aliased guest images created as GPU RTs stay !IsCpuBacked, so
-                // fingerprint refresh never runs and CPU-updated planes (guest
-                // Bink) stay black. Promote only when this draw carried
-                // non-zero guest pixels — same outcome as the old per-draw path.
+                // Native fault tracking can be off while managed writes still
+                // have an authoritative generation. Do not promote a tracked
+                // GPU render target just because its stale CPU backing is
+                // nonzero. Keep the legacy heuristic only for untracked images;
+                // observed newer generations are handled by the refresh policy.
                 if (!guestImage.IsCpuBacked &&
                     !SharpEmu.HLE.GuestImageWriteTracker.Enabled &&
+                    texture.WriteGeneration < 0 &&
                     texture.RgbaPixels.Length > 0 &&
                     texture.RgbaPixels.AsSpan().IndexOfAnyExcept((byte)0) >= 0)
                 {

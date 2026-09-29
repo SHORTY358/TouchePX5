@@ -13,6 +13,14 @@ extern int (*sleep_slot)(u32);
 extern int (*submit_slot)(void*);
 extern int (*submit_acb_slot)(u32,void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
+#ifdef TEST_DMA_IMAGE_SAMPLE
+static u32 sample_pixels[320*180] __attribute__((aligned(256)));
+static const u32 sample_shader[] __attribute__((aligned(256))) = {
+    0x7e0002ff,0x3e800000,0x7e0202ff,0x3e800000, // u=v=0.25
+    0xf09c0f08,0x00400400,0xbf8c0f70,
+    0xf800180f,0x07060504,0xbf810000
+};
+#endif
 #ifdef TEST_DMA_IMAGE
 static u32 dma_image_source[320*180] __attribute__((aligned(256)));
 #ifdef TEST_DMA_IMAGE_SPAN
@@ -54,7 +62,7 @@ static int submit_graphics(void) {
         u32 before=completed, expected=before+1, count=submission.count;
         if(count<8 || count>512) return 94;
         u32 draw_start=count-8, draw_words=0;
-#ifdef TEST_DMA_IMAGE_DRAW
+#if defined(TEST_DMA_IMAGE_DRAW) || defined(TEST_DMA_IMAGE_SAMPLE)
         // Split at the end of the fixture's single standard DMA packet. State
         // and draw commands following it belong to the waiting graphics queue.
         for(u32 i=0;i+7<=count-8;i++) {
@@ -344,11 +352,29 @@ static void reg(u32 opcode,u32 index,u32 value) {
     commands[n++]=0xc0010000|(opcode<<8);
     commands[n++]=index; commands[n++]=value;
 }
+#ifdef TEST_DMA_IMAGE_SAMPLE
+static void sample_image(void) {
+    u64 texture=(u64)pixels, output=(u64)sample_pixels, shader=(u64)sample_shader;
+    reg(0x76,0x8,(u32)(shader>>8)); reg(0x76,0x9,(u32)(shader>>40));
+    reg(0x76,0xb,12<<1);
+    reg(0x76,0xc,(u32)(texture>>8));
+    reg(0x76,0xd,(u32)(texture>>40)|(56u<<20)|(3u<<30));
+    reg(0x76,0xe,(319u>>2)|(179u<<14)); reg(0x76,0xf,0x90000fac);
+    for(int i=4;i<12;i++) reg(0x76,0xc+i,0);
+    reg(0x76,0x10,319); // tightly packed 320-pixel pitch
+    reg(0x69,0x318,(u32)(output>>8)); reg(0x69,0x390,(u32)(output>>40));
+    draw();
+}
+#endif
 int _start(void) {
     int video=open_slot(0,0,0,(void*)0);
     if(video<=0) return 70;
     if(attribute_slot(attribute,0x80000000,1,0,320,180,320)!=0) return 71;
+#ifdef TEST_DMA_IMAGE_SAMPLE
+    addresses[0]=(u64)sample_pixels;
+#else
     addresses[0]=(u64)pixels;
+#endif
     if(register_slot(video,0,addresses,1,attribute)<0) return 72;
     for(int i=0;i<320*180;i++) pixels[i]=0xff202020;
     if(flip_slot(video,0,1,0)!=0) return 73;
@@ -483,6 +509,9 @@ int _start(void) {
     reg(0x69,0,0);
     draw();
 #endif
+#ifdef TEST_DMA_IMAGE_SAMPLE
+    sample_image();
+#endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=1; commands[n++]=0; commands[n++]=0;
@@ -541,6 +570,9 @@ int _start(void) {
     reg(0x76,0xe,0x3f000000);
     reg(0x69,0x1e0,(1u<<30)|(1u<<29)|(5u<<24)|(1u<<16)|(5u<<8)|4u);
     draw();
+#endif
+#ifdef TEST_DMA_IMAGE_SAMPLE
+    sample_image();
 #endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
@@ -623,6 +655,9 @@ int _start(void) {
 #ifdef TEST_DMA_IMAGE_DRAW
     reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue over red DMA prefix
     draw();
+#endif
+#ifdef TEST_DMA_IMAGE_SAMPLE
+    sample_image();
 #endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);

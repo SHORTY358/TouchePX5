@@ -431,3 +431,19 @@ consumer command lengths, two genuine waits/resumes, three translated draws and
 the dependent-blend pixel oracle. This passes without a runtime change. The
 fixture's existing full-image/prefix/span cross-queue modes retain consumers that
 only publish completion and are checked separately for regressions.
+
+`-DmaImageSample` adds case 42. A red triangle is first drawn into a source image
+whose CPU backing remains gray. A different pixel shader samples (0.25,0.25)
+from that existing 320x180 image into a separate render target. Subsequent prefix
+DMA fill/copy and dependent sample draws must produce blue and red triangles.
+One untextured source draw and three textured draws are required; all checked
+frames use the triangle oracle and blank/wrong-color negative controls.
+
+The initial run sampled gray: an alias heuristic promoted nonzero CPU bytes even
+though managed tracking supplied a generation for a GPU-only image. Restricting
+that heuristic to genuinely untracked snapshots fixes this case. CPU-backed
+textures and observed newer generations retain their refresh paths.
+`-DmaImageSample -DmaImageCrossQueue` adds case 43: DMA-only ACB producers signal
+waiting graphics consumers containing the texture draws. Exact producer/consumer
+lengths, two real waits/resumes and all pixel checks are required. These tests do
+not establish unobserved native CPU-write coherence or compute-image reads.
