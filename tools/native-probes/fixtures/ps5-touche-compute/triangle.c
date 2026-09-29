@@ -15,6 +15,13 @@ extern int (*submit_acb_slot)(u32,void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
 #ifdef TEST_DMA_IMAGE
 static u32 dma_image_source[320*180] __attribute__((aligned(256)));
+#ifdef TEST_DMA_IMAGE_SPAN
+#define DMA_FIRST_PIXEL (320*45+80)
+#define DMA_END_PIXEL (320*135+240)
+#else
+#define DMA_FIRST_PIXEL 0
+#define DMA_END_PIXEL (320*90)
+#endif
 #endif
 static unsigned char attribute[40];
 static u64 addresses[1];
@@ -503,10 +510,12 @@ int _start(void) {
     // both CPU memory and that existing GPU image before the next flip.
     commands[n++]=0xc0055000; commands[n++]=2u<<29;
     commands[n++]=0xffff0000; commands[n++]=0;
-    commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
 #ifdef TEST_DMA_IMAGE_PREFIX
-    commands[n++]=sizeof(pixels)/2;
+    u64 dma_target=target+DMA_FIRST_PIXEL*4;
+    commands[n++]=(u32)dma_target; commands[n++]=(u32)(dma_target>>32);
+    commands[n++]=(DMA_END_PIXEL-DMA_FIRST_PIXEL)*4;
 #else
+    commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
     commands[n++]=sizeof(pixels);
 #endif
 #else
@@ -522,7 +531,7 @@ int _start(void) {
 #ifdef TEST_DMA_IMAGE
     for(u32 i=0;i<320*180;i++) {
 #ifdef TEST_DMA_IMAGE_PREFIX
-        if(((volatile u32*)pixels)[i]!=(i<320*90 ? 0xffff0000 : 0xff202020)) return 92;
+        if(((volatile u32*)pixels)[i]!=(i>=DMA_FIRST_PIXEL && i<DMA_END_PIXEL ? 0xffff0000 : 0xff202020)) return 92;
 #else
         if(((volatile u32*)pixels)[i]!=0xffff0000) return 92;
 #endif
@@ -580,10 +589,11 @@ int _start(void) {
     u64 source=(u64)dma_image_source;
     commands[n++]=0xc0055000; commands[n++]=0;
     commands[n++]=(u32)source; commands[n++]=(u32)(source>>32);
-    commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
 #ifdef TEST_DMA_IMAGE_PREFIX
-    commands[n++]=sizeof(pixels)/2;
+    commands[n++]=(u32)dma_target; commands[n++]=(u32)(dma_target>>32);
+    commands[n++]=(DMA_END_PIXEL-DMA_FIRST_PIXEL)*4;
 #else
+    commands[n++]=(u32)target; commands[n++]=(u32)(target>>32);
     commands[n++]=sizeof(pixels);
 #endif
 #else
@@ -599,7 +609,7 @@ int _start(void) {
 #ifdef TEST_DMA_IMAGE
     for(u32 i=0;i<320*180;i++) {
 #ifdef TEST_DMA_IMAGE_PREFIX
-        if(((volatile u32*)pixels)[i]!=(i<320*90 ? 0xff0000ff : 0xff202020)) return 93;
+        if(((volatile u32*)pixels)[i]!=(i>=DMA_FIRST_PIXEL && i<DMA_END_PIXEL ? 0xff0000ff : 0xff202020)) return 93;
 #else
         if(((volatile u32*)pixels)[i]!=0xff0000ff) return 93;
 #endif

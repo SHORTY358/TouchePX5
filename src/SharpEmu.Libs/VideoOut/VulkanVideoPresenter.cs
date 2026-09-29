@@ -10597,32 +10597,50 @@ internal static unsafe class VulkanVideoPresenter
                     }
 
                     // Managed DMA/HLE writes know their exact byte spans. For a
-                    // linear RGBA8 target, upload complete changed rows only;
-                    // untouched GPU-rendered rows need not exist in CPU memory.
+                    // linear RGBA8 target, upload only changed whole pixels;
+                    // untouched GPU pixels need not exist in CPU memory.
                     var rowBytes = (ulong)target.Width * 4;
                     if (target.Initialized && target.TileMode == 0 && target.Depth == 1 &&
                         target.MipLevels == 1 && target.Format == Format.R8G8B8A8Unorm &&
                         rowBytes != 0 && byteCount == rowBytes * target.Height &&
                         managedWrites is { Length: > 0 } &&
-                        managedWrites.All(write => write.Offset % rowBytes == 0 &&
-                            write.Length % rowBytes == 0 && write.Length != 0 &&
+                        managedWrites.All(write => write.Offset % 4 == 0 &&
+                            write.Length % 4 == 0 && write.Length != 0 &&
                             write.Offset < byteCount && write.Length <= byteCount - write.Offset))
                     {
                         var allUploaded = true;
                         foreach (var write in managedWrites)
                         {
-                            var changedPixels = new byte[write.Length];
-                            if (!memory.TryRead(address + write.Offset, changedPixels))
+                            var offset = write.Offset;
+                            var remaining = write.Length;
+                            while (remaining != 0)
                             {
-                                // Retain failed spans for a later drain; never
-                                // acknowledge their generation as uploaded.
-                                SharpEmu.HLE.GuestImageWriteTracker.NotifyManagedWrite(
-                                    address + write.Offset, write.Length);
-                                allUploaded = false;
-                                continue;
+                                var firstColumn = (uint)((offset / 4) % target.Width);
+                                var firstRow = (uint)(offset / rowBytes);
+                                var columns = firstColumn != 0 || remaining < rowBytes
+                                    ? (uint)Math.Min(remaining / 4, target.Width - firstColumn)
+                                    : target.Width;
+                                var rows = firstColumn == 0 && columns == target.Width
+                                    ? (uint)(remaining / rowBytes)
+                                    : 1u;
+                                var length = (ulong)columns * rows * 4;
+                                var changedPixels = new byte[length];
+                                if (!memory.TryRead(address + offset, changedPixels))
+                                {
+                                    // Retain failed spans for a later drain; never
+                                    // acknowledge their generation as uploaded.
+                                    SharpEmu.HLE.GuestImageWriteTracker.NotifyManagedWrite(
+                                        address + offset, length);
+                                    allUploaded = false;
+                                }
+                                else
+                                {
+                                    UploadGuestImageInitialData(target, changedPixels,
+                                        firstRow, rows, firstColumn, columns);
+                                }
+                                offset += length;
+                                remaining -= length;
                             }
-                            UploadGuestImageInitialData(target, changedPixels,
-                                (uint)(write.Offset / rowBytes), (uint)(write.Length / rowBytes));
                         }
                         // A partial mirror is not a full CPU-content snapshot.
                         target.IsCpuBacked = false;
@@ -16372,7 +16390,7 @@ internal static unsafe class VulkanVideoPresenter
         private static uint AlignUp(uint value, uint alignment) =>
             (value + alignment - 1) / alignment * alignment;
 
-        private void UploadGuestImageInitialData(GuestImageResource target, byte[] pixels, uint firstRow = 0, uint rowCount = 0)
+        private void UploadGuestImageInitialData(GuestImageResource target, byte[] pixels, uint firstRow = 0, uint rowCount = 0, uint firstColumn = 0, uint columnCount = 0)
         {
             var guestDataFormat = (target.GuestFormat & 0x8000_0000u) != 0
                 ? (target.GuestFormat >> 8) & 0x1FFu
@@ -16381,14 +16399,16 @@ internal static unsafe class VulkanVideoPresenter
                 ? ExpandRgb32Pixels(pixels)
                 : pixels;
             var uploadHeight = rowCount == 0 ? target.Height : rowCount;
+            var uploadWidth = columnCount == 0 ? target.Width : columnCount;
             if (rowCount != 0 && (!target.Initialized || target.Depth != 1 || target.MipLevels != 1 ||
                 target.TileMode != 0 || target.Format != Format.R8G8B8A8Unorm ||
                 firstRow >= target.Height || rowCount > target.Height - firstRow ||
-                (ulong)pixels.Length != (ulong)target.Width * rowCount * 4))
+                firstColumn >= target.Width || uploadWidth > target.Width - firstColumn ||
+                (ulong)pixels.Length != (ulong)uploadWidth * rowCount * 4))
                 throw new InvalidOperationException("Invalid partial guest image upload");
             var expectedByteCount = GetVulkanImageByteCount(
                 target.Format,
-                target.Width,
+                uploadWidth,
                 uploadHeight,
                 target.Depth);
 
@@ -16484,9 +16504,9 @@ internal static unsafe class VulkanVideoPresenter
                         0,
                         0,
                         1),
-                    ImageOffset = new Offset3D(0, (int)firstRow, 0),
+                    ImageOffset = new Offset3D((int)firstColumn, (int)firstRow, 0),
                     ImageExtent = new Extent3D(
-                        target.Width,
+                        uploadWidth,
                         uploadHeight,
                         target.Depth),
                 };

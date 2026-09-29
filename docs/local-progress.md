@@ -6,6 +6,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Extended preservation to pixel-aligned spans starting/ending inside a row on
+  initialized linear RGBA8 UNORM single-mip images. Each span becomes a leading
+  row fragment, complete middle rows, and a trailing fragment; GPU pixels outside
+  these regions remain untouched. Byte-unaligned writes and other layouts still
+  use the historical fallback. Immediate visibility before the CPU-image drain
+  remains unverified.
+  `-DmaImageSpan` updates pixels [14480,43440), starting at (80,45) and ending
+  before (240,135), using both fill and copy. It failed before at (0,0):
+  `artifacts/dma-span-before.log`, `artifacts/dma-span-before-guest.log`.
+  After repair it passes directly and across queues:
+  `artifacts/dma-span-after.log`, `artifacts/dma-span-cross-queue.log`.
+  The preservation oracle checks solid/untouched bilinear footprints against
+  exact colors/the first verified frame, and validates color/alpha channels at
+  mixed boundaries. Constructed positive, blank and full-overwrite controls run
+  before actual output. Cases 38/39 are added; the previous complete 37-case
+  report below is not a 39-case result. Clean build and 1,279 unit tests pass:
+  `artifacts/dma-span-build.log`, `artifacts/dma-span-tests.log`.
+  Six targeted GPU cases pass on this runtime: both span variants, both prior
+  prefix variants, full-image DMA and ordinary texturing. Evidence is in
+  `artifacts/dma-span-{after,cross-queue,prefix-regression,prefix-cross-regression,full-regression,texture-regression}.log`.
 - Complete **37/37 native GPU regression passed** on clean source `c9f231c`,
   with unchanged runtime files throughout the run:
   `artifacts/native-gpu/20260929-021256-372/report.json`.
@@ -352,7 +372,7 @@ per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-
 chains and broad commercial-game compatibility remain separate work.
 
 Next tasks: validate minimize/restore with a functioning window-control path,
-extend partial-DMA coverage to non-row-aligned and non-linear layouts, and go beyond
+extend partial-DMA coverage to byte-unaligned and non-linear layouts, and go beyond
 the passing sequential and cross-queue
 full-image transfers before changing its completion semantics. A transient-image
 wait regression must distinguish the CPU copy, queued GPU image update, and waiter

@@ -385,18 +385,29 @@ After drawing a red triangle, it fills the first 90 of 180 rows blue, then copie
 red into those same rows. All CPU words are checked, including the untouched gray
 backing-memory suffix. That suffix intentionally differs from the GPU-only triangle.
 The pixel oracle requires the updated top half and compares the bottom half with
-the first, independently verified GPU capture; only a two-source-row boundary band
-is excluded for presentation filtering. Positive and blank/full-overwrite negative
+the first, independently verified GPU capture. Samples whose bilinear footprint
+straddles the update boundary receive channel/alpha checks rather than an exact
+color comparison. Positive and blank/full-overwrite negative
 controls are exercised before checking the actual output.
 
 The before runtime destroyed the untouched GPU pixels with a full gray-backed CPU
 upload. Managed write tracking now records exact spans, and Vulkan uploads only
-whole changed rows for initialized, single-mip linear RGBA8 UNORM images. The
+changed whole pixels for initialized, single-mip linear RGBA8 UNORM images. The
 prefix case and `-DmaImagePrefix -DmaImageCrossQueue` (case 37) pass. Three tracker
 unit tests cover adjacent chunk merging without merging gaps, later writes after
 consume, and bounded storage with fallback after 64 disjoint spans.
 
 This repair uses the CPU-image drain rather than adding immediate DMA image
 mirrors. It establishes preservation through presentation, not dependent sampling
-before that drain. Native page-fault tracking, unsupported formats/layouts, partial
-rows, and span overflow retain the older full-image behavior. Metal is unchanged.
+before that drain. Native page-fault tracking, unsupported formats/layouts,
+byte-unaligned writes, and span overflow retain the older full-image behavior.
+Metal is unchanged.
+
+`-DmaImageSpan` adds case 38: update 115,840 bytes starting at pixel (80,45),
+ending before (240,135). This exercises partial first/last rows and complete
+middle rows while preserving GPU-only pixels around them. Both fill and copy
+are checked, including all CPU words and source reuse after completion.
+`-DmaImageSpan -DmaImageCrossQueue` adds case 39 with suspended/resumed consumers.
+The interior destination does not match an exact registered image base, so its
+DMA trace reports `image=False`; preservation is supplied by managed dirty-span
+synchronization. Both cases pass after failing on the preceding runtime.
