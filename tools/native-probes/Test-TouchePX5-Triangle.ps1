@@ -2,7 +2,7 @@
 param([switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 if($DmaImageDraw) {
-    if($DmaImageSpan -or $DmaImageCrossQueue) { throw 'Dependent draw requires its standalone graphics queue layout.' }
+    if($DmaImageSpan) { throw 'Dependent draw requires its prefix layout.' }
     $DmaImagePrefix=$true
 }
 if($DmaImageSpan) { $DmaImagePrefix=$true }
@@ -203,6 +203,13 @@ try {
         throw 'Expected two genuinely suspended/resumed graphics consumers and two ACB image producers.'
     }
     $dmaBytesPattern=if($DmaImageSpan) { '115840' } elseif($DmaImagePrefix) { '115200' } else { '230400' }
+    if($DmaImageDraw -and $DmaImageCrossQueue -and
+       ([regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=21 ').Count -ne 1 -or
+        [regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=15 ').Count -ne 1 -or
+        [regex]::Matches($output,'agc.queue_resumed queue=dcb.graphics [^\r\n]*remaining_dwords=23 ').Count -ne 1 -or
+        [regex]::Matches($output,'agc.queue_resumed queue=dcb.graphics [^\r\n]*remaining_dwords=17 ').Count -ne 1)) {
+        throw 'Expected DMA-only ACB producers and dependent draws in the resumed graphics consumers.'
+    }
     if($DmaImageCrossQueue -and
        ([regex]::Matches($output,"vk.ordered_action queue=acb\.compute\[7\] [^\r\n]*name='dma_data dst=0x[0-9A-F]+ bytes=$dmaBytesPattern'").Count -ne 2 -or
         [regex]::Matches($output,"vk.ordered_action queue=acb\.compute\[7\] [^\r\n]*name='dma_data dst=0x[0-9A-F]+ bytes=$dmaBytesPattern completion'").Count -ne 2)) {

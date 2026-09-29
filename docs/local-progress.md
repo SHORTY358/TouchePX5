@@ -6,6 +6,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Cross-queue dependent blending now passes as well, without a runtime change:
+  `artifacts/dma-draw-cross-queue.log`. `-DmaImageDraw -DmaImageCrossQueue`
+  submits the waiting graphics consumer first, then ACB owner 7 performs the
+  prefix DMA and signals readiness. Only the resumed graphics queue executes
+  the blend and publishes completion. The runner requires two real waits and
+  unforced resumes, the DMA-only producer lengths (21/15 words), graphics
+  continuation lengths (23/17 words), three translated draws and the same pixel
+  oracle/negative controls. This adds case 41, not a full 41-case aggregate.
+  Texture sampling, compute image reads and arbitrary scheduling remain outside
+  this result. No emulator fix was required for either dependent-blend variant.
+  Existing full-image/prefix/span cross-queue regressions pass after the fixture
+  split: `artifacts/dma-draw-split-{full,prefix,span}-regression.log`.
 - Added dependent-draw coverage without a runtime change: `-DmaImageDraw`
   fills the first 90 rows blue, immediately blends a half-alpha red triangle in
   the same graphics submission, then repeats with a red DMA copy and blue blend.

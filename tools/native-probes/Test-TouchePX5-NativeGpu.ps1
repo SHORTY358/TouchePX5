@@ -43,6 +43,7 @@ try {
         @{Name='triangle-dma-image-span'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-prefix-span\triangle.log'; Parameters=@{DmaImageSpan=$true}},
         @{Name='triangle-dma-image-span-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-cross-queue-prefix-span\triangle.log'; Parameters=@{DmaImageSpan=$true;DmaImageCrossQueue=$true}},
         @{Name='triangle-dma-image-dependent-draw'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-prefix-draw\triangle.log'; Parameters=@{DmaImageDraw=$true}},
+        @{Name='triangle-dma-image-dependent-draw-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-cross-queue-prefix-draw\triangle.log'; Parameters=@{DmaImageDraw=$true;DmaImageCrossQueue=$true}},
         @{Name='triangle-texture'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture\triangle.log'; Parameters=@{Texture=$true}},
         @{Name='triangle-texture-select'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select\triangle.log'; Parameters=@{TextureSelect=$true}},
         @{Name='triangle-texture-uv'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-uv\triangle.log'; Parameters=@{TextureUv=$true}},

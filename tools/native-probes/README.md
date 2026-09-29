@@ -420,5 +420,14 @@ geometry below it, and preserved pixels outside the triangle. It rejects blank,
 DMA-only and wrong-frame controls. All three translated draws must execute.
 This passes without a runtime change and establishes dependent destination-image
 blending for the tested sequence; it does not establish texture/compute reads or
-every queue scheduling interleaving. This mode is separate from span/cross-queue
-variants and cannot be combined with them.
+every queue scheduling interleaving. This mode cannot be combined with the span
+variant.
+
+`-DmaImageDraw -DmaImageCrossQueue` adds case 41. The fixture splits each update
+submission after its DMA packet: ACB owner 7 performs DMA and publishes readiness,
+while the graphics queue waits, executes the following state/blend commands and
+publishes completion. The runner requires the exact DMA-only producer and resumed
+consumer command lengths, two genuine waits/resumes, three translated draws and
+the dependent-blend pixel oracle. This passes without a runtime change. The
+fixture's existing full-image/prefix/span cross-queue modes retain consumers that
+only publish completion and are checked separately for regressions.
