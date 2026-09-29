@@ -1,10 +1,14 @@
 [CmdletBinding()]
-param([switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($DmaImageDraw) {
+    if($DmaImageSpan -or $DmaImageCrossQueue) { throw 'Dependent draw requires its standalone graphics queue layout.' }
+    $DmaImagePrefix=$true
+}
 if($DmaImageSpan) { $DmaImagePrefix=$true }
 if($DmaImagePrefix) { $DmaImage=$true }
 if($DmaImageCrossQueue) { $DmaImage=$true }
-if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
+if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
 if($CrossQueueWriteData -and $CrossQueueReuse) { throw 'Choose either WRITE_DATA reset or cross-submission label reuse.' }
 if($CrossQueueDma -and ($CrossQueueReuse -or $CrossQueueWriteData)) { throw 'DMA reset requires its standalone cross-queue mode.' }
 if($CrossQueueReuse -or $CrossQueueWriteData -or $CrossQueueDma) { $CrossQueue=$true }
@@ -24,6 +28,7 @@ if($DmaImage) { $root += '-dma-image' }
 if($DmaImageCrossQueue) { $root += '-cross-queue' }
 if($DmaImagePrefix) { $root += '-prefix' }
 if($DmaImageSpan) { $root += '-span' }
+if($DmaImageDraw) { $root += '-draw' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc3) {
@@ -115,6 +120,7 @@ if($DmaImage) { $defines += '-DTEST_DMA_IMAGE=1' }
 if($DmaImageCrossQueue) { $defines += '-DTEST_DMA_IMAGE_CROSS_QUEUE=1' }
 if($DmaImagePrefix) { $defines += '-DTEST_DMA_IMAGE_PREFIX=1' }
 if($DmaImageSpan) { $defines += '-DTEST_DMA_IMAGE_SPAN=1' }
+if($DmaImageDraw) { $defines += '-DTEST_DMA_IMAGE_DRAW=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -208,7 +214,7 @@ try {
         [regex]::Matches($output,"agc.dma_packet [^\r\n]*bytes=$dmaBytesPattern [^\r\n]*copied=True").Count -ne 2)) {
         throw 'Expected two successful DMA updates of an existing backend image.'
     }
-    $expectedDraws=if($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
+    $expectedDraws=if($DmaImageDraw) { 3 } elseif($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
     if($MipCachePressure) { $expectedDraws += 40 }
     $expectedCaptures=if($DmaImage -or $Depth -or $Texture) { 4 } else { 3 }
     if($captures.Count -ne $expectedCaptures) { throw "Unexpected number of swapchain captures: $log" }
@@ -342,6 +348,40 @@ public static class DmaPrefixVerifierV4 {
 }
 "@
     }
+    if($DmaImageDraw -and -not ('DmaDrawVerifierV1' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+public static class DmaDrawVerifierV1 {
+    public static int Check(byte[] data,int width,int height,bool second) {
+        if(data.Length!=checked(width*height*4)) throw new Exception("Invalid draw capture size");
+        int colored=0;
+        for(int y=0;y<height;y++) for(int x=0;x<width;x++) {
+            int p=(y*width+x)*4;
+            if(data[p+1]!=0 || Math.Abs(data[p]+data[p+2]-data[p+3])>2)
+                throw new Exception("Invalid dependent-draw channels");
+            if(data[p+3]==255) colored++;
+            double sx=(x+0.5)*320/width, sy=(y+0.5)*180/height;
+            double d=(sx-40)/240+(sy-22.5)/135;
+            bool inside=sx>42 && sy>24.5 && d<0.98;
+            bool outside=sx<38 || sy<20.5 || d>1.02;
+            if(Math.Abs(sy-90)<2 || (!inside && !outside)) continue;
+            int r=0,b=0,a=0;
+            if(sy<90) {
+                a=255;
+                if(inside) { r=128;b=128; }
+                else if(second) b=255; else r=255;
+            } else if(inside) {
+                a=255;
+                if(second) r=255; else { r=128;b=128; }
+            }
+            if(Math.Abs(data[p]-b)>1 || Math.Abs(data[p+2]-r)>1 || data[p+3]!=a)
+                throw new Exception("Dependent draw mismatch at "+x+","+y);
+        }
+        return colored;
+    }
+}
+"@
+    }
     $verifiedFrames = @()
     if($TextureUv -and -not ('TextureUvVerifierV3' -as [type])) {
         Add-Type -TypeDefinition @"
@@ -391,7 +431,18 @@ public static class TextureUvVerifierV3 {
     if(-not $dimensions.Success) { throw 'Unsupported triangle capture format.' }
     $width=[int]$dimensions.Groups[1].Value; $height=[int]$dimensions.Groups[2].Value
     $gpuBytes=[IO.File]::ReadAllBytes($capture)
-    if($DmaImagePrefix -and $frameIndex -gt 1) {
+    if($DmaImageDraw -and $frameIndex -gt 1) {
+        $blankRejected=$false
+        try { [DmaDrawVerifierV1]::Check([byte[]]::new($gpuBytes.Length),$width,$height,$expectBlue) | Out-Null } catch { $blankRejected=$true }
+        if(-not $blankRejected) { throw 'Dependent draw oracle accepted a blank frame.' }
+        $baselineBytes=[IO.File]::ReadAllBytes($captures[1].Groups[1].Value.Trim())
+        $dmaOnly=[DmaPrefixVerifierV4]::MakeSample($baselineBytes,$width,$height,$expectBlue,0,28800)
+        $drawMissingRejected=$false; $wrongFrameRejected=$false
+        try { [DmaDrawVerifierV1]::Check($dmaOnly,$width,$height,$expectBlue) | Out-Null } catch { $drawMissingRejected=$true }
+        try { [DmaDrawVerifierV1]::Check($gpuBytes,$width,$height,(-not $expectBlue)) | Out-Null } catch { $wrongFrameRejected=$true }
+        if(-not $drawMissingRejected -or -not $wrongFrameRejected) { throw 'Dependent draw oracle accepted a missing draw or wrong frame.' }
+        $coloredPixels=[DmaDrawVerifierV1]::Check($gpuBytes,$width,$height,$expectBlue)
+    } elseif($DmaImagePrefix -and $frameIndex -gt 1) {
         $firstPixel=if($DmaImageSpan) { 14480 } else { 0 }
         $endPixel=if($DmaImageSpan) { 43440 } else { 28800 }
         $baselineBytes=[IO.File]::ReadAllBytes($captures[1].Groups[1].Value.Trim())
@@ -493,6 +544,7 @@ public static class TextureUvVerifierV3 {
         CrossQueueReuse=[bool]$CrossQueueReuse
         CrossQueueWriteData=[bool]$CrossQueueWriteData
         CrossQueueDma=[bool]$CrossQueueDma
+        DmaImageDraw=[bool]$DmaImageDraw
         DmaImageSpan=[bool]$DmaImageSpan
         DmaImagePrefix=[bool]$DmaImagePrefix
         DmaImage=[bool]$DmaImage

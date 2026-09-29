@@ -411,3 +411,14 @@ are checked, including all CPU words and source reuse after completion.
 The interior destination does not match an exact registered image base, so its
 DMA trace reports `image=False`; preservation is supplied by managed dirty-span
 synchronization. Both cases pass after failing on the preceding runtime.
+
+`-DmaImageDraw` adds case 40. It performs a prefix DMA fill followed immediately
+by a half-alpha red triangle in the same graphics submission, before completion
+and flip. The third checked frame uses a red DMA copy followed by a blue blend.
+The oracle requires purple overlap in the updated prefix, appropriate red/purple
+geometry below it, and preserved pixels outside the triangle. It rejects blank,
+DMA-only and wrong-frame controls. All three translated draws must execute.
+This passes without a runtime change and establishes dependent destination-image
+blending for the tested sequence; it does not establish texture/compute reads or
+every queue scheduling interleaving. This mode is separate from span/cross-queue
+variants and cannot be combined with them.

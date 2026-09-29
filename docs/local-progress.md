@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added dependent-draw coverage without a runtime change: `-DmaImageDraw`
+  fills the first 90 rows blue, immediately blends a half-alpha red triangle in
+  the same graphics submission, then repeats with a red DMA copy and blue blend.
+  No flip separates DMA from its dependent draw. Expected purple intersections,
+  preserved lower geometry and unchanged outside pixels all pass on Vulkan:
+  `artifacts/dma-draw-native.log`. Three translated draws and two DMA operations
+  are required. Blank, DMA-only (missing draw) and wrong-frame controls fail.
+  This adds case 40; it is not a full 40-case aggregate result. It establishes
+  destination-image blending after DMA in this queue, not texture sampling,
+  compute image reads, all scheduling interleavings or transient label waits.
+  Shared-fixture prefix, partial-row span and ordinary blend checks also pass:
+  `artifacts/dma-draw-{prefix,span,blend}-regression.log`. Runtime binaries are
+  unchanged from the preceding pixel-span fix; no new unit run was necessary.
 - Extended preservation to pixel-aligned spans starting/ending inside a row on
   initialized linear RGBA8 UNORM single-mip images. Each span becomes a leading
   row fragment, complete middle rows, and a trailing fragment; GPU pixels outside
@@ -380,8 +393,9 @@ release, including a reset between them and failed/unreadable writes.
 Plain-memory DMA and rewind patches now have separate regressions above.
 The bounded row-upload path now preserves separate managed-write spans. Do not
 clear a dirty flag to suppress DMA writes: that could discard independent CPU
-writes. Further completion-order work must explicitly check dependent GPU work
-before presentation; the current successful prefix cases finish through a flip.
+writes. Dependent destination-image blending before presentation now passes.
+Further completion-order work should test texture sampling/compute reads and
+cross-queue consumers rather than infer them from the blend result.
 Minimized 0x0 surfaces are confirmed in the earlier failed
 aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work
 can cover additional formats, with an independent layout reference before broadening

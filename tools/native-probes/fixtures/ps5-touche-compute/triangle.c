@@ -521,6 +521,12 @@ int _start(void) {
 #else
     draw();
 #endif
+#ifdef TEST_DMA_IMAGE_DRAW
+    reg(0x76,0xc,0x3f800000); reg(0x76,0xd,0); // red over blue DMA prefix
+    reg(0x76,0xe,0x3f000000);
+    reg(0x69,0x1e0,(1u<<30)|(1u<<29)|(5u<<24)|(1u<<16)|(5u<<8)|4u);
+    draw();
+#endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
     commands[n++]=(u32)label; commands[n++]=(u32)(label>>32);
     commands[n++]=2; commands[n++]=0; commands[n++]=0;
@@ -597,6 +603,10 @@ int _start(void) {
     commands[n++]=sizeof(pixels);
 #endif
 #else
+    draw();
+#endif
+#ifdef TEST_DMA_IMAGE_DRAW
+    reg(0x76,0xc,0); reg(0x76,0xd,0x3f800000); // blue over red DMA prefix
     draw();
 #endif
     commands[n++]=0xc0064900; commands[n++]=0x14; commands[n++]=1u<<29;
