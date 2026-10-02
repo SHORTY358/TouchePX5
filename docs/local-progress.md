@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-09-29
+# Local engineering checkpoint — 2026-10-03
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,6 +6,27 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed historical CPU snapshot selection after partial DMA: an uploaded
+  generation alone does not establish full CPU contents. The Vulkan image now
+  records complete CPU snapshots explicitly; partial uploads and GPU writes
+  invalidate that state, full CPU uploads establish it. Existing complete CPU
+  historical snapshots and newer observed write refreshes retain their paths.
+  The new `-DmaImageSamplePreserved` samples the lower GPU-only red triangle
+  after copying green into the upper half. CPU backing below remains gray,
+  independently detecting stale CPU selection and wrong sampling coordinates.
+  Before repair the final triangle was gray:
+  `artifacts/dma-sample-preserved-before.log`,
+  `artifacts/dma-sample-preserved-before-guest.log`.
+  All three frames now pass directly and across queues:
+  `artifacts/dma-sample-preserved-after.log`,
+  `artifacts/dma-sample-preserved-cross-queue.log`.
+  These add native cases 44/45. Clean Release build has no warnings/errors;
+  all **1,283 unit tests pass**, including incomplete-mirror policy regressions:
+  `artifacts/dma-sample-preserved-build.log`,
+  `artifacts/dma-sample-preserved-tests.log`.
+  A complete 45-case aggregate is pending; the 43-case result below predates
+  this fix. Scope remains linear RGBA8 at the stated coordinates, not arbitrary
+  subresources, unobserved native CPU stores or compute-image reads.
 - Complete **43/43 native GPU regression passed** on clean source `926c1e2`,
   with runtime files unchanged throughout:
   `artifacts/native-gpu/20260929-124502-959/report.json`.

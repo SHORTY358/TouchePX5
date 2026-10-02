@@ -2172,15 +2172,19 @@ internal static unsafe class VulkanVideoPresenter
     /// that shared image backwards would corrupt later draws, while sampling
     /// it as-is gives this draw future contents. Keep the draw's snapshot in a
     /// transient image whenever its concrete bytes disagree with an equal or
-    /// newer generation already uploaded to the shared image.
+    /// newer generation already uploaded to the shared image. This comparison
+    /// requires a complete CPU snapshot: a partial upload preserves GPU-only
+    /// pixels that the queued CPU bytes cannot describe.
     /// </summary>
     internal static bool ShouldUseStandaloneCpuTextureSnapshot(
+        bool hasCompleteCpuSnapshot,
         bool hasInputPixels,
         long textureWriteGeneration,
         bool hasUploadedGeneration,
         long uploadedGeneration,
         ulong inputFingerprint,
         ulong uploadedFingerprint) =>
+        hasCompleteCpuSnapshot &&
         hasInputPixels &&
         textureWriteGeneration >= 0 &&
         hasUploadedGeneration &&
@@ -4808,6 +4812,9 @@ internal static unsafe class VulkanVideoPresenter
             public bool Initialized;
             public bool InitialUploadPending;
             public bool IsCpuBacked;
+            // IsCpuBacked may be inferred from untracked guest memory. Only a
+            // complete CPU upload establishes a comparable content snapshot.
+            public bool HasCompleteCpuSnapshot;
             public ulong CpuContentFingerprint;
             public bool SupportsStorageUsage;
         }
@@ -4887,6 +4894,10 @@ internal static unsafe class VulkanVideoPresenter
             ulong shaderAddress,
             string reason)
         {
+            if (reason != "cpu-upload")
+            {
+                image.HasCompleteCpuSnapshot = false;
+            }
             image.LastWriteSequence = _activeGuestWorkSequence;
             image.LastWriterQueue = _activeGuestQueue.Name;
             image.LastWriterShader = shaderAddress;
@@ -10120,6 +10131,7 @@ internal static unsafe class VulkanVideoPresenter
                 : CreateFallbackTexturePixels(texture.Format, rowLength, texture.Height, expectedSize);
             var fingerprint = ComputeTextureContentFingerprint(pixels);
             if (ShouldUseStandaloneCpuTextureSnapshot(
+                    guestImage.HasCompleteCpuSnapshot,
                     texture.RgbaPixels.Length > 0,
                     texture.WriteGeneration,
                     hasUploadedGeneration,
@@ -10145,6 +10157,7 @@ internal static unsafe class VulkanVideoPresenter
                 return false;
             }
             if ((guestImage.Initialized || guestImage.InitialUploadPending) &&
+                guestImage.HasCompleteCpuSnapshot &&
                 guestImage.CpuContentFingerprint == fingerprint)
             {
                 // Content unchanged despite a newer write generation: advance
@@ -10645,6 +10658,7 @@ internal static unsafe class VulkanVideoPresenter
                         }
                         // A partial mirror is not a full CPU-content snapshot.
                         target.IsCpuBacked = false;
+                        target.HasCompleteCpuSnapshot = false;
                         target.CpuContentFingerprint = 0;
                         if (allUploaded)
                         {
@@ -10704,6 +10718,7 @@ internal static unsafe class VulkanVideoPresenter
                     var fingerprint = ComputeTextureContentFingerprint(pixels);
                     if ((target.Initialized || target.InitialUploadPending) &&
                         target.IsCpuBacked &&
+                        target.HasCompleteCpuSnapshot &&
                         target.CpuContentFingerprint == fingerprint)
                     {
                         continue;
@@ -10714,6 +10729,7 @@ internal static unsafe class VulkanVideoPresenter
                     UploadGuestImageInitialData(target, uploadPixels);
                     (uploadedAddresses ??= []).Add(address);
                     target.IsCpuBacked = true;
+                    target.HasCompleteCpuSnapshot = true;
                     target.CpuContentFingerprint = fingerprint;
                     if (SharpEmu.HLE.GuestImageWriteTracker.TryGetWriteGeneration(
                             address,
@@ -11710,6 +11726,7 @@ internal static unsafe class VulkanVideoPresenter
                     View = view,
                     InitialUploadPending = true,
                     IsCpuBacked = true,
+                    HasCompleteCpuSnapshot = true,
                     CpuContentFingerprint = contentFingerprint,
                     SupportsStorageUsage = supportsStorageUsage,
                 };
@@ -16800,6 +16817,7 @@ internal static unsafe class VulkanVideoPresenter
                     }
 
                     existing.IsCpuBacked = false;
+                    existing.HasCompleteCpuSnapshot = false;
                     existing.CpuContentFingerprint = 0;
                     if (existing.RenderPass.Handle == 0 &&
                         !requiresStorage &&
@@ -16850,6 +16868,7 @@ internal static unsafe class VulkanVideoPresenter
                     ReinterpretGuestImageFormat(existing, format, !requiresStorage, target);
                     existing.GuestFormat = guestFormat;
                     existing.IsCpuBacked = false;
+                    existing.HasCompleteCpuSnapshot = false;
                     existing.CpuContentFingerprint = 0;
                     if (!requiresStorage && existing.RenderPass.Handle == 0)
                     {
@@ -16925,6 +16944,7 @@ internal static unsafe class VulkanVideoPresenter
                 }
 
                 retained.IsCpuBacked = false;
+                retained.HasCompleteCpuSnapshot = false;
                 retained.CpuContentFingerprint = 0;
                 _guestImages.Add(target.Address, retained);
                 TraceSurfaceLineage("restore_active", retained);
@@ -20338,6 +20358,7 @@ internal static unsafe class VulkanVideoPresenter
                     RecordSurfaceWrite(guestImage, 0, "cpu-upload");
                     if (texture.UpdatesCpuContent)
                     {
+                        guestImage.HasCompleteCpuSnapshot = true;
                         guestImage.CpuContentFingerprint = texture.CpuContentFingerprint;
                         if (texture.WriteGeneration >= 0)
                         {

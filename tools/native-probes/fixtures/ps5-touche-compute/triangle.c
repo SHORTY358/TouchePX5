@@ -20,6 +20,13 @@ static const u32 sample_shader[] __attribute__((aligned(256))) = {
     0xf09c0f08,0x00400400,0xbf8c0f70,
     0xf800180f,0x07060504,0xbf810000
 };
+#ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
+static const u32 sample_lower_shader[] __attribute__((aligned(256))) = {
+    0x7e0002ff,0x3e800000,0x7e0202ff,0x3f200000, // (0.25,0.625), untouched red geometry
+    0xf09c0f08,0x00400400,0xbf8c0f70,
+    0xf800180f,0x07060504,0xbf810000
+};
+#endif
 #endif
 #ifdef TEST_DMA_IMAGE
 static u32 dma_image_source[320*180] __attribute__((aligned(256)));
@@ -355,6 +362,9 @@ static void reg(u32 opcode,u32 index,u32 value) {
 #ifdef TEST_DMA_IMAGE_SAMPLE
 static void sample_image(void) {
     u64 texture=(u64)pixels, output=(u64)sample_pixels, shader=(u64)sample_shader;
+#ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
+    if(completed==2) shader=(u64)sample_lower_shader;
+#endif
     reg(0x76,0x8,(u32)(shader>>8)); reg(0x76,0x9,(u32)(shader>>40));
     reg(0x76,0xb,12<<1);
     reg(0x76,0xc,(u32)(texture>>8));
@@ -638,7 +648,12 @@ int _start(void) {
 #endif
     // Texture mode repeats unchanged blue after the CPU update.
 #ifdef TEST_DMA_IMAGE
+#ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
+    // The upper copy becomes green: sampling the wrong coordinates must fail.
+    for(u32 i=0;i<320*180;i++) dma_image_source[i]=0xff00ff00;
+#else
     for(u32 i=0;i<320*180;i++) dma_image_source[i]=0xff0000ff;
+#endif
     u64 source=(u64)dma_image_source;
     commands[n++]=0xc0055000; commands[n++]=0;
     commands[n++]=(u32)source; commands[n++]=(u32)(source>>32);
@@ -669,11 +684,19 @@ int _start(void) {
 #ifdef TEST_DMA_IMAGE
     for(u32 i=0;i<320*180;i++) {
 #ifdef TEST_DMA_IMAGE_PREFIX
+#ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
+        if(((volatile u32*)pixels)[i]!=(i<DMA_END_PIXEL ? 0xff00ff00 : 0xff202020)) return 93;
+#else
         if(((volatile u32*)pixels)[i]!=(i>=DMA_FIRST_PIXEL && i<DMA_END_PIXEL ? 0xff0000ff : 0xff202020)) return 93;
+#endif
 #else
         if(((volatile u32*)pixels)[i]!=0xff0000ff) return 93;
 #endif
+#ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
+        dma_image_source[i]=0xffff0000;
+#else
         dma_image_source[i]=0xff00ff00; // completed copy must be independent of source reuse
+#endif
     }
 #endif
     if(flip_slot(video,0,1,3)!=0) return 82;

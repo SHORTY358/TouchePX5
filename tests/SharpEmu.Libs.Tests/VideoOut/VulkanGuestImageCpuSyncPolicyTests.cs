@@ -197,6 +197,7 @@ public sealed class VulkanGuestImageCpuSyncPolicyTests
     {
         Assert.True(
             VulkanVideoPresenter.ShouldUseStandaloneCpuTextureSnapshot(
+                hasCompleteCpuSnapshot: true,
                 hasInputPixels: true,
                 textureWriteGeneration: 3,
                 hasUploadedGeneration: true,
@@ -210,6 +211,7 @@ public sealed class VulkanGuestImageCpuSyncPolicyTests
     {
         Assert.True(
             VulkanVideoPresenter.ShouldUseStandaloneCpuTextureSnapshot(
+                hasCompleteCpuSnapshot: true,
                 hasInputPixels: true,
                 textureWriteGeneration: 7,
                 hasUploadedGeneration: true,
@@ -223,6 +225,7 @@ public sealed class VulkanGuestImageCpuSyncPolicyTests
     {
         Assert.False(
             VulkanVideoPresenter.ShouldUseStandaloneCpuTextureSnapshot(
+                hasCompleteCpuSnapshot: true,
                 hasInputPixels: true,
                 textureWriteGeneration: 3,
                 hasUploadedGeneration: true,
@@ -231,12 +234,50 @@ public sealed class VulkanGuestImageCpuSyncPolicyTests
                 uploadedFingerprint: 0x1234));
         Assert.False(
             VulkanVideoPresenter.ShouldUseStandaloneCpuTextureSnapshot(
+                hasCompleteCpuSnapshot: true,
                 hasInputPixels: true,
                 textureWriteGeneration: 8,
                 hasUploadedGeneration: true,
                 uploadedGeneration: 7,
                 inputFingerprint: 0x1234,
                 uploadedFingerprint: 0x5678));
+    }
+
+    [Theory]
+    [InlineData(0L, 0L)] // GPU-only image.
+    [InlineData(4L, 4L)] // Latest partial DMA upload.
+    [InlineData(3L, 4L)] // Queued snapshot before that partial upload.
+    public void IncompleteCpuMirrorNeverReplacesPreservedGpuPixels(
+        long textureGeneration,
+        long uploadedGeneration)
+    {
+        // Gray CPU backing disagrees with the live red GPU-only region. A
+        // generation recorded for a prefix upload says nothing about that
+        // region; selecting a standalone CPU texture would destroy it.
+        Assert.False(
+            VulkanVideoPresenter.ShouldUseStandaloneCpuTextureSnapshot(
+                hasCompleteCpuSnapshot: false,
+                hasInputPixels: true,
+                textureWriteGeneration: textureGeneration,
+                hasUploadedGeneration: true,
+                uploadedGeneration: uploadedGeneration,
+                inputFingerprint: 0x1234,
+                uploadedFingerprint: 0));
+    }
+
+    [Fact]
+    public void CompleteSnapshotCanHaveAZeroFingerprint()
+    {
+        // Completeness is explicit; no hash value is reserved as a sentinel.
+        Assert.True(
+            VulkanVideoPresenter.ShouldUseStandaloneCpuTextureSnapshot(
+                hasCompleteCpuSnapshot: true,
+                hasInputPixels: true,
+                textureWriteGeneration: 4,
+                hasUploadedGeneration: true,
+                uploadedGeneration: 4,
+                inputFingerprint: 0x1234,
+                uploadedFingerprint: 0));
     }
 
     [Fact]

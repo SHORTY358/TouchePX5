@@ -447,3 +447,23 @@ textures and observed newer generations retain their refresh paths.
 waiting graphics consumers containing the texture draws. Exact producer/consumer
 lengths, two real waits/resumes and all pixel checks are required. These tests do
 not establish unobserved native CPU-write coherence or compute-image reads.
+
+`-DmaImageSamplePreserved` adds case 44 and implies `-DmaImageSample`. The first
+two samples still require the GPU-only red triangle and the blue DMA prefix.
+The final copy changes only the upper half to green, then samples (0.25,0.625)
+from the preserved lower red triangle. Its CPU backing is still gray; a stale
+CPU snapshot, accidental whole-image upload or sampling the upper half cannot
+pass the red triangle oracle. The source is overwritten blue after completion
+to check that the copy does not depend on later source reuse.
+
+This exposed a separate snapshot-selection bug: a partial CPU upload recorded a
+generation without establishing complete CPU contents, but the historical
+snapshot path treated the missing fingerprint as a mismatch and selected gray
+CPU texels. The Vulkan image now explicitly records whether it has a complete
+CPU snapshot. Partial uploads and GPU writes invalidate that fact; full CPU
+uploads establish it. Historical snapshots remain available for complete CPU
+images, and observed newer CPU writes retain the existing refresh path.
+`-DmaImageSamplePreserved -DmaImageCrossQueue` adds case 45 with the same
+DMA-only producer, waiting graphics consumer and strict wait/resume checks as
+case 43. These cases cover the stated coordinates and linear RGBA8 layout,
+not arbitrary subresources, native CPU writes without tracking or compute reads.

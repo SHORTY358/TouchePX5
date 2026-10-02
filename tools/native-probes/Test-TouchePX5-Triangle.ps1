@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($DmaImageSamplePreserved) { $DmaImageSample=$true }
 if($DmaImageSample) {
     if($DmaImageDraw -or $DmaImageSpan) { throw 'Texture consumer requires its prefix layout.' }
     $DmaImagePrefix=$true
@@ -12,7 +13,7 @@ if($DmaImageDraw) {
 if($DmaImageSpan) { $DmaImagePrefix=$true }
 if($DmaImagePrefix) { $DmaImage=$true }
 if($DmaImageCrossQueue) { $DmaImage=$true }
-if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw','DmaImageSample') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
+if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw','DmaImageSample','DmaImageSamplePreserved') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
 if($CrossQueueWriteData -and $CrossQueueReuse) { throw 'Choose either WRITE_DATA reset or cross-submission label reuse.' }
 if($CrossQueueDma -and ($CrossQueueReuse -or $CrossQueueWriteData)) { throw 'DMA reset requires its standalone cross-queue mode.' }
 if($CrossQueueReuse -or $CrossQueueWriteData -or $CrossQueueDma) { $CrossQueue=$true }
@@ -34,6 +35,7 @@ if($DmaImagePrefix) { $root += '-prefix' }
 if($DmaImageSpan) { $root += '-span' }
 if($DmaImageDraw) { $root += '-draw' }
 if($DmaImageSample) { $root += '-sample' }
+if($DmaImageSamplePreserved) { $root += '-preserved' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc3) {
@@ -127,6 +129,7 @@ if($DmaImagePrefix) { $defines += '-DTEST_DMA_IMAGE_PREFIX=1' }
 if($DmaImageSpan) { $defines += '-DTEST_DMA_IMAGE_SPAN=1' }
 if($DmaImageDraw) { $defines += '-DTEST_DMA_IMAGE_DRAW=1' }
 if($DmaImageSample) { $defines += '-DTEST_DMA_IMAGE_SAMPLE=1' }
+if($DmaImageSamplePreserved) { $defines += '-DTEST_DMA_IMAGE_SAMPLE_PRESERVED=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -570,6 +573,7 @@ public static class TextureUvVerifierV3 {
         CrossQueueReuse=[bool]$CrossQueueReuse
         CrossQueueWriteData=[bool]$CrossQueueWriteData
         CrossQueueDma=[bool]$CrossQueueDma
+        DmaImageSamplePreserved=[bool]$DmaImageSamplePreserved
         DmaImageSample=[bool]$DmaImageSample
         DmaImageDraw=[bool]$DmaImageDraw
         DmaImageSpan=[bool]$DmaImageSpan
