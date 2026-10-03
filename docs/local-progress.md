@@ -6,6 +6,14 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **51/51 native GPU regression passed** on clean source `cf67ade`,
+  with all 248 runtime entries unchanged throughout:
+  `artifacts/native-gpu/20261003-013510-019/report.json`.
+  Both image-atomic add variants below are included. Bounded atomic INC/DEC
+  remain incorrect: new native image and buffer fixtures each return guest 100
+  on their first limit boundary (6 -> 7 -> expected 0, actual 8):
+  `artifacts/compute-image-clamp-before.log`,
+  `artifacts/compute-buffer-clamp-before.log`.
 - Added **two targeted storage-image atomic cases**, passing without a runtime
   change: `artifacts/compute-image-atomic-direct.log` and
   `artifacts/compute-image-atomic-queue.log`. A GPU R32_UINT image is seeded to 7,
@@ -15,8 +23,8 @@ percentage or release-date estimate.
   each require five actual GPU dispatches and reject CPU replacements.
   Clearing only GLC correctly fails the old-value check with guest 66:
   `artifacts/compute-image-atomic-negative.log`.
-  These add native cases 50/51; the latest complete aggregate remains 49/49
-  below. Other atomics, layouts and cross-queue image-atomic consumers are not
+  These add native cases 50/51 and pass in the complete aggregate above.
+  Other atomics, layouts and cross-queue image-atomic consumers are not
   established by these targeted checks. The old compute fixture also passes:
   `artifacts/compute-image-atomic-basic-regression.log`.
 - Complete **49/49 native GPU regression passed** on clean source `93259af`,
