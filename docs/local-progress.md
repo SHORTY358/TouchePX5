@@ -6,6 +6,13 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **49/49 native GPU regression passed** on clean source `93259af`,
+  with runtime files unchanged throughout:
+  `artifacts/native-gpu/20261003-011856-103/report.json`.
+  This covers both compute storage-write variants and the distinct-buffer
+  fixture repair below, alongside all prior graphics and queue checks.
+  The Release runtime still passes all 1,283 unit tests. Storage-image atomics
+  and actual window minimize/restore remain separate, unverified work.
 - The first 49-case aggregate on `19cbc90` failed in preserved-region sampling
   across queues: `artifacts/native-gpu/20261003-010425-117/report.json`.
   This was a fixture lifetime bug, not a new CPU/GPU color-source failure:
@@ -36,8 +43,8 @@ percentage or release-date estimate.
   `artifacts/compute-image-store-wrong-pixel/triangle.log`.
   The original read-only variant also passes after the shared-fixture changes:
   `artifacts/dma-compute-image-store-read-regression.log`.
-  These add cases 48/49; the last complete aggregate is still the 47-case report
-  below, with unchanged runtime binaries. This establishes one pixel's store
+  These add cases 48/49 and pass in the complete aggregate above,
+  with unchanged runtime binaries. This establishes one pixel's store
   and read-after-write in these dispatches, not storage atomics, other layouts,
   all untouched source pixels or unobserved native CPU stores.
 - Complete **47/47 native GPU regression passed** on clean source `24435a4`,
