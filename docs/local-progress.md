@@ -6,6 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- The first 49-case aggregate on `19cbc90` failed in preserved-region sampling
+  across queues: `artifacts/native-gpu/20261003-010425-117/report.json`.
+  This was a fixture lifetime bug, not a new CPU/GPU color-source failure:
+  `window-unavailable` delayed the red flip until after the fixture overwrote
+  that same output image blue. Captures were blue/blue/red and the first color
+  oracle correctly rejected them. Sample fixtures now register four distinct
+  buffers (warmup plus three results) and never redraw a queued result image.
+  The runner requires three distinct nonzero presented image addresses as well
+  as all original pixel, queue and DMA-upload checks. Preserved sampling,
+  both storage-write variants and the prior cross-queue sample pass:
+  `artifacts/dma-sample-distinct-buffers.log`,
+  `artifacts/dma-distinct-buffers-store.log`,
+  `artifacts/dma-distinct-buffers-store-cross.log`,
+  `artifacts/dma-distinct-buffers-sample-cross.log`.
+  This fixes fixture buffer ownership; it does not establish end-to-end
+  minimize/restore handling or change the emulator's flip-status semantics.
 - Added single-pixel storage-image write/read coverage without a runtime change:
   `-DmaImageComputeStore` writes yellow at (96,48), then returns that pixel plus
   the existing updated/preserved samples into the guarded output buffer. Three
@@ -518,8 +534,10 @@ Plain-memory DMA and rewind patches now have separate regressions above.
 The bounded row-upload path now preserves separate managed-write spans. Do not
 clear a dirty flag to suppress DMA writes: that could discard independent CPU
 writes. Dependent destination-image blending before presentation now passes.
-Further completion-order work should test texture sampling/compute reads and
-cross-queue consumers rather than infer them from the blend result.
+Texture sampling, read-only compute fetches and single-pixel storage writes now
+have separate direct/cross-queue regressions above. Further work should cover
+storage-image atomics, other layouts and failed/unreadable writes without
+inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed
 aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work
 can cover additional formats, with an independent layout reference before broadening

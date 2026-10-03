@@ -257,6 +257,13 @@ try {
             }
         }
     }
+    if($DmaImageSample) {
+        $presentedImages=@([regex]::Matches($output,'vk.present_taken addr=0x([0-9A-F]+) ') |
+            ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -match '[1-9A-F]' })
+        if($presentedImages.Count -ne 3 -or @($presentedImages | Select-Object -Unique).Count -ne 3) {
+            throw 'Each sampled result must present a distinct image; a deferred flip must not see a later frame.'
+        }
+    }
     if($DmaImageComputeRead) {
         # Each image instruction has its own binding, all aliasing one image.
         # The shader summary is cached; actual dispatch traces must occur three times.
@@ -613,6 +620,7 @@ public static class TextureUvVerifierV3 {
         ComputeImageReadGuardChecks=$(if($DmaImageComputeStore) { 12 } elseif($DmaImageComputeRead) { 24 } else { 0 })
         DmaImageSamplePreserved=[bool]$DmaImageSamplePreserved
         DmaImageSample=[bool]$DmaImageSample
+        DistinctSamplePresentationImages=$(if($DmaImageSample) { $presentedImages.Count } else { 0 })
         DmaImageDraw=[bool]$DmaImageDraw
         DmaImageSpan=[bool]$DmaImageSpan
         DmaImagePrefix=[bool]$DmaImagePrefix

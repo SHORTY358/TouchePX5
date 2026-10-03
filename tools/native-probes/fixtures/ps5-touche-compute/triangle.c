@@ -14,7 +14,10 @@ extern int (*submit_slot)(void*);
 extern int (*submit_acb_slot)(u32,void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
 #ifdef TEST_DMA_IMAGE_SAMPLE
-static u32 sample_pixels[320*180] __attribute__((aligned(256)));
+// A deferred native-window presentation must not sample a later frame written
+// into the same front buffer. Keep the warmup and all three results distinct.
+static u32 sample_pixels[4][320*180] __attribute__((aligned(256)));
+#define FLIP_BUFFER_INDEX(step) (step)
 static const u32 sample_shader[] __attribute__((aligned(256))) = {
     0x7e0002ff,0x3e800000,0x7e0202ff,0x3e800000, // u=v=0.25
     0xf09c0f08,0x00400400,0xbf8c0f70,
@@ -27,6 +30,9 @@ static const u32 sample_lower_shader[] __attribute__((aligned(256))) = {
     0xf800180f,0x07060504,0xbf810000
 };
 #endif
+#endif
+#ifndef FLIP_BUFFER_INDEX
+#define FLIP_BUFFER_INDEX(step) 0
 #endif
 #ifdef TEST_DMA_IMAGE
 static u32 dma_image_source[320*180] __attribute__((aligned(256)));
@@ -66,7 +72,7 @@ static const u32 image_read_shader[] __attribute__((aligned(256))) = {
 };
 #endif
 static unsigned char attribute[40];
-static u64 addresses[1];
+static u64 addresses[4];
 static volatile u32 completed;
 static u32 commands[512];
 #ifdef TEST_TEXTURE
@@ -433,7 +439,7 @@ static void sample_image(void) {
 #ifdef TEST_DMA_IMAGE_COMPUTE_READ
     queue_compute_image_read();
 #endif
-    u64 texture=(u64)pixels, output=(u64)sample_pixels, shader=(u64)sample_shader;
+    u64 texture=(u64)pixels, output=(u64)sample_pixels[completed+1], shader=(u64)sample_shader;
 #ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
     if(completed==2) shader=(u64)sample_lower_shader;
 #endif
@@ -453,11 +459,12 @@ int _start(void) {
     if(video<=0) return 70;
     if(attribute_slot(attribute,0x80000000,1,0,320,180,320)!=0) return 71;
 #ifdef TEST_DMA_IMAGE_SAMPLE
-    addresses[0]=(u64)sample_pixels;
+    for(u32 i=0;i<4;i++) addresses[i]=(u64)sample_pixels[i];
+    if(register_slot(video,0,addresses,4,attribute)<0) return 72;
 #else
     addresses[0]=(u64)pixels;
-#endif
     if(register_slot(video,0,addresses,1,attribute)<0) return 72;
+#endif
     for(int i=0;i<320*180;i++) pixels[i]=0xff202020;
     if(flip_slot(video,0,1,0)!=0) return 73;
     sleep_slot(FRAME_PAUSE_US);
@@ -604,7 +611,7 @@ int _start(void) {
 #ifdef TEST_DMA_IMAGE_COMPUTE_READ
     { int result=verify_compute_image_read(1); if(result) return result; }
 #endif
-    if(flip_slot(video,0,1,1)!=0) return 76;
+    if(flip_slot(video,FLIP_BUFFER_INDEX(1),1,1)!=0) return 76;
     sleep_slot(FRAME_PAUSE_US);
     // Reuse the shader and target, changing only the scalar color inputs.
     n=0;
@@ -678,7 +685,7 @@ int _start(void) {
 #endif
     }
 #endif
-    if(flip_slot(video,0,1,2)!=0) return 79;
+    if(flip_slot(video,FLIP_BUFFER_INDEX(2),1,2)!=0) return 79;
     sleep_slot(FRAME_PAUSE_US);
 #if defined(TEST_DEPTH) || defined(TEST_TEXTURE) || defined(TEST_DMA_IMAGE)
 #ifdef TEST_MIP_CACHE_PRESSURE
@@ -780,7 +787,7 @@ int _start(void) {
 #endif
     }
 #endif
-    if(flip_slot(video,0,1,3)!=0) return 82;
+    if(flip_slot(video,FLIP_BUFFER_INDEX(3),1,3)!=0) return 82;
     sleep_slot(FRAME_PAUSE_US);
 #endif
 #if defined(TEST_CROSS_QUEUE_WRITE_DATA) || defined(TEST_CROSS_QUEUE_DMA)

@@ -520,3 +520,13 @@ GPU dispatch. Evidence is `artifacts/dma-compute-image-store-negative.log`.
 These tests establish the stated one-pixel writes/read-after-write, not storage
 atomics, every untouched source pixel, arbitrary layouts or native unobserved
 stores. No runtime change was required.
+
+All DMA sample modes now register four distinct output buffers: one warmup
+buffer and one per verified result. A native-window presentation can be delayed
+while GPU work continues; reusing one output for red then blue meant the queued
+red flip could later display blue. The first 49-case aggregate caught exactly
+that (blue/blue/red captures after `window-unavailable`). The runner now requires
+three distinct nonzero presented image addresses, retaining every original
+color/coverage, queue and DMA-order assertion. This is fixture buffer lifetime
+discipline, not evidence of complete minimize/restore support or accurate
+guest flip-status timing.
