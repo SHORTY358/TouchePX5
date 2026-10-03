@@ -6,6 +6,27 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed **inactive-lane LDS overwrites**: inactive lanes now issue no shared
+  memory access instead of reading the old value and writing it back over an
+  active lane's store. Native evidence before repair returned old value 48
+  instead of the expected 0..7 cycle values, rejecting guest 132 after one
+  dispatch. Evidence is preserved in
+  `artifacts/compute-lds-masked-write-before-evidence.json` and
+  `artifacts/compute-lds-masked-write-before-guest.log`.
+  The exact experiment passes after changing only the common Vulkan LDS store:
+  `artifacts/compute-lds-masked-write-after.log`.
+  New graphics and ACB cases pass:
+  `artifacts/compute-lds-native.log`, `artifacts/compute-lds-native-queue.log`.
+  Each requires nineteen GPU dispatches: eleven scalar INC/DEC boundaries,
+  four 64-invocation shared cycles (including the reproduced masked overwrite)
+  and four independent DS writes for inactive/lane-0/32/63 masks. Returned
+  values, final shared contents and output guards are verified. No CPU
+  replacements are allowed. Clean build has no warnings/errors and all
+  **1,291 unit tests pass**:
+  `artifacts/compute-lds-masked-build.log`, `artifacts/compute-lds-masked-tests.log`.
+  These add native cases 58/59; the latest full report remains 57/57 below,
+  which predates this runtime repair. GDS, every wider LDS store and broad
+  scheduling/performance remain outside these word-level checks.
 - Complete **57/57 native GPU regression passed** on clean source `67d2323`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-015244-572/report.json`.
@@ -31,9 +52,9 @@ percentage or release-date estimate.
   `artifacts/compute-clamp-add-regression.log`,
   `artifacts/compute-clamp-indirect-queue-regression.log`.
   These add native cases 52–57 and pass in the complete aggregate above.
-  The complete 51-case report below predates this runtime repair; native LDS,
-  arbitrary scheduling and performance are
-  not established by these targeted checks.
+  The complete 51-case report below predates this runtime repair; arbitrary
+  scheduling and performance are not established by these targeted checks.
+  The newer native LDS cases above cover their stated word operations.
 - Complete **51/51 native GPU regression passed** on clean source `cf67ade`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-013510-019/report.json`.
@@ -593,7 +614,7 @@ writes. Dependent destination-image blending before presentation now passes.
 Texture sampling, read-only compute fetches and single-pixel storage writes now
 have separate direct/cross-queue regressions above. Single-texel R32_UINT atomic
 add and bounded INC/DEC now have independent graphics/ACB checks. Further work
-should cover native LDS atomics, cross-queue image-atomic consumers, other
+should cover wider native LDS stores, cross-queue image-atomic consumers, other
 atomics, other layouts and failed/unreadable writes without
 inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed

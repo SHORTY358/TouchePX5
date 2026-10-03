@@ -2193,15 +2193,9 @@ public static partial class Gen5SpirvTranslator
 
         private void StoreLds(uint pointer, uint value)
         {
-            var active = Load(_boolType, _exec);
-            var oldValue = Load(_uintType, pointer);
-            var selected = _module.AddInstruction(
-                SpirvOp.Select,
-                _uintType,
-                active,
-                value,
-                oldValue);
-            Store(pointer, selected);
+            // Inactive lanes must not touch shared memory. Reading the old
+            // value and storing it back races with an active lane's write.
+            EmitExecConditional(() => Store(pointer, value));
         }
 
         private bool TryEmitDataShareAtomic(

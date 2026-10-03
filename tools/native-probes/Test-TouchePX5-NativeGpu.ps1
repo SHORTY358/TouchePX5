@@ -32,6 +32,8 @@ try {
         @{Name='compute-bounded-buffer-atomics-acb'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-bounded-atomics-buffer-compute-queue\compute.log'; Parameters=@{BufferAtomics=$true;ComputeQueue=$true}},
         @{Name='compute-bounded-signed-image-atomics'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-bounded-atomics-signed\compute.log'; Parameters=@{SignedImage=$true}},
         @{Name='compute-bounded-signed-image-atomics-acb'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-bounded-atomics-signed-compute-queue\compute.log'; Parameters=@{SignedImage=$true;ComputeQueue=$true}},
+        @{Name='compute-lds-atomics'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-bounded-atomics-lds\compute.log'; Parameters=@{LdsAtomics=$true}},
+        @{Name='compute-lds-atomics-acb'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-bounded-atomics-lds-compute-queue\compute.log'; Parameters=@{LdsAtomics=$true;ComputeQueue=$true}},
         @{Name='triangle-repeat'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle\triangle.log'; Parameters=@{}},
         @{Name='triangle-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor\triangle.log'; Parameters=@{Scissor=$true}},
         @{Name='triangle-blend'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-blend\triangle.log'; Parameters=@{Blend=$true}},

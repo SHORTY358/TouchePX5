@@ -583,3 +583,31 @@ The limit semantics follow AMD's [RDNA 2 ISA reference](https://www.amd.com/cont
 sections 12.13, 12.14 and 12.16: INC resets at/above the limit; DEC resets to
 the limit at zero/above it. These checks do not establish all memory-ordering
 rules, arbitrary dispatch sizes, cross-queue waits or shader performance.
+
+## Native LDS atomics and masked writes
+
+`Test-TouchePX5-Compute.ps1 -LdsAtomics` adds case 58. The first eleven
+single-invocation kernels initialize LDS, perform bounded INC/DEC twice,
+read the shared word and verify exact old/final values plus output guards.
+Two more kernels use 64 local invocations in one workgroup. Only lane 0
+initializes the word through atomic exchange; barriers separate initialization,
+the shared operation and final readback. The returned-value histogram must
+contain eight occurrences of every value 0..7 and finish at 6.
+
+Two additional cycles atomically initialize 48, then overwrite it through a
+lane-0-only `DS_WRITE_B32` to 6/3 before the 64 invocations operate. Before
+repair, inactive lanes read 48 and stored it back over the active writer:
+the first atomic returned 48 and guest 132 rejected the first real dispatch.
+Saved evidence: `artifacts/compute-lds-masked-write-before-evidence.json` and
+`artifacts/compute-lds-masked-write-before-guest.log`. Vulkan's common LDS store
+now emits an EXEC-conditional write, with no read/store from inactive lanes.
+
+Four final kernels test DS writes independently of atomics: zero active lanes,
+lane 0, lane 32 and lane 63. After a barrier all 64 invocations must read
+48/6/3/9 respectively, while sixteen trailing output guards remain unchanged.
+All nineteen dispatches run on Vulkan; CPU semantic replacements are rejected.
+`-LdsAtomics -ComputeQueue` adds case 59 using nineteen sequential ACB owner-7
+submissions. These establish the stated word operations and active-lane masks
+in one 64-invocation group, not cross-queue waits, GDS or native conformance of
+every wider LDS store. Wider stores use the repaired common emitter but do
+not have native width-specific oracles here.
