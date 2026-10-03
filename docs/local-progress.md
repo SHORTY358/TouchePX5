@@ -6,6 +6,11 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **59/59 native GPU regression passed** on clean source `450b8f2`,
+  with all 248 runtime entries unchanged throughout:
+  `artifacts/native-gpu/20261003-021050-830/report.json`.
+  This includes the native LDS cases and masked-store runtime repair below.
+  All 1,291 unit tests pass on this Release runtime.
 - Fixed **inactive-lane LDS overwrites**: inactive lanes now issue no shared
   memory access instead of reading the old value and writing it back over an
   active lane's store. Native evidence before repair returned old value 48
@@ -24,8 +29,8 @@ percentage or release-date estimate.
   replacements are allowed. Clean build has no warnings/errors and all
   **1,291 unit tests pass**:
   `artifacts/compute-lds-masked-build.log`, `artifacts/compute-lds-masked-tests.log`.
-  These add native cases 58/59; the latest full report remains 57/57 below,
-  which predates this runtime repair. GDS, every wider LDS store and broad
+  These add native cases 58/59 and pass in the complete aggregate above.
+  The earlier 57/57 report predates this runtime repair. GDS, every wider LDS store and broad
   scheduling/performance remain outside these word-level checks.
 - Complete **57/57 native GPU regression passed** on clean source `67d2323`,
   with all 248 runtime entries unchanged throughout:
