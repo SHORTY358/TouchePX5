@@ -6,6 +6,11 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **57/57 native GPU regression passed** on clean source `67d2323`,
+  with all 248 runtime entries unchanged throughout:
+  `artifacts/native-gpu/20261003-015244-572/report.json`.
+  This covers all six bounded-atomic scenarios below and every earlier graphics,
+  queue and image-coherence check. The Release runtime passes 1,291 unit tests.
 - Fixed **bounded Vulkan atomic INC/DEC**: the DATA limit is now honored via an
   atomic load and compare/exchange retry, returning the old value from the
   successful attempt. The shared buffer/image/LDS emitter uses unsigned limit
@@ -25,14 +30,15 @@ percentage or release-date estimate.
   Earlier atomic add and GPU-produced indirect ACB dimensions still pass:
   `artifacts/compute-clamp-add-regression.log`,
   `artifacts/compute-clamp-indirect-queue-regression.log`.
-  These add native cases 52–57. The complete 51-case report below predates
-  this runtime repair; native LDS, arbitrary scheduling and performance are
+  These add native cases 52–57 and pass in the complete aggregate above.
+  The complete 51-case report below predates this runtime repair; native LDS,
+  arbitrary scheduling and performance are
   not established by these targeted checks.
 - Complete **51/51 native GPU regression passed** on clean source `cf67ade`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-013510-019/report.json`.
-  Both image-atomic add variants below are included. Bounded atomic INC/DEC
-  remain incorrect: new native image and buffer fixtures each return guest 100
+  Both image-atomic add variants below are included. Before the current repair,
+  bounded atomic INC/DEC were incorrect: native image and buffer fixtures each returned guest 100
   on their first limit boundary (6 -> 7 -> expected 0, actual 8):
   `artifacts/compute-image-clamp-before.log`,
   `artifacts/compute-buffer-clamp-before.log`.
