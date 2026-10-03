@@ -467,3 +467,12 @@ images, and observed newer CPU writes retain the existing refresh path.
 DMA-only producer, waiting graphics consumer and strict wait/resume checks as
 case 43. These cases cover the stated coordinates and linear RGBA8 layout,
 not arbitrary subresources, native CPU writes without tracking or compute reads.
+
+Dependent draw/sample cases now also require a successful partial image upload
+at each DMA action's exact work sequence, before that action's completion trace.
+The first 45-case aggregate exposed an intermittent frame-boundary upload that
+erased the second frame's blend; a later rerun passed with identical source.
+Vulkan drains dirty image stores immediately after ordered PM4 side effects, so
+the next queued consumer sees the update and later frames cannot replay it over
+that consumer. Unchanged dirty epochs retain the cheap early return. This is
+Vulkan ordering coverage; Metal and unobserved native stores are not covered.

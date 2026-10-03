@@ -6,6 +6,27 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- The first 45-case aggregate on `608ee75` exposed an intermittent dependent
+  blend failure: `artifacts/native-gpu/20261002-235139-018/report.json`.
+  Its second frame contained a blue prefix without the expected purple blend;
+  an immediate rerun passed. Partial DMA had no queued image mirror, so its
+  dirty CPU spans could upload only at the next frame, after the dependent draw
+  and overwrite that draw. Vulkan now drains dirty image stores immediately
+  after each ordered PM4 side effect, before later queued work. The dirty-epoch
+  fast path still skips unchanged stores. Dependent draw/sample probes also
+  require each partial upload to share the DMA action's work sequence, before
+  the action completes; pixel results alone cannot hide delayed uploads.
+  Direct blending, cross-queue blending and both preserved-region sampling
+  variants pass on the repaired runtime:
+  `artifacts/dma-ordered-image-sync-draw.log`,
+  `artifacts/dma-ordered-image-sync-draw-cross.log`,
+  `artifacts/dma-ordered-image-sync-sample.log`,
+  `artifacts/dma-ordered-image-sync-sample-cross.log`.
+  Clean build and all 1,283 unit tests pass:
+  `artifacts/dma-ordered-image-sync-build.log`,
+  `artifacts/dma-ordered-image-sync-tests.log`.
+  The complete aggregate is being rerun. Metal and unobserved native writes
+  have not been changed or validated by this repair.
 - Fixed historical CPU snapshot selection after partial DMA: an uploaded
   generation alone does not establish full CPU contents. The Vulkan image now
   records complete CPU snapshots explicitly; partial uploads and GPU writes

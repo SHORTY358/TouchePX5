@@ -236,6 +236,20 @@ try {
         [regex]::Matches($output,"agc.dma_packet [^\r\n]*bytes=$dmaBytesPattern [^\r\n]*copied=True").Count -ne 2)) {
         throw 'Expected two successful DMA updates of an existing backend image.'
     }
+    if($DmaImageDraw -or $DmaImageSample) {
+        # Each partial upload must execute within its own ordered DMA action,
+        # before the next consumer. A frame-boundary upload may otherwise erase
+        # an already executed blend, even when occasional runs happen to pass.
+        $dmaActions=[regex]::Matches($output,"vk.ordered_action [^\r\n]*work_sequence=(\d+) name='dma_data dst=0x[0-9A-F]+ bytes=$dmaBytesPattern'")
+        if($dmaActions.Count -ne 2) { throw 'Expected two ordered DMA actions.' }
+        foreach($action in $dmaActions) {
+            $sequence=$action.Groups[1].Value
+            $uploads=[regex]::Matches($output,"vk.cpu_image_partial_upload [^\r\n]*work_sequence=$sequence success=True")
+            if($uploads.Count -ne 1 -or $uploads[0].Index -ge $action.Index) {
+                throw "Partial image upload did not execute within DMA action $sequence."
+            }
+        }
+    }
     $expectedDraws=if($DmaImageSample) { 3 } elseif($DmaImageDraw) { 3 } elseif($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
     if($MipCachePressure) { $expectedDraws += 40 }
     $expectedCaptures=if($DmaImage -or $Depth -or $Texture) { 4 } else { 3 }

@@ -7404,6 +7404,11 @@ internal static unsafe class VulkanVideoPresenter
                 }
             }
             work.Action();
+            // PM4 side effects can dirty image backing (including a partial
+            // DMA with no whole-image mirror). Publish those stores here,
+            // before the next queued draw or producer completion. Waiting for
+            // the next frame can upload the DMA over an already executed draw.
+            DrainGuestImageCpuSync();
             if (_traceVulkanShaderEnabled)
             {
                 TraceVulkanShader(
@@ -10660,6 +10665,10 @@ internal static unsafe class VulkanVideoPresenter
                         target.IsCpuBacked = false;
                         target.HasCompleteCpuSnapshot = false;
                         target.CpuContentFingerprint = 0;
+                        TraceVulkanShader(
+                            $"vk.cpu_image_partial_upload addr=0x{address:X16} " +
+                            $"generation={consumedGeneration} spans={managedWrites.Length} " +
+                            $"work_sequence={_activeGuestWorkSequence} success={allUploaded}");
                         if (allUploaded)
                         {
                             lock (_gate)
