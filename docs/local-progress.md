@@ -6,6 +6,38 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed **partial DMA replacing GPU-only R32 texels**. The former RGBA8-only
+  dirty-span gate uploaded the entire stale R32 CPU image after a one-word DMA,
+  replacing GPU value 7 with CPU value 99. The native preserved-word oracle
+  rejected guest 80 after two dispatches:
+  `artifacts/compute-r32-partial-before-evidence.json` and
+  `artifacts/compute-r32-partial-before-guest.log`.
+  Both partial-upload gates now accept linear single-mip/depth-1 R32_UINT and
+  R32_SINT with the same aligned span bounds as RGBA8. The Release rebuild and
+  **27/27 general engineering cases**, including **1,291 unit tests**, pass:
+  `artifacts/engineering/20261003-030021-325/report.json`.
+  All four targeted native checks pass:
+  `artifacts/compute-r32-partial-after.log`,
+  `artifacts/compute-r32-partial-after-queue.log`,
+  `artifacts/compute-r32-partial-signed-after.log`,
+  `artifacts/compute-r32-partial-signed-after-queue.log`.
+  They verify GPU-only 7 beside updated 123 through separate GPU reads and
+  preserve CPU neighbors and output guards. The cross-queue image consumer
+  also passes on this runtime: `artifacts/compute-image-atomic-cross-maintained.log`.
+  These add native cases 64-68; the complete aggregate is pending.
+  The 63-case report below predates this runtime fix.
+- A targeted **cross-queue image atomic consumer** passes without another
+  runtime change: `artifacts/compute-image-atomic-cross-targeted.log`.
+  Graphics consumers suspend before their ACB producers exist, then resume
+  through real labels and independently read sums 13/23. Returned atomic old
+  values, intentionally stale CPU image backing and output guards are checked.
+  Reading the wrong texel is rejected at guest 68 after three GPU dispatches:
+  `artifacts/compute-image-atomic-cross-negative-evidence.json`.
+- Complete **63/63 native GPU regression passed** on clean source `1b6fb26`:
+  `artifacts/native-gpu/20261003-024646-656/report.json`.
+  All 248 runtime entries stayed unchanged and exactly match the post-run
+  manifest of the earlier 27-case general report below. The later R32 partial
+  runtime repair supersedes these binaries and needs its own aggregate.
 - Complete **61/61 native GPU regression passed** on clean source `f2cc0b5`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-022638-535/report.json`.
@@ -23,7 +55,7 @@ percentage or release-date estimate.
   guards. Replacing the scaled instruction with the ordinary one is rejected
   at guest 155 after six GPU dispatches:
   `artifacts/compute-lds-paired-negative-evidence.json`.
-  These add native cases 62/63; their aggregate run is pending.
+  These add native cases 62/63 and pass in the aggregate above.
 - Added **two targeted wider LDS store cases**, passing without another runtime
   change: `artifacts/compute-lds-wide-native.log` and
   `artifacts/compute-lds-wide-native-queue.log`.
@@ -653,7 +685,7 @@ writes. Dependent destination-image blending before presentation now passes.
 Texture sampling, read-only compute fetches and single-pixel storage writes now
 have separate direct/cross-queue regressions above. Single-texel R32_UINT atomic
 add and bounded INC/DEC now have independent graphics/ACB checks. Further work
-should cover cross-queue image-atomic consumers, other
+should cover other image-atomic consumers and operations, additional
 atomics, other layouts and failed/unreadable writes without
 inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed

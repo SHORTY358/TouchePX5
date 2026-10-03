@@ -1,13 +1,17 @@
 [CmdletBinding()]
-param([switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
+param([switch]$PartialImage, [switch]$ImageAtomicsCrossQueue, [switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
 $ErrorActionPreference = 'Stop'
+if($PartialImage) { $ImageAtomics=$true }
+if($PartialImage -and $ImageAtomicsCrossQueue) { throw 'Choose either partial CPU image DMA or cross-queue image atomics.' }
+if($ImageAtomicsCrossQueue) { $ImageAtomics=$true }
+if($ImageAtomicsCrossQueue -and $ComputeQueue) { throw 'Cross-queue image mode uses an ACB producer and a graphics consumer.' }
 if($LdsPaired) { $LdsAtomics=$true }
 if($LdsWide) { $LdsAtomics=$true }
 if($LdsPaired -and $LdsWide) { throw 'Choose either paired or wide LDS stores.' }
 if($LdsAtomics) { $BoundedAtomics=$true }
 if($LdsAtomics -and ($BufferAtomics -or $SignedImage)) { throw 'LDS mode has no input buffer/image descriptor.' }
 if($BufferAtomics) { $BoundedAtomics=$true }
-if($SignedImage) { $BoundedAtomics=$true }
+if($SignedImage -and -not $PartialImage) { $BoundedAtomics=$true }
 if($SignedImage -and $BufferAtomics) { throw 'Signed-image mode requires an image descriptor.' }
 if($ImageAtomics -and $BoundedAtomics) { throw 'Choose either atomic add or bounded increment/decrement.' }
 if(($ImageAtomics -or $BoundedAtomics) -and ($IndirectDimensions -or $BaseRelative)) { throw 'Atomic image/buffer fixtures require their standalone layout.' }
@@ -15,6 +19,8 @@ if($BaseRelative -and $ComputeQueue) { throw 'The compute-queue fixture uses abs
 if($BaseRelative -or ($ComputeQueue -and -not ($ImageAtomics -or $BoundedAtomics))) { $IndirectDimensions=$true }
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-compute'
 if($ImageAtomics) { $root += '-image-atomics' }
+if($ImageAtomicsCrossQueue) { $root += '-cross-queue' }
+if($PartialImage) { $root += '-partial' }
 if($BoundedAtomics) { $root += '-bounded-atomics' }
 if($BufferAtomics) { $root += '-buffer' }
 if($SignedImage) { $root += '-signed' }
@@ -27,10 +33,10 @@ if($ComputeQueue) { $root += '-compute-queue' }
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
-$source=if($LdsPaired) { 'compute-lds-paired.c' } elseif($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
+$source=if($PartialImage) { 'compute-image-partial.c' } elseif($ImageAtomicsCrossQueue) { 'compute-image-atomic-cross.c' } elseif($LdsPaired) { 'compute-lds-paired.c' } elseif($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
 $fixtureOptions=@(
     if($BufferAtomics) { '-DCLAMP_BUFFER=1' }
-    if($SignedImage) { '-DCLAMP_SIGNED_IMAGE=1' }
+    if($SignedImage) { if($PartialImage) { '-DPARTIAL_SIGNED_IMAGE=1' } else { '-DCLAMP_SIGNED_IMAGE=1' } }
     if($BaseRelative) { '-DINDIRECT_BASE_RELATIVE=1' }
     if($ComputeQueue) { if($ImageAtomics -or $BoundedAtomics) { '-DIMAGE_ATOMIC_COMPUTE_QUEUE=1' } else { '-DINDIRECT_COMPUTE_QUEUE=1' } }
 )
@@ -62,7 +68,12 @@ try {
     $output = if (Test-Path -LiteralPath $log) { '' + (Get-Content -LiteralPath $log -Raw) } else { '' }
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Compute guest failed: $log" }
     if ($output -notmatch 'agc.compute_shader[^\r\n]*gpu=True[^\r\n]*global_writes=True') { throw "Missing translated GPU compute dispatch: $log" }
-    if($LdsPaired) {
+    if($PartialImage) {
+        if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 3 -or
+           [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=1 ').Count -ne 3 -or
+           [regex]::Matches($output,'agc.dma_packet [^\r\n]*bytes=4 src_sel=2 fill=True copied=True').Count -ne 1 -or
+           [regex]::Matches($output,'vk.cpu_image_partial_upload [^\r\n]*spans=1 [^\r\n]*success=True').Count -ne 1) { throw 'Expected GPU seed, a one-texel CPU DMA and two independent GPU readbacks preserving its GPU-only neighbor.' }
+    } elseif($LdsPaired) {
         if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 8 -or
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=0 ').Count -ne 8 -or
            [regex]::Matches($output,'agc.compute_shader [^\r\n]*local=64x1x1 ').Count -ne 2 -or
@@ -103,14 +114,23 @@ try {
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=1 ').Count -ne 3) { throw 'Expected one GPU seed, two contended image atomic dispatches and two separate image readbacks.' }
     } elseif ([regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 2) { throw "Expected two Vulkan executions: $log" }
     if ($output.Contains('agc.compute_semantic_fast_path')) { throw 'Probe unexpectedly used a CPU semantic replacement.' }
-    $expectedSubmissions=if($LdsPaired) { 8 } elseif($LdsWide) { 12 } elseif($LdsAtomics) { 19 } elseif($BoundedAtomics) { 39 } else { 5 }
-    if(($BoundedAtomics -or $ImageAtomics) -and -not $ComputeQueue -and
+    $expectedSubmissions=if($PartialImage) { 3 } elseif($LdsPaired) { 8 } elseif($LdsWide) { 12 } elseif($LdsAtomics) { 19 } elseif($BoundedAtomics) { 39 } else { 5 }
+    if($ImageAtomicsCrossQueue -and
+        ([regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=70 ').Count -ne 3 -or
+         [regex]::Matches($output,'agc.driver_submit_dcb [^\r\n]*dwords=77 ').Count -ne 2 -or
+         [regex]::Matches($output,'agc.wait_suspended [^\r\n]*queue=dcb.graphics ').Count -ne 2 -or
+         [regex]::Matches($output,'agc.dcb.resumed ').Count -ne 2 -or
+         [regex]::Matches($output,'agc.queue_resumed queue=dcb.graphics [^\r\n]*remaining_dwords=70 ').Count -ne 2 -or
+         $output.Contains('agc.deadlock_break ') -or $output.Contains('forced=True'))) { throw 'Expected three ACB producers and two genuinely suspended/resumed graphics image consumers.' }
+    if(($BoundedAtomics -or $ImageAtomics) -and -not ($ComputeQueue -or $ImageAtomicsCrossQueue) -and
         ([regex]::Matches($output,'agc.driver_submit_dcb ').Count -ne $expectedSubmissions -or
          $output.Contains('agc.driver_submit_acb '))) { throw "Expected $expectedSubmissions graphics-queue submissions only: $log" }
     if($ComputeQueue -and
         ([regex]::Matches($output,'agc.driver_submit_acb owner=7 ').Count -ne $expectedSubmissions -or
          $output.Contains('agc.driver_submit_dcb '))) { throw "Expected $expectedSubmissions compute-queue submissions only: $log" }
-    if($LdsPaired) { Write-Output "PASS: Paired LDS stores at ordinary and ST64-scaled offsets verified each component through independent dword reads on all 64 invocations, untouched LDS locations, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
+    if($PartialImage) { Write-Output "PASS: Partial R32 CPU DMA changed only texel 1 to 123; separate GPU reads preserved GPU-only texel 0 at 7 while CPU backing stayed 99, with unchanged output and neighboring CPU guards. SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
+    elseif($ImageAtomicsCrossQueue) { Write-Output "PASS: ACB image atomics returned unique old values; two graphics consumers suspended before their producers, resumed through real labels, and read sums 13/23 with unchanged CPU image backing and output guards." }
+    elseif($LdsPaired) { Write-Output "PASS: Paired LDS stores at ordinary and ST64-scaled offsets verified each component through independent dword reads on all 64 invocations, untouched LDS locations, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
     elseif($LdsWide) { Write-Output "PASS: Masked 64/96/128-bit LDS stores verified each component through independent dword reads on all 64 invocations, a neighboring LDS guard, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
     elseif($LdsAtomics) { Write-Output "PASS: LDS INC/DEC boundaries, 64-invocation shared cycles and inactive/lane-0/32/63 writes verified old values, final readback and output guards. ComputeQueue=$ComputeQueue" }
     elseif($BoundedAtomics) { Write-Output "PASS: Eleven GPU bounded INC/DEC cases and two 64-workgroup cycles verified old values, unsigned limit/wrap boundaries, separate readback and unchanged guards. BufferAtomics=$BufferAtomics SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }

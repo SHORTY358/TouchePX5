@@ -652,3 +652,39 @@ at its first active mask (guest 155 after six GPU dispatches):
 submissions on their requested queue and reject CPU semantic replacements.
 No further runtime change was needed. These checks cover the stated scaled
 offsets and masks; GDS and arbitrary addresses remain separate work.
+
+## Cross-queue storage-image atomics
+
+`Test-TouchePX5-Compute.ps1 -ImageAtomicsCrossQueue` adds case 64. An ACB
+owner-7 kernel seeds a GPU R32_UINT texel to 7. Two subsequent ACB kernels
+each run two contending workgroups adding 3/5. Their graphics-queue consumers
+are submitted first and must suspend on separate completion labels, then
+resume and independently read image sums 13/23. The two returned old values
+are checked without assuming invocation order. CPU image backing deliberately
+stays 99/100/101/102; output guards remain unchanged. The guest also checks
+that neither consumer completion nor output appears before its producer.
+
+Five actual GPU dispatches, three 70-dword ACB submissions, two 77-dword DCB
+submissions, two suspensions and two resumptions are required. CPU semantic
+replacement, forced resume and deadlock-break paths are rejected. Changing
+the consumer to read texel 1 is rejected with guest 68 after three GPU
+dispatches: `artifacts/compute-image-atomic-cross-negative-evidence.json`.
+
+## Partial CPU DMA into integer images
+
+`Test-TouchePX5-Compute.ps1 -PartialImage`, with optional `-SignedImage` and
+`-ComputeQueue`, adds cases 65-68 for R32_UINT/R32_SINT on graphics/ACB queues.
+A GPU kernel seeds texel 0 to 7 while CPU backing stays 99. A four-byte DMA
+changes only texel 1 to 123; separate GPU reads must see preserved 7 and new
+123. The guest checks all neighboring CPU words and output guards. Three
+GPU dispatches, one successful DMA and one successful partial upload are
+required, exclusively on the selected queue; CPU replacements are rejected.
+
+Before repair the RGBA8-only partial-upload gate fell back to uploading all
+16 stale CPU bytes, replacing GPU texel 0 with 99 and failing guest 80 after
+two dispatches: `artifacts/compute-r32-partial-before-evidence.json` and
+`artifacts/compute-r32-partial-before-guest.log`. Both the dirty-span gate and
+upload validation now admit linear single-mip/depth-1 R32 integer images,
+retaining four-byte alignment, exact extents and incomplete CPU snapshot
+state. Unsupported formats/layouts and unaligned writes retain their existing
+fallback behavior; these tests do not establish their correctness.

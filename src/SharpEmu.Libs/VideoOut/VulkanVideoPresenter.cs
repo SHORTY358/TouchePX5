@@ -10616,11 +10616,12 @@ internal static unsafe class VulkanVideoPresenter
                     }
 
                     // Managed DMA/HLE writes know their exact byte spans. For a
-                    // linear RGBA8 target, upload only changed whole pixels;
+                    // linear RGBA8 or R32 integer target, upload only changed texels;
                     // untouched GPU pixels need not exist in CPU memory.
                     var rowBytes = (ulong)target.Width * 4;
                     if (target.Initialized && target.TileMode == 0 && target.Depth == 1 &&
-                        target.MipLevels == 1 && target.Format == Format.R8G8B8A8Unorm &&
+                        target.MipLevels == 1 &&
+                        target.Format is (Format.R8G8B8A8Unorm or Format.R32Uint or Format.R32Sint) &&
                         rowBytes != 0 && byteCount == rowBytes * target.Height &&
                         managedWrites is { Length: > 0 } &&
                         managedWrites.All(write => write.Offset % 4 == 0 &&
@@ -16428,7 +16429,8 @@ internal static unsafe class VulkanVideoPresenter
             var uploadHeight = rowCount == 0 ? target.Height : rowCount;
             var uploadWidth = columnCount == 0 ? target.Width : columnCount;
             if (rowCount != 0 && (!target.Initialized || target.Depth != 1 || target.MipLevels != 1 ||
-                target.TileMode != 0 || target.Format != Format.R8G8B8A8Unorm ||
+                target.TileMode != 0 ||
+                target.Format is not (Format.R8G8B8A8Unorm or Format.R32Uint or Format.R32Sint) ||
                 firstRow >= target.Height || rowCount > target.Height - firstRow ||
                 firstColumn >= target.Width || uploadWidth > target.Width - firstColumn ||
                 (ulong)pixels.Length != (ulong)uploadWidth * rowCount * 4))
