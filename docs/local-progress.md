@@ -6,6 +6,24 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **61/61 native GPU regression passed** on clean source `f2cc0b5`,
+  with all 248 runtime entries unchanged throughout:
+  `artifacts/native-gpu/20261003-022638-535/report.json`.
+  The subsequent Release rebuild and general engineering run also passed
+  **27/27 cases**, including **1,291 unit tests**:
+  `artifacts/engineering/20261003-024158-962/report.json`.
+  Its post-run runtime manifest is saved alongside that report. This rebuild
+  can change binary metadata; the preceding GPU report is not used to claim
+  identical files without a manifest comparison.
+- Added targeted **paired/scaled-offset LDS store checks** without a runtime
+  change: `artifacts/compute-lds-paired-native.log` and
+  `artifacts/compute-lds-paired-native-queue.log`. Each runs eight kernels with
+  64 invocations, checks inactive/lane-0/32/63 masks, independently reads
+  offsets 4/12 and 256/768, and verifies untouched LDS locations and output
+  guards. Replacing the scaled instruction with the ordinary one is rejected
+  at guest 155 after six GPU dispatches:
+  `artifacts/compute-lds-paired-negative-evidence.json`.
+  These add native cases 62/63; their aggregate run is pending.
 - Added **two targeted wider LDS store cases**, passing without another runtime
   change: `artifacts/compute-lds-wide-native.log` and
   `artifacts/compute-lds-wide-native-queue.log`.
@@ -18,8 +36,9 @@ percentage or release-date estimate.
   Atomic modes now require exact submissions exclusively on their requested
   graphics/ACB queue; prior image atomic add passes this stricter check:
   `artifacts/compute-lds-wide-submit-regression.log`.
-  These add native cases 60/61; the latest complete aggregate remains 59/59
-  below. Paired/scaled-offset LDS stores and GDS remain separate work.
+  These add native cases 60/61 and pass in the 61-case aggregate above.
+  Paired/scaled-offset LDS stores have independent checks above; GDS remains
+  separate work.
 - Complete **59/59 native GPU regression passed** on clean source `450b8f2`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-021050-830/report.json`.
@@ -634,7 +653,7 @@ writes. Dependent destination-image blending before presentation now passes.
 Texture sampling, read-only compute fetches and single-pixel storage writes now
 have separate direct/cross-queue regressions above. Single-texel R32_UINT atomic
 add and bounded INC/DEC now have independent graphics/ACB checks. Further work
-should cover paired/scaled-offset LDS stores, cross-queue image-atomic consumers, other
+should cover cross-queue image-atomic consumers, other
 atomics, other layouts and failed/unreadable writes without
 inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed

@@ -633,3 +633,22 @@ submissions. The runner now enforces this for other atomic modes too.
 No further runtime change was needed after the masked LDS-store fix. This
 covers contiguous writes at byte offset zero and the stated masks, not paired
 stores with scaled offsets, GDS or every possible LDS address.
+
+## Paired native LDS stores
+
+`Test-TouchePX5-Compute.ps1 -LdsPaired` and `-LdsPaired -ComputeQueue` add
+cases 62/63. Eight 64-invocation dispatches test `DS_WRITE2_B32` and
+`DS_WRITE2_ST64_B32` under inactive/lane-0/32/63 masks. Offset indices 1/3
+address bytes 4/12 for ordinary writes and 256/768 for ST64. Five locations
+are initialized independently to 48 through lane-0 atomic exchanges; an
+active writer stores 6/12 only at the two selected locations. Independent
+single-dword reads verify every invocation, both intervening and neighboring
+LDS guards, per-record padding and sixteen trailing output guards.
+
+Changing only the ST64 instruction to an ordinary paired store is rejected
+at its first active mask (guest 155 after six GPU dispatches):
+`artifacts/compute-lds-paired-negative-evidence.json` and
+`artifacts/compute-lds-paired-negative.log`. Both modes require exactly eight
+submissions on their requested queue and reject CPU semantic replacements.
+No further runtime change was needed. These checks cover the stated scaled
+offsets and masks; GDS and arbitrary addresses remain separate work.

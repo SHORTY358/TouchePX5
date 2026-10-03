@@ -1,7 +1,9 @@
 [CmdletBinding()]
-param([switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
+param([switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
 $ErrorActionPreference = 'Stop'
+if($LdsPaired) { $LdsAtomics=$true }
 if($LdsWide) { $LdsAtomics=$true }
+if($LdsPaired -and $LdsWide) { throw 'Choose either paired or wide LDS stores.' }
 if($LdsAtomics) { $BoundedAtomics=$true }
 if($LdsAtomics -and ($BufferAtomics -or $SignedImage)) { throw 'LDS mode has no input buffer/image descriptor.' }
 if($BufferAtomics) { $BoundedAtomics=$true }
@@ -18,13 +20,14 @@ if($BufferAtomics) { $root += '-buffer' }
 if($SignedImage) { $root += '-signed' }
 if($LdsAtomics) { $root += '-lds' }
 if($LdsWide) { $root += '-wide' }
+if($LdsPaired) { $root += '-paired' }
 if($IndirectDimensions) { $root += '-indirect-dimensions' }
 if($BaseRelative) { $root += '-base-relative' }
 if($ComputeQueue) { $root += '-compute-queue' }
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
-$source=if($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
+$source=if($LdsPaired) { 'compute-lds-paired.c' } elseif($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
 $fixtureOptions=@(
     if($BufferAtomics) { '-DCLAMP_BUFFER=1' }
     if($SignedImage) { '-DCLAMP_SIGNED_IMAGE=1' }
@@ -59,7 +62,13 @@ try {
     $output = if (Test-Path -LiteralPath $log) { '' + (Get-Content -LiteralPath $log -Raw) } else { '' }
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Compute guest failed: $log" }
     if ($output -notmatch 'agc.compute_shader[^\r\n]*gpu=True[^\r\n]*global_writes=True') { throw "Missing translated GPU compute dispatch: $log" }
-    if($LdsWide) {
+    if($LdsPaired) {
+        if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 8 -or
+           [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=0 ').Count -ne 8 -or
+           [regex]::Matches($output,'agc.compute_shader [^\r\n]*local=64x1x1 ').Count -ne 2 -or
+           -not $output.Contains('DsWrite2B32') -or
+           -not $output.Contains('DsWrite2St64B32')) { throw 'Expected paired and scaled-offset LDS stores under inactive/lane-0/32/63 masks.' }
+    } elseif($LdsWide) {
         if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 12 -or
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=0 ').Count -ne 12 -or
            [regex]::Matches($output,'agc.compute_shader [^\r\n]*local=64x1x1 ').Count -ne 3 -or
@@ -94,14 +103,15 @@ try {
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=1 ').Count -ne 3) { throw 'Expected one GPU seed, two contended image atomic dispatches and two separate image readbacks.' }
     } elseif ([regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 2) { throw "Expected two Vulkan executions: $log" }
     if ($output.Contains('agc.compute_semantic_fast_path')) { throw 'Probe unexpectedly used a CPU semantic replacement.' }
-    $expectedSubmissions=if($LdsWide) { 12 } elseif($LdsAtomics) { 19 } elseif($BoundedAtomics) { 39 } else { 5 }
+    $expectedSubmissions=if($LdsPaired) { 8 } elseif($LdsWide) { 12 } elseif($LdsAtomics) { 19 } elseif($BoundedAtomics) { 39 } else { 5 }
     if(($BoundedAtomics -or $ImageAtomics) -and -not $ComputeQueue -and
         ([regex]::Matches($output,'agc.driver_submit_dcb ').Count -ne $expectedSubmissions -or
          $output.Contains('agc.driver_submit_acb '))) { throw "Expected $expectedSubmissions graphics-queue submissions only: $log" }
     if($ComputeQueue -and
         ([regex]::Matches($output,'agc.driver_submit_acb owner=7 ').Count -ne $expectedSubmissions -or
          $output.Contains('agc.driver_submit_dcb '))) { throw "Expected $expectedSubmissions compute-queue submissions only: $log" }
-    if($LdsWide) { Write-Output "PASS: Masked 64/96/128-bit LDS stores verified each component through independent dword reads on all 64 invocations, a neighboring LDS guard, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
+    if($LdsPaired) { Write-Output "PASS: Paired LDS stores at ordinary and ST64-scaled offsets verified each component through independent dword reads on all 64 invocations, untouched LDS locations, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
+    elseif($LdsWide) { Write-Output "PASS: Masked 64/96/128-bit LDS stores verified each component through independent dword reads on all 64 invocations, a neighboring LDS guard, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
     elseif($LdsAtomics) { Write-Output "PASS: LDS INC/DEC boundaries, 64-invocation shared cycles and inactive/lane-0/32/63 writes verified old values, final readback and output guards. ComputeQueue=$ComputeQueue" }
     elseif($BoundedAtomics) { Write-Output "PASS: Eleven GPU bounded INC/DEC cases and two 64-workgroup cycles verified old values, unsigned limit/wrap boundaries, separate readback and unchanged guards. BufferAtomics=$BufferAtomics SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
     elseif($ImageAtomics) { Write-Output 'PASS: R32_UINT GPU image atomics returned unique old values for both invocations, preserved output guards and produced sums 13/23 through separate GPU image readbacks. CPU image backing remained 99/100/101/102.' }
