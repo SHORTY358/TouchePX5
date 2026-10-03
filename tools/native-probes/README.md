@@ -611,3 +611,25 @@ submissions. These establish the stated word operations and active-lane masks
 in one 64-invocation group, not cross-queue waits, GDS or native conformance of
 every wider LDS store. Wider stores use the repaired common emitter but do
 not have native width-specific oracles here.
+
+## Wider native LDS stores
+
+`Test-TouchePX5-Compute.ps1 -LdsWide` and `-LdsWide -ComputeQueue` add cases
+60/61. Each runs twelve 64-invocation dispatches: `DS_WRITE_B64`,
+`DS_WRITE_B96` and `DS_WRITE_B128` under inactive/lane-0/32/63 masks.
+Five LDS words are independently initialized to 48 via lane-0 atomic exchanges.
+The selected writer stores 6/3/9/12 across exactly its declared width.
+Independent `DS_READ_B32` operations read all five words, avoiding a matching
+wide-read error hiding a wide-write error. Every invocation checks the written
+components and untouched neighbors, including the fifth LDS guard beyond the
+largest store. Each output record also has three padding guards and the buffer
+has sixteen trailing guard words. No CPU replacement is allowed.
+
+Changing only the 96-bit instruction to a 64-bit store is rejected at its
+first active mask (guest 155 after six GPU dispatches):
+`artifacts/compute-lds-wide-negative.log`. Direct and ACB variants require
+exactly twelve submissions on their requested queue, with no other queue
+submissions. The runner now enforces this for other atomic modes too.
+No further runtime change was needed after the masked LDS-store fix. This
+covers contiguous writes at byte offset zero and the stated masks, not paired
+stores with scaled offsets, GDS or every possible LDS address.

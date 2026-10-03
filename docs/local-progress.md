@@ -6,6 +6,20 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added **two targeted wider LDS store cases**, passing without another runtime
+  change: `artifacts/compute-lds-wide-native.log` and
+  `artifacts/compute-lds-wide-native-queue.log`.
+  Each runs twelve 64-invocation kernels for 64/96/128-bit writes under
+  inactive/lane-0/32/63 masks. Independent dword reads verify written values,
+  untouched components and a neighboring fifth LDS word. Per-record padding
+  and trailing output guards are also checked. A wrong-width instruction
+  (96 -> 64 bits) is correctly rejected with guest 155 after six real GPU
+  dispatches: `artifacts/compute-lds-wide-negative.log`.
+  Atomic modes now require exact submissions exclusively on their requested
+  graphics/ACB queue; prior image atomic add passes this stricter check:
+  `artifacts/compute-lds-wide-submit-regression.log`.
+  These add native cases 60/61; the latest complete aggregate remains 59/59
+  below. Paired/scaled-offset LDS stores and GDS remain separate work.
 - Complete **59/59 native GPU regression passed** on clean source `450b8f2`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-021050-830/report.json`.
@@ -30,8 +44,9 @@ percentage or release-date estimate.
   **1,291 unit tests pass**:
   `artifacts/compute-lds-masked-build.log`, `artifacts/compute-lds-masked-tests.log`.
   These add native cases 58/59 and pass in the complete aggregate above.
-  The earlier 57/57 report predates this runtime repair. GDS, every wider LDS store and broad
-  scheduling/performance remain outside these word-level checks.
+  The earlier 57/57 report predates this runtime repair. GDS and broad
+  scheduling/performance remain outside these word-level checks; the newer
+  width-specific cases above cover their stated wider stores.
 - Complete **57/57 native GPU regression passed** on clean source `67d2323`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-015244-572/report.json`.
@@ -619,7 +634,7 @@ writes. Dependent destination-image blending before presentation now passes.
 Texture sampling, read-only compute fetches and single-pixel storage writes now
 have separate direct/cross-queue regressions above. Single-texel R32_UINT atomic
 add and bounded INC/DEC now have independent graphics/ACB checks. Further work
-should cover wider native LDS stores, cross-queue image-atomic consumers, other
+should cover paired/scaled-offset LDS stores, cross-queue image-atomic consumers, other
 atomics, other layouts and failed/unreadable writes without
 inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed
