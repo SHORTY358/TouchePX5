@@ -40,9 +40,16 @@ static u32 dma_image_source[320*180] __attribute__((aligned(256)));
 #endif
 #ifdef TEST_DMA_IMAGE_COMPUTE_READ
 static volatile u32 image_readback[16] __attribute__((aligned(256)));
-// Integer image fetches at two rows, followed by global-memory stores.
+// Image fetches and guarded buffer readback, with an optional one-pixel store.
 // s0=x, s1=upper y, s2=lower y, s8..15=image, s24..27=output buffer.
 static const u32 image_read_shader[] __attribute__((aligned(256))) = {
+#ifdef TEST_DMA_IMAGE_COMPUTE_STORE
+    // Write yellow at (96,48); the ordinary sample points stay untouched.
+    0x7e000203,0x7e020204,
+    0x7e1002ff,0x3f800000,0x7e1202ff,0x3f800000,
+    0x7e140280,0x7e1602ff,0x3f800000,
+    0xf0200f08,0x00020800,0xbf8c0f70,
+#endif
     0x7e000200,0x7e020201,0x7e040280,
     0xf0000f08,0x00020400,0xbf8c0f70,
     0xe0700000,0x80060402,0xe0700004,0x80060502,
@@ -50,6 +57,11 @@ static const u32 image_read_shader[] __attribute__((aligned(256))) = {
     0x7e020202,0xf0000f08,0x00020400,0xbf8c0f70,
     0xe0700010,0x80060402,0xe0700014,0x80060502,
     0xe0700018,0x80060602,0xe070001c,0x80060702,
+#ifdef TEST_DMA_IMAGE_COMPUTE_STORE
+    0x7e000203,0x7e020204,0xf0000f08,0x00020400,0xbf8c0f70,
+    0xe0700020,0x80060402,0xe0700024,0x80060502,
+    0xe0700028,0x80060602,0xe070002c,0x80060702,
+#endif
     0xbf810000
 };
 #endif
@@ -385,6 +397,9 @@ static void queue_compute_image_read(void) {
     compute_reg(0x213,28u<<1);
     compute_reg(0x207,1); compute_reg(0x208,1); compute_reg(0x209,1);
     compute_reg(0x240,80); compute_reg(0x241,45); compute_reg(0x242,112);
+#ifdef TEST_DMA_IMAGE_COMPUTE_STORE
+    compute_reg(0x243,96); compute_reg(0x244,48);
+#endif
     compute_reg(0x248,(u32)(texture>>8));
     compute_reg(0x249,(u32)(texture>>40)|(56u<<20)|(3u<<30));
     compute_reg(0x24a,(319u>>2)|(179u<<14)); compute_reg(0x24b,0x90000fac);
@@ -402,7 +417,14 @@ static int verify_compute_image_read(u32 pass) {
        image_readback[2]!=(pass==2 ? one : 0) || image_readback[3]!=one ||
        image_readback[4]!=one || image_readback[5]!=0 ||
        image_readback[6]!=0 || image_readback[7]!=one) return 94;
-    for(u32 i=8;i<16;i++) if(image_readback[i]!=0xdeadbeef) return 95;
+#ifdef TEST_DMA_IMAGE_COMPUTE_STORE
+    if(image_readback[8]!=one || image_readback[9]!=one ||
+       image_readback[10]!=0 || image_readback[11]!=one) return 96;
+    const u32 first_guard=12;
+#else
+    const u32 first_guard=8;
+#endif
+    for(u32 i=first_guard;i<16;i++) if(image_readback[i]!=0xdeadbeef) return 95;
     return 0;
 }
 #endif

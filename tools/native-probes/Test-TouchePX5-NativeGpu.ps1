@@ -50,6 +50,8 @@ try {
         @{Name='triangle-dma-image-sample-preserved-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-cross-queue-prefix-sample-preserved\triangle.log'; Parameters=@{DmaImageSamplePreserved=$true;DmaImageCrossQueue=$true}},
         @{Name='triangle-dma-image-compute-read'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-prefix-sample-preserved-compute-read\triangle.log'; Parameters=@{DmaImageComputeRead=$true}},
         @{Name='triangle-dma-image-compute-read-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-cross-queue-prefix-sample-preserved-compute-read\triangle.log'; Parameters=@{DmaImageComputeRead=$true;DmaImageCrossQueue=$true}},
+        @{Name='triangle-dma-image-compute-store'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-prefix-sample-preserved-compute-read-store\triangle.log'; Parameters=@{DmaImageComputeStore=$true}},
+        @{Name='triangle-dma-image-compute-store-cross-queue'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-dma-image-cross-queue-prefix-sample-preserved-compute-read-store\triangle.log'; Parameters=@{DmaImageComputeStore=$true;DmaImageCrossQueue=$true}},
         @{Name='triangle-texture'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture\triangle.log'; Parameters=@{Texture=$true}},
         @{Name='triangle-texture-select'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select\triangle.log'; Parameters=@{TextureSelect=$true}},
         @{Name='triangle-texture-uv'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-uv\triangle.log'; Parameters=@{TextureUv=$true}},

@@ -501,3 +501,22 @@ passes; the second fetch reads blue instead of preserved red and the guest
 returns 94 after two real Vulkan dispatches. Its saved evidence is
 `artifacts/dma-compute-image-read-negative.log`. This checks that the readback
 assertions reject the wrong region independently of the sampled-frame oracle.
+
+`-DmaImageComputeStore` adds case 48 and implies `-DmaImageComputeRead`.
+Each compute invocation first writes yellow at (96,48), then reads the two
+existing control texels plus that written pixel. Matching image store/load
+descriptors use storage-image bindings, exercising `ImageWrite`/`ImageRead`
+instead of the read-only variant's integer fetches. The guest checks the three
+RGBA vectors and four remaining output guard words on every pass, while the
+ordinary sampled frames must retain their exact red/blue/red triangle results.
+Three actual Vulkan dispatches with four image bindings each are required.
+
+`-DmaImageComputeStore -DmaImageCrossQueue` adds case 49 with DMA-only ACB
+producers and waiting graphics consumers containing the compute and draw work.
+Both resumed consumers must retain 139 command words. The separate negative
+experiment in `artifacts/compute-image-store-wrong-pixel` changes only the store
+row to 49 while checking row 48; it is rejected with guest 96 after one actual
+GPU dispatch. Evidence is `artifacts/dma-compute-image-store-negative.log`.
+These tests establish the stated one-pixel writes/read-after-write, not storage
+atomics, every untouched source pixel, arbitrary layouts or native unobserved
+stores. No runtime change was required.

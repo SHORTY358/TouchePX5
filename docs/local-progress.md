@@ -6,6 +6,24 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added single-pixel storage-image write/read coverage without a runtime change:
+  `-DmaImageComputeStore` writes yellow at (96,48), then returns that pixel plus
+  the existing updated/preserved samples into the guarded output buffer. Three
+  GPU dispatches require four storage-image bindings each; readback checks 36
+  RGBA values and 12 guard words total. The prior sampled frames remain exact.
+  Direct and cross-queue forms pass:
+  `artifacts/dma-compute-image-store.log`,
+  `artifacts/dma-compute-image-store-cross-queue.log`.
+  Writing row 49 while checking row 48 is rejected by the store readback check
+  (guest 96 after one real GPU dispatch):
+  `artifacts/dma-compute-image-store-negative.log`,
+  `artifacts/compute-image-store-wrong-pixel/triangle.log`.
+  The original read-only variant also passes after the shared-fixture changes:
+  `artifacts/dma-compute-image-store-read-regression.log`.
+  These add cases 48/49; the last complete aggregate is still the 47-case report
+  below, with unchanged runtime binaries. This establishes one pixel's store
+  and read-after-write in these dispatches, not storage atomics, other layouts,
+  all untouched source pixels or unobserved native CPU stores.
 - Complete **47/47 native GPU regression passed** on clean source `24435a4`,
   with runtime files unchanged throughout:
   `artifacts/native-gpu/20261003-004902-315/report.json`.
@@ -28,7 +46,8 @@ percentage or release-date estimate.
   These add native cases 46/47 and are covered by the complete aggregate above;
   runtime binaries are unchanged from the preceding 45-case result.
   Storage-image writes/atomics, other layouts and unobserved native stores are
-  not established by these point reads.
+  not established by these point reads; the newer store cases above cover only
+  their stated pixel write.
 - Complete **45/45 native GPU regression passed** on clean source `1092ac8`,
   with runtime files unchanged throughout:
   `artifacts/native-gpu/20261003-000241-248/report.json`.
