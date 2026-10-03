@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImageComputeRead, [switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($DmaImageComputeRead) { $DmaImageSamplePreserved=$true }
 if($DmaImageSamplePreserved) { $DmaImageSample=$true }
 if($DmaImageSample) {
     if($DmaImageDraw -or $DmaImageSpan) { throw 'Texture consumer requires its prefix layout.' }
@@ -13,7 +14,7 @@ if($DmaImageDraw) {
 if($DmaImageSpan) { $DmaImagePrefix=$true }
 if($DmaImagePrefix) { $DmaImage=$true }
 if($DmaImageCrossQueue) { $DmaImage=$true }
-if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw','DmaImageSample','DmaImageSamplePreserved') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
+if($DmaImage -and @($PSBoundParameters.Keys | Where-Object { $_ -notin @('DmaImage','DmaImageCrossQueue','DmaImagePrefix','DmaImageSpan','DmaImageDraw','DmaImageSample','DmaImageSamplePreserved','DmaImageComputeRead') }).Count -gt 0) { throw 'DMA image probe requires its standalone layout.' }
 if($CrossQueueWriteData -and $CrossQueueReuse) { throw 'Choose either WRITE_DATA reset or cross-submission label reuse.' }
 if($CrossQueueDma -and ($CrossQueueReuse -or $CrossQueueWriteData)) { throw 'DMA reset requires its standalone cross-queue mode.' }
 if($CrossQueueReuse -or $CrossQueueWriteData -or $CrossQueueDma) { $CrossQueue=$true }
@@ -36,6 +37,7 @@ if($DmaImageSpan) { $root += '-span' }
 if($DmaImageDraw) { $root += '-draw' }
 if($DmaImageSample) { $root += '-sample' }
 if($DmaImageSamplePreserved) { $root += '-preserved' }
+if($DmaImageComputeRead) { $root += '-compute-read' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc3) {
@@ -130,6 +132,7 @@ if($DmaImageSpan) { $defines += '-DTEST_DMA_IMAGE_SPAN=1' }
 if($DmaImageDraw) { $defines += '-DTEST_DMA_IMAGE_DRAW=1' }
 if($DmaImageSample) { $defines += '-DTEST_DMA_IMAGE_SAMPLE=1' }
 if($DmaImageSamplePreserved) { $defines += '-DTEST_DMA_IMAGE_SAMPLE_PRESERVED=1' }
+if($DmaImageComputeRead) { $defines += '-DTEST_DMA_IMAGE_COMPUTE_READ=1' }
 if($Blend) { $defines += '-DTEST_BLEND=1' }
 if($IndexBits) { $defines += "-DINDEX_BITS=$IndexBits" }
 if($Scissor) { $defines += '-DTEST_SCISSOR=1' }
@@ -212,10 +215,11 @@ try {
         throw 'Expected two genuinely suspended/resumed graphics consumers and two ACB image producers.'
     }
     $dmaBytesPattern=if($DmaImageSpan) { '115840' } elseif($DmaImagePrefix) { '115200' } else { '230400' }
+    $sampleConsumerWords=if($DmaImageComputeRead) { 133 } else { 65 }
     if($DmaImageSample -and $DmaImageCrossQueue -and
        ([regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=21 ').Count -ne 1 -or
         [regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=15 ').Count -ne 1 -or
-        [regex]::Matches($output,'agc.queue_resumed queue=dcb.graphics [^\r\n]*remaining_dwords=65 ').Count -ne 2)) {
+        [regex]::Matches($output,"agc.queue_resumed queue=dcb.graphics [^\r\n]*remaining_dwords=$sampleConsumerWords ").Count -ne 2)) {
         throw 'Expected DMA-only producers and two texture draws in resumed graphics consumers.'
     }
     if($DmaImageDraw -and $DmaImageCrossQueue -and
@@ -249,6 +253,16 @@ try {
                 throw "Partial image upload did not execute within DMA action $sequence."
             }
         }
+    }
+    if($DmaImageComputeRead) {
+        # Each ImageLoad has its own binding, even though both alias one image.
+        # The shader summary is cached; actual dispatch traces must occur three times.
+        if([regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=2 ').Count -ne 3 -or
+           $output -notmatch 'agc.compute_shader[^\r\n]*gpu=True[^\r\n]*global_writes=True' -or
+           $output.Contains('agc.compute_semantic_fast_path')) {
+            throw 'Expected three translated image-reading compute dispatches with GPU readback.'
+        }
+        Write-Output 'PASS: Three GPU compute image reads returned exact RGBA values from updated and preserved texels; output guard words remain unchanged.'
     }
     $expectedDraws=if($DmaImageSample) { 3 } elseif($DmaImageDraw) { 3 } elseif($DmaImage) { 1 } elseif($Depth) { 4 } elseif($Texture) { 3 } else { 2 }
     if($MipCachePressure) { $expectedDraws += 40 }
@@ -587,6 +601,10 @@ public static class TextureUvVerifierV3 {
         CrossQueueReuse=[bool]$CrossQueueReuse
         CrossQueueWriteData=[bool]$CrossQueueWriteData
         CrossQueueDma=[bool]$CrossQueueDma
+        DmaImageComputeRead=[bool]$DmaImageComputeRead
+        ComputeImageReadDispatches=$(if($DmaImageComputeRead) { 3 } else { 0 })
+        ComputeImageReadValueChecks=$(if($DmaImageComputeRead) { 24 } else { 0 })
+        ComputeImageReadGuardChecks=$(if($DmaImageComputeRead) { 24 } else { 0 })
         DmaImageSamplePreserved=[bool]$DmaImageSamplePreserved
         DmaImageSample=[bool]$DmaImageSample
         DmaImageDraw=[bool]$DmaImageDraw

@@ -6,6 +6,24 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added GPU compute-image readback coverage without a runtime change:
+  `-DmaImageComputeRead` reads updated (80,45) and preserved (80,112) texels with
+  integer image fetches, returning RGBA float values into a separate buffer.
+  The guest checks red/red, blue/red and green/red after ordered completion,
+  plus eight unchanged guard words on every pass. CPU backing in the preserved
+  region remains gray. Three actual Vulkan dispatches, observed global writes,
+  no CPU semantic replacement, ordered image uploads and all sampled-frame
+  pixel checks are required. Both direct and cross-queue forms pass:
+  `artifacts/dma-compute-image-read.log`,
+  `artifacts/dma-compute-image-read-cross-queue.log`.
+  A separate wrong-row negative fixture is rejected at the second compute
+  readback (guest code 94 after two real GPU dispatches):
+  `artifacts/dma-compute-image-read-negative.log`,
+  `artifacts/compute-image-read-wrong-row/triangle.log`.
+  These add native cases 46/47. The complete 45-case aggregate below remains
+  the last full aggregate; runtime binaries are unchanged from that result.
+  Storage-image writes/atomics, other layouts and unobserved native stores are
+  not established by these point reads.
 - Complete **45/45 native GPU regression passed** on clean source `1092ac8`,
   with runtime files unchanged throughout:
   `artifacts/native-gpu/20261003-000241-248/report.json`.
@@ -13,7 +31,7 @@ percentage or release-date estimate.
   publication fixes alongside the existing compute, texture/mip, depth,
   blending, indexed draw and queue scenarios. Commercial games, unobserved
   native CPU stores, arbitrary layouts and compute-image reads remain outside
-  this result.
+  that aggregate; the two newer targeted cases above cover the stated reads.
 - The first 45-case aggregate on `608ee75` exposed an intermittent dependent
   blend failure: `artifacts/native-gpu/20261002-235139-018/report.json`.
   Its second frame contained a blue prefix without the expected purple blend;

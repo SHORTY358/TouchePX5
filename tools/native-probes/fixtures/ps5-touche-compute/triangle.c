@@ -38,6 +38,21 @@ static u32 dma_image_source[320*180] __attribute__((aligned(256)));
 #define DMA_END_PIXEL (320*90)
 #endif
 #endif
+#ifdef TEST_DMA_IMAGE_COMPUTE_READ
+static volatile u32 image_readback[16] __attribute__((aligned(256)));
+// Integer image fetches at two rows, followed by global-memory stores.
+// s0=x, s1=upper y, s2=lower y, s8..15=image, s24..27=output buffer.
+static const u32 image_read_shader[] __attribute__((aligned(256))) = {
+    0x7e000200,0x7e020201,0x7e040280,
+    0xf0000f08,0x00020400,0xbf8c0f70,
+    0xe0700000,0x80060402,0xe0700004,0x80060502,
+    0xe0700008,0x80060602,0xe070000c,0x80060702,
+    0x7e020202,0xf0000f08,0x00020400,0xbf8c0f70,
+    0xe0700010,0x80060402,0xe0700014,0x80060502,
+    0xe0700018,0x80060602,0xe070001c,0x80060702,
+    0xbf810000
+};
+#endif
 static unsigned char attribute[40];
 static u64 addresses[1];
 static volatile u32 completed;
@@ -359,8 +374,43 @@ static void reg(u32 opcode,u32 index,u32 value) {
     commands[n++]=0xc0010000|(opcode<<8);
     commands[n++]=index; commands[n++]=value;
 }
+#ifdef TEST_DMA_IMAGE_COMPUTE_READ
+static void compute_reg(u32 index,u32 value) {
+    commands[n++]=0xc0017602; commands[n++]=index; commands[n++]=value;
+}
+static void queue_compute_image_read(void) {
+    for(u32 i=0;i<16;i++) image_readback[i]=0xdeadbeef;
+    u64 texture=(u64)pixels, shader=(u64)image_read_shader, output=(u64)image_readback;
+    compute_reg(0x20c,(u32)(shader>>8)); compute_reg(0x20d,(u32)(shader>>40));
+    compute_reg(0x213,28u<<1);
+    compute_reg(0x207,1); compute_reg(0x208,1); compute_reg(0x209,1);
+    compute_reg(0x240,80); compute_reg(0x241,45); compute_reg(0x242,112);
+    compute_reg(0x248,(u32)(texture>>8));
+    compute_reg(0x249,(u32)(texture>>40)|(56u<<20)|(3u<<30));
+    compute_reg(0x24a,(319u>>2)|(179u<<14)); compute_reg(0x24b,0x90000fac);
+    compute_reg(0x24c,319);
+    for(u32 i=5;i<8;i++) compute_reg(0x248+i,0);
+    compute_reg(0x258,(u32)output); compute_reg(0x259,(u32)(output>>32));
+    compute_reg(0x25a,sizeof(image_readback)); compute_reg(0x25b,0);
+    commands[n++]=0xc0031502;
+    commands[n++]=1; commands[n++]=1; commands[n++]=1; commands[n++]=5;
+}
+static int verify_compute_image_read(u32 pass) {
+    const u32 one=0x3f800000;
+    if(image_readback[0]!=(pass==1 ? one : 0) ||
+       image_readback[1]!=(pass==3 ? one : 0) ||
+       image_readback[2]!=(pass==2 ? one : 0) || image_readback[3]!=one ||
+       image_readback[4]!=one || image_readback[5]!=0 ||
+       image_readback[6]!=0 || image_readback[7]!=one) return 94;
+    for(u32 i=8;i<16;i++) if(image_readback[i]!=0xdeadbeef) return 95;
+    return 0;
+}
+#endif
 #ifdef TEST_DMA_IMAGE_SAMPLE
 static void sample_image(void) {
+#ifdef TEST_DMA_IMAGE_COMPUTE_READ
+    queue_compute_image_read();
+#endif
     u64 texture=(u64)pixels, output=(u64)sample_pixels, shader=(u64)sample_shader;
 #ifdef TEST_DMA_IMAGE_SAMPLE_PRESERVED
     if(completed==2) shader=(u64)sample_lower_shader;
@@ -529,6 +579,9 @@ int _start(void) {
     if(submit_graphics()!=0) return 74;
     for(int i=0;i<5000 && !completed;i++) sleep_slot(1000);
     if(completed!=1) return 75;
+#ifdef TEST_DMA_IMAGE_COMPUTE_READ
+    { int result=verify_compute_image_read(1); if(result) return result; }
+#endif
     if(flip_slot(video,0,1,1)!=0) return 76;
     sleep_slot(FRAME_PAUSE_US);
     // Reuse the shader and target, changing only the scalar color inputs.
@@ -591,6 +644,9 @@ int _start(void) {
     if(submit_graphics()!=0) return 77;
     for(int i=0;i<5000 && completed!=2;i++) sleep_slot(1000);
     if(completed!=2) return 78;
+#ifdef TEST_DMA_IMAGE_COMPUTE_READ
+    { int result=verify_compute_image_read(2); if(result) return result; }
+#endif
 #ifdef TEST_DMA_IMAGE
     for(u32 i=0;i<320*180;i++) {
 #ifdef TEST_DMA_IMAGE_PREFIX
@@ -681,6 +737,9 @@ int _start(void) {
     if(submit_graphics()!=0) return 80;
     for(int i=0;i<5000 && completed!=3;i++) sleep_slot(1000);
     if(completed!=3) return 81;
+#ifdef TEST_DMA_IMAGE_COMPUTE_READ
+    { int result=verify_compute_image_read(3); if(result) return result; }
+#endif
 #ifdef TEST_DMA_IMAGE
     for(u32 i=0;i<320*180;i++) {
 #ifdef TEST_DMA_IMAGE_PREFIX

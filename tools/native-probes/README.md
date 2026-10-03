@@ -476,3 +476,28 @@ Vulkan drains dirty image stores immediately after ordered PM4 side effects, so
 the next queued consumer sees the update and later frames cannot replay it over
 that consumer. Unchanged dirty epochs retain the cheap early return. This is
 Vulkan ordering coverage; Metal and unobserved native stores are not covered.
+
+`-DmaImageComputeRead` adds case 46 and implies `-DmaImageSamplePreserved`.
+Before each dependent texture draw, a compute program performs integer image
+loads at (80,45) and (80,112), storing both RGBA vectors into a 64-byte output
+buffer. After ordered completion the guest checks the exact float bit patterns:
+red/red initially, blue/red after prefix fill, green/red after prefix copy.
+The lower CPU backing remains gray, so stale CPU selection cannot satisfy the
+readback. Eight guard words must stay unchanged for every pass. The runner
+requires three real Vulkan dispatches, two image bindings per dispatch, global
+GPU writes, no CPU semantic replacement, the ordered DMA-upload checks and the
+existing three sampled-frame pixel oracles.
+
+`-DmaImageComputeRead -DmaImageCrossQueue` adds case 47. The waiting graphics
+consumer executes compute reads and sample draws after the DMA-only ACB producer.
+Both resumed consumers must retain 133 command words. This validates read-only
+integer image fetches at the stated points from this linear RGBA8 image; storage
+image writes/atomics, arbitrary layouts/subresources and native unobserved stores
+remain unverified. No runtime change was needed for these two cases.
+
+The separate negative experiment in `artifacts/compute-image-read-wrong-row`
+changes only the lower fetch row from 112 to 45. The first red/red read still
+passes; the second fetch reads blue instead of preserved red and the guest
+returns 94 after two real Vulkan dispatches. Its saved evidence is
+`artifacts/dma-compute-image-read-negative.log`. This checks that the readback
+assertions reject the wrong region independently of the sampled-frame oracle.
