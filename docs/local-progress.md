@@ -6,6 +6,28 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Fixed **bounded Vulkan atomic INC/DEC**: the DATA limit is now honored via an
+  atomic load and compare/exchange retry, returning the old value from the
+  successful attempt. The shared buffer/image/LDS emitter uses unsigned limit
+  comparisons even for signed image storage. Before repair, native buffer and
+  image counters reached 8 rather than wrapping to 0 at limit 7; the saved
+  failures below are preserved. Six targeted graphics/ACB scenarios now pass
+  for buffers, R32_UINT and R32_SINT images:
+  `artifacts/compute-clamp-{image,buffer,signed}-after.log`,
+  `artifacts/compute-clamp-{image,buffer,signed}-queue.log`.
+  Each checks eleven boundary cases and two 64-workgroup contended cycles,
+  including returned-value histograms, separate GPU readback and output guards.
+  Buffer writeback preserves three neighboring words; image CPU backing stays
+  intentionally stale. Each requires 39 actual Vulkan dispatches.
+  Clean Release build has no warnings/errors; all **1,291 unit tests pass**,
+  including eight pipeline cases for buffer/LDS/uint/sint INC/DEC:
+  `artifacts/compute-clamp-build.log`, `artifacts/compute-clamp-tests.log`.
+  Earlier atomic add and GPU-produced indirect ACB dimensions still pass:
+  `artifacts/compute-clamp-add-regression.log`,
+  `artifacts/compute-clamp-indirect-queue-regression.log`.
+  These add native cases 52–57. The complete 51-case report below predates
+  this runtime repair; native LDS, arbitrary scheduling and performance are
+  not established by these targeted checks.
 - Complete **51/51 native GPU regression passed** on clean source `cf67ade`,
   with all 248 runtime entries unchanged throughout:
   `artifacts/native-gpu/20261003-013510-019/report.json`.
@@ -564,7 +586,8 @@ clear a dirty flag to suppress DMA writes: that could discard independent CPU
 writes. Dependent destination-image blending before presentation now passes.
 Texture sampling, read-only compute fetches and single-pixel storage writes now
 have separate direct/cross-queue regressions above. Single-texel R32_UINT atomic
-add now has independent graphics/ACB checks. Further work should cover other
+add and bounded INC/DEC now have independent graphics/ACB checks. Further work
+should cover native LDS atomics, cross-queue image-atomic consumers, other
 atomics, other layouts and failed/unreadable writes without
 inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed

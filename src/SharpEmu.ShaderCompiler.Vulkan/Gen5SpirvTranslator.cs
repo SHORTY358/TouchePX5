@@ -2258,8 +2258,6 @@ public static partial class Gen5SpirvTranslator
         }
 
         // Maps the AMD atomic-op name suffix shared by buffer/image atomics to a SPIR-V opcode.
-        // Inc/Dec approximate the AMD wrap-clamp semantics (MEM = tmp >= DATA ? 0 : tmp + 1),
-        // which is exact for the common 0xFFFFFFFF clamp operand.
         private static bool TryGetAtomicOp(string name, out SpirvOp op)
         {
             op = name switch
@@ -2293,12 +2291,7 @@ public static partial class Gen5SpirvTranslator
         {
             if (op is SpirvOp.AtomicIIncrement or SpirvOp.AtomicIDecrement)
             {
-                return _module.AddInstruction(
-                    op,
-                    type,
-                    pointer,
-                    UInt(scope),
-                    UInt(semantics));
+                return EmitClampedAtomic(op, type, pointer, scope, semantics, value());
             }
 
             if (op == SpirvOp.AtomicCompareExchange)
@@ -2322,6 +2315,60 @@ public static partial class Gen5SpirvTranslator
                 UInt(scope),
                 UInt(semantics),
                 value());
+        }
+
+        private uint EmitClampedAtomic(
+            SpirvOp op,
+            uint type,
+            uint pointer,
+            uint scope,
+            uint semantics,
+            uint limit)
+        {
+            // AMD INC/DEC wrap against a DATA limit; plain SPIR-V increment and
+            // decrement only wrap at the integer boundary. A compare/exchange
+            // retry preserves the limit and returned old value under contention.
+            var unsignedLimit = type == _uintType ? limit : Bitcast(_uintType, limit);
+            var acquireSemantics = UInt((semantics & ~0x8u) | 0x2u);
+            var preheader = _module.AllocateId();
+            var header = _module.AllocateId();
+            var continuing = _module.AllocateId();
+            var merge = _module.AllocateId();
+            var expected = _module.AllocateId();
+            var observed = _module.AllocateId();
+            _module.AddStatement(SpirvOp.Branch, preheader);
+            _module.AddLabel(preheader);
+            var initial = _module.AddInstruction(
+                SpirvOp.AtomicLoad, type, pointer, UInt(scope), acquireSemantics);
+            _module.AddStatement(SpirvOp.Branch, header);
+            _module.AddLabel(header);
+            _module.AddStatement(
+                SpirvOp.Phi, type, expected, initial, preheader, observed, continuing);
+            var bits = type == _uintType ? expected : Bitcast(_uintType, expected);
+            var increment = op == SpirvOp.AtomicIIncrement;
+            var beyondLimit = _module.AddInstruction(
+                increment ? SpirvOp.UGreaterThanEqual : SpirvOp.UGreaterThan,
+                _boolType, bits, unsignedLimit);
+            var wrap = increment ? beyondLimit : _module.AddInstruction(
+                SpirvOp.LogicalOr, _boolType, beyondLimit,
+                _module.AddInstruction(SpirvOp.IEqual, _boolType, bits, UInt(0)));
+            var stepped = _module.AddInstruction(
+                increment ? SpirvOp.IAdd : SpirvOp.ISub, _uintType, bits, UInt(1));
+            var nextBits = _module.AddInstruction(
+                SpirvOp.Select, _uintType, wrap,
+                increment ? UInt(0) : unsignedLimit, stepped);
+            var next = type == _uintType ? nextBits : Bitcast(type, nextBits);
+            _module.AddStatement(
+                SpirvOp.AtomicCompareExchange, type, observed, pointer, UInt(scope),
+                UInt(semantics), acquireSemantics, next, expected);
+            var succeeded = _module.AddInstruction(
+                SpirvOp.IEqual, _boolType, observed, expected);
+            _module.AddStatement(SpirvOp.LoopMerge, merge, continuing, 0);
+            _module.AddStatement(SpirvOp.BranchConditional, succeeded, merge, continuing);
+            _module.AddLabel(continuing);
+            _module.AddStatement(SpirvOp.Branch, header);
+            _module.AddLabel(merge);
+            return observed;
         }
 
         private bool TryEmitInterpolation(

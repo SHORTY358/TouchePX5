@@ -551,3 +551,35 @@ check (guest 66 after two GPU dispatches):
 `artifacts/compute-image-atomic-negative.log`. This establishes uint atomic add
 at one texel with two workgroups, not other atomic operations, formats,
 layouts or broad workgroup-ordering guarantees.
+
+## Bounded atomic increment/decrement
+
+`Test-TouchePX5-Compute.ps1 -BoundedAtomics` and `-BoundedAtomics -ComputeQueue`
+add cases 52/53 for R32_UINT images. `-BufferAtomics` and its `-ComputeQueue`
+variant add cases 54/55 for ordinary buffers. `-SignedImage` and its
+`-ComputeQueue` variant add cases 56/57 for R32_SINT images; comparison still
+uses unsigned bits as required by the instruction.
+
+Eleven boundary cases independently check returned old values and a separate
+GPU read of the final value: below/equal/above the limit, zero limit, zero
+decrement, UINT_MAX and high-bit values. Two further dispatches each run 64
+workgroups against the same texel/word with limit 7. The eight returned-value
+bins must each occur eight times, and a separate GPU read must return 6.
+The output has 80 words so every atomic writer has its own destination and
+the trailing sixteen guard words must stay intact. Every scenario requires
+39 GPU dispatches, including seed/read operations, and forbids CPU replacements.
+Buffer mode also checks guest writeback and three neighboring input words;
+image mode deliberately keeps stale CPU backing throughout.
+
+Before repair, the first boundary read returned 8 instead of 0 in both image
+and buffer modes (guest 100): `artifacts/compute-image-clamp-before.log` and
+`artifacts/compute-buffer-clamp-before.log`. Vulkan now lowers bounded INC/DEC
+to an atomic load and compare/exchange retry, keeping the DATA limit and the
+old value from the successful attempt. The common emitter covers buffer,
+image and LDS instructions; eight pipeline unit cases cover those routes and
+both image component types. Native LDS execution remains separate work.
+
+The limit semantics follow AMD's [RDNA 2 ISA reference](https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/instruction-set-architectures/rdna2-shader-instruction-set-architecture.pdf),
+sections 12.13, 12.14 and 12.16: INC resets at/above the limit; DEC resets to
+the limit at zero/above it. These checks do not establish all memory-ordering
+rules, arbitrary dispatch sizes, cross-queue waits or shader performance.

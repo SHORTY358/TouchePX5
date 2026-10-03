@@ -31,7 +31,7 @@ public sealed class Gen5SpirvAtomicTranslationTests
 
         Assert.Contains((ushort)SpirvOp.AtomicUMax, opcodes);
         Assert.Contains((ushort)SpirvOp.AtomicCompareExchange, opcodes);
-        Assert.Contains((ushort)SpirvOp.AtomicIIncrement, opcodes);
+        Assert.DoesNotContain((ushort)SpirvOp.AtomicIIncrement, opcodes);
     }
 
     [Fact]
@@ -65,6 +65,45 @@ public sealed class Gen5SpirvAtomicTranslationTests
 
         Assert.Contains((ushort)SpirvOp.ImageTexelPointer, opcodes);
         Assert.Contains((ushort)SpirvOp.AtomicIAdd, opcodes);
+    }
+
+    [Theory]
+    [InlineData("buffer", false)]
+    [InlineData("buffer", true)]
+    [InlineData("lds", false)]
+    [InlineData("lds", true)]
+    [InlineData("image-uint", false)]
+    [InlineData("image-uint", true)]
+    [InlineData("image-sint", false)]
+    [InlineData("image-sint", true)]
+    public void BoundedAtomics_UseUnsignedWrapAndRetry(string resource, bool decrement)
+    {
+        uint[] words = resource switch
+        {
+            "buffer" => [decrement ? 0xE0F44000u : 0xE0F04000u, 0x80000100],
+            "lds" => [decrement ? 0xD8900000u : 0xD88C0000u, 0x03000100],
+            _ => [decrement ? 0xF0702100u : 0xF06C2100u, 0x00010200],
+        };
+        var registers = resource == "buffer" ? BufferDescriptorRegisters() :
+            resource.StartsWith("image", StringComparison.Ordinal) ?
+                new Dictionary<uint, uint> { [5] = (resource == "image-sint" ? 21u : 20u) << 20 } :
+                new Dictionary<uint, uint>();
+        var opcodes = CompileCompute(words, registers);
+
+        // The full decode/evaluation/translation pipeline must keep the DATA
+        // limit and a contended retry for every memory kind. INC/DEC compare
+        // unsigned bits even when the storage-image component type is signed.
+        Assert.Contains((ushort)SpirvOp.AtomicLoad, opcodes);
+        Assert.Contains((ushort)SpirvOp.AtomicCompareExchange, opcodes);
+        Assert.Contains((ushort)SpirvOp.Phi, opcodes);
+        Assert.Contains((ushort)SpirvOp.Select, opcodes);
+        Assert.Contains((ushort)(decrement ? SpirvOp.UGreaterThan : SpirvOp.UGreaterThanEqual), opcodes);
+        if (decrement)
+        {
+            Assert.Contains((ushort)SpirvOp.LogicalOr, opcodes);
+        }
+        Assert.DoesNotContain((ushort)SpirvOp.AtomicIIncrement, opcodes);
+        Assert.DoesNotContain((ushort)SpirvOp.AtomicIDecrement, opcodes);
     }
 
     private static Dictionary<uint, uint> BufferDescriptorRegisters() => new()
