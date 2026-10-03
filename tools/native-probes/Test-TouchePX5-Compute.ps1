@@ -1,19 +1,21 @@
 [CmdletBinding()]
-param([switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
+param([switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
 $ErrorActionPreference = 'Stop'
+if($ImageAtomics -and ($IndirectDimensions -or $BaseRelative)) { throw 'Image atomics require their standalone layout.' }
 if($BaseRelative -and $ComputeQueue) { throw 'The compute-queue fixture uses absolute MEC-format arguments.' }
-if($BaseRelative -or $ComputeQueue) { $IndirectDimensions=$true }
+if($BaseRelative -or ($ComputeQueue -and -not $ImageAtomics)) { $IndirectDimensions=$true }
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-compute'
+if($ImageAtomics) { $root += '-image-atomics' }
 if($IndirectDimensions) { $root += '-indirect-dimensions' }
 if($BaseRelative) { $root += '-base-relative' }
 if($ComputeQueue) { $root += '-compute-queue' }
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
-$source=if($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
+$source=if($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
 $fixtureOptions=@(
     if($BaseRelative) { '-DINDIRECT_BASE_RELATIVE=1' }
-    if($ComputeQueue) { '-DINDIRECT_COMPUTE_QUEUE=1' }
+    if($ComputeQueue) { if($ImageAtomics) { '-DIMAGE_ATOMIC_COMPUTE_QUEUE=1' } else { '-DINDIRECT_COMPUTE_QUEUE=1' } }
 )
 & $clang --target=x86_64-pc-linux-gnu -O1 -ffreestanding -fno-builtin -fno-stack-protector -fpie -mno-sse @fixtureOptions -c (Join-Path $fixture $source) -o (Join-Path $root 'compute.o')
 if ($LASTEXITCODE -ne 0) { throw 'Compute guest compilation failed.' }
@@ -50,12 +52,17 @@ try {
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 6 -or
            [regex]::Matches($output,'vk.compute_dispatch groups=2x1x1').Count -ne $expectedX -or
            [regex]::Matches($output,'vk.compute_dispatch groups=1x2x1').Count -ne $expectedY) { throw "Unexpected indirect dispatch sizes: $log" }
+    } elseif($ImageAtomics) {
+        if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 5 -or
+           [regex]::Matches($output,'vk.compute_dispatch groups=2x1x1 [^\r\n]*textures=1 ').Count -ne 2 -or
+           [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=1 ').Count -ne 3) { throw 'Expected one GPU seed, two contended image atomic dispatches and two separate image readbacks.' }
     } elseif ([regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 2) { throw "Expected two Vulkan executions: $log" }
     if ($output.Contains('agc.compute_semantic_fast_path')) { throw 'Probe unexpectedly used a CPU semantic replacement.' }
     if($ComputeQueue -and
         ([regex]::Matches($output,'agc.driver_submit_acb owner=7 ').Count -ne 5 -or
          $output.Contains('agc.driver_submit_dcb '))) { throw "Expected five compute-queue submissions only: $log" }
-    if($IndirectDimensions) { Write-Output "PASS: Atomic baseline and GPU-produced indirect dimensions (1 -> 2, 2 -> 1, 0 -> 2, 2 -> 0), completion and buffer guards match. BaseRelative=$BaseRelative ComputeQueue=$ComputeQueue" }
+    if($ImageAtomics) { Write-Output 'PASS: R32_UINT GPU image atomics returned unique old values for both invocations, preserved output guards and produced sums 13/23 through separate GPU image readbacks. CPU image backing remained 99/100/101/102.' }
+    elseif($IndirectDimensions) { Write-Output "PASS: Atomic baseline and GPU-produced indirect dimensions (1 -> 2, 2 -> 1, 0 -> 2, 2 -> 0), completion and buffer guards match. BaseRelative=$BaseRelative ComputeQueue=$ComputeQueue" }
     else { Write-Output 'PASS: Two translated compute dispatches with different inputs, EXEC masking, completion and guest-memory readback match.' }
 }
 finally { $env:SHARPEMU_LOG_AGC = $oldAgc }

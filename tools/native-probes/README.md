@@ -530,3 +530,24 @@ three distinct nonzero presented image addresses, retaining every original
 color/coverage, queue and DMA-order assertion. This is fixture buffer lifetime
 discipline, not evidence of complete minimize/restore support or accurate
 guest flip-status timing.
+
+## R32_UINT storage-image atomics
+
+`Test-TouchePX5-Compute.ps1 -ImageAtomics` adds case 50. A GPU image store
+seeds texel (0,0) to 7 while its unchanged CPU backing contains 99/100/101/102.
+Two one-invocation workgroups perform `ImageAtomicAdd` on that shared texel;
+GLC returns old values into separate buffer entries. Both invocation orders
+are accepted, but the returned pair must be exactly {7,10}, then {13,18}.
+Separate GPU image-load dispatches must return final sums 13 and 23. Guard
+words in the output buffer and the original CPU image words must stay intact.
+Five real Vulkan dispatches are required; the seed also writes a buffer guard
+slot so it cannot take a CPU constant-fill replacement path.
+
+`-ImageAtomics -ComputeQueue` adds case 51, using five ACB owner-7 submissions
+instead of graphics submissions. This is a sequential compute-queue variant,
+not a producer/consumer cross-queue wait test. No emulator change was required.
+Clearing only the atomic instruction's GLC bit is rejected at the old-value
+check (guest 66 after two GPU dispatches):
+`artifacts/compute-image-atomic-negative.log`. This establishes uint atomic add
+at one texel with two workgroups, not other atomic operations, formats,
+layouts or broad workgroup-ordering guarantees.

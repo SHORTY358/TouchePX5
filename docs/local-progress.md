@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Added **two targeted storage-image atomic cases**, passing without a runtime
+  change: `artifacts/compute-image-atomic-direct.log` and
+  `artifacts/compute-image-atomic-queue.log`. A GPU R32_UINT image is seeded to 7,
+  two workgroups add 3 then 5 to the same texel and return unique old values;
+  separate GPU reads verify sums 13/23. Output guards and intentionally stale
+  CPU image backing are unchanged. Graphics and sequential ACB owner-7 forms
+  each require five actual GPU dispatches and reject CPU replacements.
+  Clearing only GLC correctly fails the old-value check with guest 66:
+  `artifacts/compute-image-atomic-negative.log`.
+  These add native cases 50/51; the latest complete aggregate remains 49/49
+  below. Other atomics, layouts and cross-queue image-atomic consumers are not
+  established by these targeted checks. The old compute fixture also passes:
+  `artifacts/compute-image-atomic-basic-regression.log`.
 - Complete **49/49 native GPU regression passed** on clean source `93259af`,
   with runtime files unchanged throughout:
   `artifacts/native-gpu/20261003-011856-103/report.json`.
@@ -542,8 +555,9 @@ The bounded row-upload path now preserves separate managed-write spans. Do not
 clear a dirty flag to suppress DMA writes: that could discard independent CPU
 writes. Dependent destination-image blending before presentation now passes.
 Texture sampling, read-only compute fetches and single-pixel storage writes now
-have separate direct/cross-queue regressions above. Further work should cover
-storage-image atomics, other layouts and failed/unreadable writes without
+have separate direct/cross-queue regressions above. Single-texel R32_UINT atomic
+add now has independent graphics/ACB checks. Further work should cover other
+atomics, other layouts and failed/unreadable writes without
 inferring those capabilities from the passing point-read/store cases.
 Minimized 0x0 surfaces are confirmed in the earlier failed
 aggregate; recovery remains unverified. Do not weaken pixel/count checks. Next texture work
