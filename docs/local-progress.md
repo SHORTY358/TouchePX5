@@ -6,6 +6,11 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **47/47 native GPU regression passed** on clean source `24435a4`,
+  with runtime files unchanged throughout:
+  `artifacts/native-gpu/20261003-004902-315/report.json`.
+  This includes both new compute-image readback scenarios. The Release runtime
+  remains the one from the ordered image-sync fix; its 1,283 unit tests pass.
 - Added GPU compute-image readback coverage without a runtime change:
   `-DmaImageComputeRead` reads updated (80,45) and preserved (80,112) texels with
   integer image fetches, returning RGBA float values into a separate buffer.
@@ -20,8 +25,8 @@ percentage or release-date estimate.
   readback (guest code 94 after two real GPU dispatches):
   `artifacts/dma-compute-image-read-negative.log`,
   `artifacts/compute-image-read-wrong-row/triangle.log`.
-  These add native cases 46/47. The complete 45-case aggregate below remains
-  the last full aggregate; runtime binaries are unchanged from that result.
+  These add native cases 46/47 and are covered by the complete aggregate above;
+  runtime binaries are unchanged from the preceding 45-case result.
   Storage-image writes/atomics, other layouts and unobserved native stores are
   not established by these point reads.
 - Complete **45/45 native GPU regression passed** on clean source `1092ac8`,
