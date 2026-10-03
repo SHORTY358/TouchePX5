@@ -6,6 +6,14 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **45/45 native GPU regression passed** on clean source `1092ac8`,
+  with runtime files unchanged throughout:
+  `artifacts/native-gpu/20261003-000241-248/report.json`.
+  This verifies both complete-snapshot selection and ordered partial-image
+  publication fixes alongside the existing compute, texture/mip, depth,
+  blending, indexed draw and queue scenarios. Commercial games, unobserved
+  native CPU stores, arbitrary layouts and compute-image reads remain outside
+  this result.
 - The first 45-case aggregate on `608ee75` exposed an intermittent dependent
   blend failure: `artifacts/native-gpu/20261002-235139-018/report.json`.
   Its second frame contained a blue prefix without the expected purple blend;
@@ -25,7 +33,7 @@ percentage or release-date estimate.
   Clean build and all 1,283 unit tests pass:
   `artifacts/dma-ordered-image-sync-build.log`,
   `artifacts/dma-ordered-image-sync-tests.log`.
-  The complete aggregate is being rerun. Metal and unobserved native writes
+  The complete aggregate above passes. Metal and unobserved native writes
   have not been changed or validated by this repair.
 - Fixed historical CPU snapshot selection after partial DMA: an uploaded
   generation alone does not establish full CPU contents. The Vulkan image now
@@ -45,8 +53,8 @@ percentage or release-date estimate.
   all **1,283 unit tests pass**, including incomplete-mirror policy regressions:
   `artifacts/dma-sample-preserved-build.log`,
   `artifacts/dma-sample-preserved-tests.log`.
-  A complete 45-case aggregate is pending; the 43-case result below predates
-  this fix. Scope remains linear RGBA8 at the stated coordinates, not arbitrary
+  The complete 45-case aggregate above covers these cases; the 43-case result
+  below predates this fix. Scope remains linear RGBA8 at the stated coordinates, not arbitrary
   subresources, unobserved native CPU stores or compute-image reads.
 - Complete **43/43 native GPU regression passed** on clean source `926c1e2`,
   with runtime files unchanged throughout:
