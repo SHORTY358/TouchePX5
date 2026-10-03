@@ -6,6 +6,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Complete **68/68 native GPU regression passed** on clean source `cfe6848`:
+  `artifacts/native-gpu/20261003-030501-778/report.json`.
+  All 248 runtime entries remained unchanged and exactly match the post-run
+  manifest from the **27/27 general engineering cases** below, including all
+  **1,291 unit tests**. Release build has zero warnings/errors.
+  This validates the current R32 partial-DMA repair, cross-queue image-atomic
+  consumer, masked and wider/paired LDS operations, and every prior native
+  graphics/coherence scenario on the same binaries.
+  The next architecture change is flip-completion tracking; its observed
+  boundaries and proposed independent checks are in `docs/flip-lifecycle-plan.md`.
+  The user confirmed Sol is currently selected and requested switching to
+  Astra before that change. Implementation has not started.
 - Fixed **partial DMA replacing GPU-only R32 texels**. The former RGBA8-only
   dirty-span gate uploaded the entire stale R32 CPU image after a one-word DMA,
   replacing GPU value 7 with CPU value 99. The native preserved-word oracle
@@ -24,7 +36,7 @@ percentage or release-date estimate.
   They verify GPU-only 7 beside updated 123 through separate GPU reads and
   preserve CPU neighbors and output guards. The cross-queue image consumer
   also passes on this runtime: `artifacts/compute-image-atomic-cross-maintained.log`.
-  These add native cases 64-68; the complete aggregate is pending.
+  These add native cases 64-68 and pass in the complete aggregate above.
   The 63-case report below predates this runtime fix.
 - A targeted **cross-queue image atomic consumer** passes without another
   runtime change: `artifacts/compute-image-atomic-cross-targeted.log`.
@@ -672,7 +684,9 @@ width-derived pitch and no existing backend image at the allocation address. It 
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.
 
-Next tasks: validate minimize/restore with a functioning window-control path,
+Next architecture task: implement and verify flip-completion lifecycle using
+`docs/flip-lifecycle-plan.md`, after the requested model switch. Further tasks:
+validate minimize/restore with a functioning window-control path,
 extend partial-DMA coverage to byte-unaligned and non-linear layouts, and go beyond
 the passing sequential and cross-queue
 full-image transfers before changing its completion semantics. A transient-image

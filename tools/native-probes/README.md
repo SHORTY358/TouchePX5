@@ -18,10 +18,10 @@ with the source revision, executable hash, individual results and copied guest l
   outside a two-source-pixel band accounting for bilinear presentation scaling. Every pixel
   is checked for valid color channels. Blank and wrong-color negative controls must fail.
 
-Verified on GTX 1060 3 GB at 1920x1061: 2,037,120 pixels per raster capture, 563,461 fully
+The original two-case run on GTX 1060 3 GB at 1920x1061 verified 2,037,120 pixels per raster capture, 563,461 fully
 colored triangle pixels in each. These are controlled compute/raster tests, not commercial
-game compatibility. Textures and more complex geometry remain
-separate next steps.
+game compatibility. The extended cases below separately verify textures,
+geometry, compute, queues and image coherence within their stated scopes.
 
 Raster outputs: `artifacts/smoke-triangle/triangle-1-red.png`, `triangle-2-blue.png`,
 `triangle.log` and `verification.json`; unique raw capture directories are retained too.
