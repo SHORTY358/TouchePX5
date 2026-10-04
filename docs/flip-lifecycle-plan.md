@@ -39,6 +39,12 @@ added 2026-10-04; final regression evidence is recorded in `local-progress.md`.
   `artifacts/engineering/20261004-002458-772/report.json`.
   All 248 runtime entries match between the general post-run manifest, native
   aggregate and final runtime. General fixtures are at `8f6e4b7`.
+- Human-controlled native minimize/restore passed CPU, direct GPU and ordered
+  capture modes, one cycle per mode, on the unchanged runtime. Each guest checked
+  pending/no-event behavior during minimization and completion after restoration;
+  the host checked recreation and all three output colors. Preserved evidence:
+  `artifacts/window-recovery/20261004-manual/report.json` (clean probe `bdf082d`,
+  runtime code `dfd37f2`, all 248 files match the earlier aggregate).
 
 ### Remaining boundaries
 
@@ -52,12 +58,13 @@ that frame 2 has no completion/event while unavailable. The runner requires real
 defer/resume log markers, swapchain recreation, successful guest assertions and
 all three presented colors. The runner does not automate window control and is
 intentionally excluded from unattended aggregates. Do not treat a failed or
-uncontrolled trial as recovery evidence. Current computer-use capture/input failures
-prevented a successful minimize/restore trial; see `local-progress.md`.
+uncontrolled trial as recovery evidence. Computer-use capture/input failures
+prevented automated trials; subsequent human-controlled trials passed in all
+three modes. See the report above and `local-progress.md`.
 
 Host presentation acceptance is not physical scanout completion. `gcQueueNum`
 remains unchanged until its console semantics have an independent reference.
-Native OS-driven minimize/restore, host movie overlay interaction, Metal execution,
+Repeated native minimize/restore cycles, host movie overlay interaction, Metal execution,
 and commercial title behavior remain unverified. Cancelling a flip does not invent
 a successful event or delete a caller-owned equeue; an unrelated guest thread
 waiting indefinitely on that queue still requires normal queue/session teardown.
@@ -140,5 +147,5 @@ Host QueuePresent acceptance is not proof that physical scanout has completed.
 
 The broad graphics and general engineering regressions have passed on one frozen
 runtime after the lifecycle implementation, as recorded above. These results do
-not establish physical scanout, OS-driven window recovery or commercial-game
-compatibility.
+not establish physical scanout or commercial-game compatibility. OS-driven window
+recovery has separate human-controlled evidence for one cycle per mode above.

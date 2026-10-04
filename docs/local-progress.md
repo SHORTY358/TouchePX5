@@ -6,6 +6,20 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **3/3 real-window recovery trials passed with human window control**:
+  CPU frames, direct GPU image flips and ordered immutable GPU captures.
+  Report and preserved guest/runner/pixel evidence:
+  `artifacts/window-recovery/20261004-manual/report.json`.
+  Each trial observed native window-unavailable deferral, pending/no-event
+  guest assertions during minimization, swapchain recreation on restoration,
+  successful completion and three independently verified output colors.
+  Ordered capture also survived a later write to its live source image.
+  Probe source was clean `bdf082d`; all 248 runtime files still exactly match
+  the 76-case aggregate on runtime code `dfd37f2`. No rebuild was performed.
+  Scope: one minimize/restore cycle per mode on this Windows/NVIDIA machine.
+  Physical scanout timing, repeated cycles, overlays, Metal and commercial
+  titles remain separate validation. Computer-use automation is still unavailable;
+  the user performed window actions in these successful trials.
 - An opt-in real-window recovery probe is prepared:
   `Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -WindowRecovery` (also direct/ordered).
   It pauses after frame 1, requires frame 2 to remain pending without an event,
@@ -15,9 +29,10 @@ percentage or release-date estimate.
   failed with `coordinate input geometry is unavailable`; activation/capture
   failed with `FrameArrived timed out: timed out waiting on channel`. Recovery
   attempts did not minimize the window. Both trials correctly rejected early
-  frame-2 completion (guest 105), so OS-driven recovery is still unverified.
-  Evidence: `artifacts/flip-window-cpu-before.log` and
-  `artifacts/smoke-flip-cpu-none-window/flip.log`.
+  frame-2 completion (guest 105). These automation failures preceded the passing
+  human-controlled trials above. First failed guest evidence is preserved in
+  `artifacts/flip-window-cpu-before.log`; the shared smoke log is overwritten
+  on subsequent runs and is not retained as failed-trial evidence.
   A final deliberately unminimized trial also rejected guest 105:
   `artifacts/flip-window-negative-control.log`. This is negative-control evidence,
   not a passing recovery test.
@@ -715,8 +730,8 @@ per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-
 chains and broad commercial-game compatibility remain separate work.
 
 Flip-completion lifecycle is implemented and passed the frozen-runtime aggregates
-above. Next validation: minimize/restore with a functioning window-control path;
-the diagnostic recreation checks do not prove OS-driven window recovery.
+above. Real minimize/restore passed one cycle in each of three modes with human
+window control; repeated cycles and movie-overlay interaction remain unverified.
 Further tasks:
 extend partial-DMA coverage to byte-unaligned and non-linear layouts, and go beyond
 the passing sequential and cross-queue
