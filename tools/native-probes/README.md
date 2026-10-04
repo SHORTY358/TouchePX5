@@ -686,5 +686,25 @@ two dispatches: `artifacts/compute-r32-partial-before-evidence.json` and
 `artifacts/compute-r32-partial-before-guest.log`. Both the dirty-span gate and
 upload validation now admit linear single-mip/depth-1 R32 integer images,
 retaining four-byte alignment, exact extents and incomplete CPU snapshot
-state. Unsupported formats/layouts and unaligned writes retain their existing
-fallback behavior; these tests do not establish their correctness.
+state. Unsupported formats/layouts retain their existing fallback behavior;
+the unaligned-write repair and its additional coverage are described below.
+
+## Byte-unaligned R32 image DMA
+
+`Test-TouchePX5-Compute.ps1 -UnalignedByte -ByteCase 0` reproduces a one-byte
+write inside GPU-only word `0x11223344`. The required word is `0x11227b44`,
+not stale CPU `0x00007b63`. Cases 1/2 touch the first/last byte, case 3 crosses
+two texels, case 4 writes six bytes across both texels, and case 5 crosses rows
+in a 1x4 image. Both GPU words are explicitly seeded, then separate GPU loads
+check hard-coded expected values. CPU neighbors and output guards are checked
+too. `-SignedImage` and `-ComputeQueue` exercise all 24 combinations in the
+native aggregate. These ACB variants use owner 7; they do not establish
+independent cross-queue producer/consumer waits.
+
+The repair reads only edge texels, merges exact CPU byte spans, and preserves
+untouched GPU bytes. A fence wait makes these small readbacks CPU-visible;
+submission retirement owns the temporary buffers through failures/timeouts.
+This adds synchronization cost for unaligned writes; aligned uploads remain
+batched. Neither a readback nor a partial upload certifies a complete CPU copy.
+The native unaligned probes cover R32 UINT/SINT; unaligned RGBA8 consumers,
+fault injection and unsupported layouts still need separate validation.

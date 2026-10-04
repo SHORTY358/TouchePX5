@@ -18,6 +18,17 @@ $report=[ordered]@{
 $reportPath=Join-Path $reportRoot 'report.json'
 function Save-Report { $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8 }
 Save-Report
+$byteCases=@(foreach($byteCase in 0..5) {
+    foreach($signed in @($false,$true)) {
+        foreach($acb in @($false,$true)) {
+            $suffix=if($signed) { '-signed' } else { '' }
+            if($acb) { $suffix+='-compute-queue' }
+            @{Name="compute-r32-byte-$byteCase$suffix"; Script='Test-TouchePX5-Compute.ps1';
+              Guest="smoke-compute-image-atomics-partial-byte-case$byteCase$suffix\compute.log";
+              Parameters=@{UnalignedByte=$true;ByteCase=$byteCase;SignedImage=$signed;ComputeQueue=$acb}}
+        }
+    }
+})
 try {
     foreach($case in @(
         @{Name='flip-cpu'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-cpu-none\flip.log'; Parameters=@{Mode='cpu'}},
@@ -96,7 +107,7 @@ try {
         @{Name='triangle-mip-bc3'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-bc3\triangle.log'; Parameters=@{MipBc3=$true}},
         @{Name='triangle-index16'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-index16\triangle.log'; Parameters=@{IndexBits=16}},
         @{Name='triangle-index32-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor-index32\triangle.log'; Parameters=@{IndexBits=32; Scissor=$true}}
-    )) {
+    ) + $byteCases) {
         $result=[ordered]@{Name=$case.Name; Status='Running'; Log=(Join-Path $reportRoot ($case.Name+'.log')); Error=$null; GuestLog=$null}
         $results.Add($result); Save-Report
         Write-Output "RUN: $($case.Name)"

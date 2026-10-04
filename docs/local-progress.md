@@ -6,6 +6,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Byte-unaligned image DMA repair is implemented; 24 targeted native variants
+  pass.** Initialized linear single-mip/depth-1 RGBA8/R32 images now preserve
+  untouched edge bytes by reading only affected edge texels from the GPU before
+  merging exact managed writes. Whole texels retain the existing batched upload.
+  Edge copies use image/host barriers and a bounded submission-fence wait; their
+  buffers remain owned by submission retirement on failures/timeouts. Failed
+  writes are retained and no partial mirror becomes a complete CPU snapshot.
+  Six native R32 cases cover middle/head/tail bytes, crossing a texel boundary,
+  a six-byte span, and crossing a row; UINT/SINT x graphics/ACB gives 24 cases.
+  They seed both GPU words explicitly (the earlier probe assumed an unseeded
+  neighbor inherited CPU 100), verify independent reads plus CPU/output guards,
+  and count bounded edge readbacks. `artifacts/byte-targeted-passed.json` and
+  `artifacts/byte-*-signed-*-acb-*.log` record the targeted runs; Release build
+  passed without warnings/errors in `artifacts/byte-patch-build.log`.
+  The full aggregate now contains 100 cases. A new frozen-runtime general/GPU
+  run is required before replacing the earlier aggregate below. The synchronous
+  edge path favors correctness; performance, fault injection, arbitrary tiled/
+  mip layouts and native unaligned RGBA8 consumers remain separate validation.
+  The Astra implementation stage is complete; routine aggregate monitoring can
+  continue on Sol Medium without another architecture change.
 - **New confirmed compatibility gap: byte-unaligned image DMA destroys GPU-only
   bytes in an affected texel.** The opt-in compute probe `-UnalignedByte` seeds
   GPU texel 0 with `0x11223344` while CPU backing is 99, then fills exactly byte 1
@@ -16,15 +36,11 @@ percentage or release-date estimate.
   the aligned graphics and ACB controls still passed. Evidence and unchanged
   248-file runtime manifest: `artifacts/r32-byte-before/report.json` and its
   four preserved guest/runner log pairs.
-  The managed-write drain currently admits only four-byte-aligned spans to its
+  Before the repair above, the managed-write drain admitted only four-byte-aligned spans to its
   bounded upload path; this byte span therefore falls into the full stale-CPU
   upload. Merely rounding the span to a texel would still overwrite GPU-only
-  neighboring bytes. No runtime fix has been made, and the failing opt-in probe
-  is not added to the passing aggregate. Next stage requires preserving the
-  current GPU texel bytes while merging the exact CPU write, with GPU ordering,
-  resource lifetime and upload-generation failure handling. Per user workflow,
-  request Astra Medium before that architectural change; the reproducible input
-  and evidence are ready.
+  neighboring bytes. This retained evidence describes the pre-repair runtime;
+  the repaired implementation and strengthened probe are described above.
 - **3/3 real-window recovery trials passed with human window control**:
   CPU frames, direct GPU image flips and ordered immutable GPU captures.
   Report and preserved guest/runner/pixel evidence:

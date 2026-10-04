@@ -10657,11 +10657,14 @@ internal static unsafe class VulkanVideoPresenter
                         target.Format is (Format.R8G8B8A8Unorm or Format.R32Uint or Format.R32Sint) &&
                         rowBytes != 0 && byteCount == rowBytes * target.Height &&
                         managedWrites is { Length: > 0 } &&
-                        managedWrites.All(write => write.Offset % 4 == 0 &&
-                            write.Length % 4 == 0 && write.Length != 0 &&
+                        managedWrites.All(write => write.Length != 0 &&
                             write.Offset < byteCount && write.Length <= byteCount - write.Offset))
                     {
                         var allUploaded = true;
+                        // Even a successful edge readback is only a texel snapshot.
+                        target.IsCpuBacked = false;
+                        target.HasCompleteCpuSnapshot = false;
+                        target.CpuContentFingerprint = 0;
                         foreach (var write in managedWrites)
                         {
                             var offset = write.Offset;
@@ -10670,15 +10673,16 @@ internal static unsafe class VulkanVideoPresenter
                             {
                                 var firstColumn = (uint)((offset / 4) % target.Width);
                                 var firstRow = (uint)(offset / rowBytes);
-                                var columns = firstColumn != 0 || remaining < rowBytes
-                                    ? (uint)Math.Min(remaining / 4, target.Width - firstColumn)
-                                    : target.Width;
-                                var rows = firstColumn == 0 && columns == target.Width
-                                    ? (uint)(remaining / rowBytes)
-                                    : 1u;
-                                var length = (ulong)columns * rows * 4;
-                                var changedPixels = new byte[length];
-                                if (!memory.TryRead(address + offset, changedPixels))
+                                var length = offset % rowBytes == 0 && remaining >= rowBytes
+                                    ? remaining / rowBytes * rowBytes
+                                    : Math.Min(remaining, rowBytes - offset % rowBytes);
+                                var alignedStart = offset & ~3UL;
+                                var alignedEnd = (offset + length + 3) & ~3UL;
+                                var columns = (uint)Math.Min((alignedEnd - alignedStart) / 4, target.Width);
+                                var rows = (uint)((alignedEnd - alignedStart) / (columns * 4UL));
+                                var changedPixels = new byte[alignedEnd - alignedStart];
+                                var prefix = (int)(offset - alignedStart);
+                                if (!memory.TryRead(address + offset, changedPixels.AsSpan(prefix, checked((int)length))))
                                 {
                                     // Retain failed spans for a later drain; never
                                     // acknowledge their generation as uploaded.
@@ -10688,8 +10692,36 @@ internal static unsafe class VulkanVideoPresenter
                                 }
                                 else
                                 {
-                                    UploadGuestImageInitialData(target, changedPixels,
-                                        firstRow, rows, firstColumn, columns);
+                                    try
+                                    {
+                                        // Vulkan image copies address whole texels. Preserve
+                                        // untouched edge bytes from the GPU, never stale RAM.
+                                        byte[]? leadingEdge = null;
+                                        if (prefix != 0)
+                                        {
+                                            leadingEdge = ReadGuestImageTexelForBytePatch(target, alignedStart);
+                                            leadingEdge.AsSpan(0, prefix).CopyTo(changedPixels);
+                                        }
+                                        var suffix = (int)(alignedEnd - offset - length);
+                                        if (suffix != 0)
+                                        {
+                                            var edge = alignedEnd - alignedStart == 4 && leadingEdge is not null
+                                                ? leadingEdge
+                                                : ReadGuestImageTexelForBytePatch(target, alignedEnd - 4);
+                                            edge.AsSpan(4 - suffix).CopyTo(changedPixels.AsSpan(changedPixels.Length - suffix));
+                                        }
+                                        UploadGuestImageInitialData(target, changedPixels,
+                                            firstRow, rows, firstColumn, columns);
+                                    }
+                                    catch
+                                    {
+                                        // Do not acknowledge consumed bytes if a readback or
+                                        // upload fails. Repeating the exact writes is safe.
+                                        foreach (var pending in managedWrites)
+                                            SharpEmu.HLE.GuestImageWriteTracker.NotifyManagedWrite(
+                                                address + pending.Offset, pending.Length);
+                                        throw;
+                                    }
                                 }
                                 offset += length;
                                 remaining -= length;
@@ -16450,6 +16482,71 @@ internal static unsafe class VulkanVideoPresenter
 
         private static uint AlignUp(uint value, uint alignment) =>
             (value + alignment - 1) / alignment * alignment;
+
+        private byte[] ReadGuestImageTexelForBytePatch(GuestImageResource target, ulong byteOffset)
+        {
+            var commandBuffer = BeginBatchedGuestCommands();
+            CloseOpenTranslatedRenderPass();
+            var buffer = CreateBuffer(4, BufferUsageFlags.TransferDstBit,
+                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                out var memory);
+            // Transfer ownership before recording. Submission retirement owns this
+            // allocation even if the fence wait times out; never free in-flight memory.
+            _batchRetireBuffers.Add((buffer, memory));
+            var barrier = new ImageMemoryBarrier
+            {
+                SType = StructureType.ImageMemoryBarrier,
+                SrcAccessMask = AccessFlags.MemoryReadBit | AccessFlags.MemoryWriteBit,
+                DstAccessMask = AccessFlags.TransferReadBit,
+                OldLayout = ImageLayout.ShaderReadOnlyOptimal,
+                NewLayout = ImageLayout.TransferSrcOptimal,
+                SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+                DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+                Image = target.Image,
+                SubresourceRange = ColorSubresourceRange(),
+            };
+            _vk.CmdPipelineBarrier(commandBuffer, PipelineStageFlags.AllCommandsBit,
+                PipelineStageFlags.TransferBit, 0, 0, null, 0, null, 1, &barrier);
+            var texel = byteOffset / 4;
+            var copy = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                ImageOffset = new Offset3D((int)(texel % target.Width), (int)(texel / target.Width), 0),
+                ImageExtent = new Extent3D(1, 1, 1),
+            };
+            _vk.CmdCopyImageToBuffer(commandBuffer, target.Image, ImageLayout.TransferSrcOptimal,
+                buffer, 1, &copy);
+            barrier.SrcAccessMask = AccessFlags.TransferReadBit;
+            barrier.DstAccessMask = AccessFlags.ShaderReadBit;
+            barrier.OldLayout = ImageLayout.TransferSrcOptimal;
+            barrier.NewLayout = ImageLayout.ShaderReadOnlyOptimal;
+            _vk.CmdPipelineBarrier(commandBuffer, PipelineStageFlags.TransferBit,
+                PipelineStageFlags.AllCommandsBit, 0, 0, null, 0, null, 1, &barrier);
+            var hostBarrier = new MemoryBarrier
+            {
+                SType = StructureType.MemoryBarrier,
+                SrcAccessMask = AccessFlags.TransferWriteBit,
+                DstAccessMask = AccessFlags.HostReadBit,
+            };
+            _vk.CmdPipelineBarrier(commandBuffer, PipelineStageFlags.TransferBit,
+                PipelineStageFlags.HostBit, 0, 1, &hostBarrier, 0, null, 0, null);
+            FlushBatchedGuestCommands();
+            // Flush enqueues the newest submission without collecting it. Wait
+            // directly on its fence, then copy before normal retirement can free it.
+            WaitForFenceForCpuVisibility(_pendingGuestSubmissions.Last().Fence, "partial image edge");
+            void* mapped;
+            Check(_vk.MapMemory(_device, memory, 0, 4, 0, &mapped), "vkMapMemory(partial image edge)");
+            try
+            {
+                var result = new ReadOnlySpan<byte>(mapped, 4).ToArray();
+                TraceVulkanShader($"vk.cpu_image_edge_readback addr=0x{target.Address:X16} offset={byteOffset}");
+                return result;
+            }
+            finally
+            {
+                _vk.UnmapMemory(_device, memory);
+            }
+        }
 
         private void UploadGuestImageInitialData(GuestImageResource target, byte[] pixels, uint firstRow = 0, uint rowCount = 0, uint firstColumn = 0, uint columnCount = 0)
         {

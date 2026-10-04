@@ -27,10 +27,64 @@ static const u32 seed[] __attribute__((aligned(256))) = {
     0xe070003c,0x80010400,0xbf810000
 };
 static const u32 read_image[] __attribute__((aligned(256))) = {
+#if PARTIAL_BYTE_CASE == 5
+    0x7e000280,0x7e020200,
+#else
     0x7e000200,0x7e020280,
+#endif
     0xf0000108,0x00020400,0xbf8c0f70,
     0xe0700008,0x80010400,0xbf810000
 };
+#ifdef PARTIAL_UNALIGNED_BYTE
+#ifndef PARTIAL_BYTE_CASE
+#define PARTIAL_BYTE_CASE 0
+#endif
+#if PARTIAL_BYTE_CASE == 1
+#define BYTE_OFFSET 0
+#define BYTE_LENGTH 1
+#define GPU_FIRST 0x1122337b
+#define GPU_SECOND 0x55667788
+#define CPU_FIRST 0x7b
+#define CPU_SECOND 100
+#elif PARTIAL_BYTE_CASE == 2
+#define BYTE_OFFSET 3
+#define BYTE_LENGTH 1
+#define GPU_FIRST 0x7b223344
+#define GPU_SECOND 0x55667788
+#define CPU_FIRST 0x7b000063
+#define CPU_SECOND 100
+#elif PARTIAL_BYTE_CASE == 3 || PARTIAL_BYTE_CASE == 5
+#define BYTE_OFFSET 3
+#define BYTE_LENGTH 3
+#define GPU_FIRST 0x7b223344
+#define GPU_SECOND 0x55660000
+#define CPU_FIRST 0x7b000063
+#define CPU_SECOND 0
+#elif PARTIAL_BYTE_CASE == 4
+#define BYTE_OFFSET 1
+#define BYTE_LENGTH 6
+#define GPU_FIRST 0x00007b44
+#define GPU_SECOND 0x55007b00
+#define CPU_FIRST 0x7b63
+#define CPU_SECOND 0x7b00
+#else
+#define BYTE_OFFSET 1
+#define BYTE_LENGTH 1
+#define GPU_FIRST 0x11227b44
+#define GPU_SECOND 0x55667788
+#define CPU_FIRST 0x7b63
+#define CPU_SECOND 100
+#endif
+static const u32 seed_neighbor[] __attribute__((aligned(256))) = {
+#if PARTIAL_BYTE_CASE == 5
+    0x7e000280,0x7e020281,0x7e080200,
+#else
+    0x7e000281,0x7e020280,0x7e080200,
+#endif
+    0xf0200108,0x00020400,0xbf8c0f70,
+    0xe070003c,0x80010400,0xbf810000
+};
+#endif
 static void reg(u32 index,u32 value) {
     commands[n++]=0xc0017602; commands[n++]=index; commands[n++]=value;
 }
@@ -45,12 +99,19 @@ static void bind(const u32* shader,u32 input) {
     reg(0x246,16); reg(0x247,0);
     reg(0x248,(u32)(texture>>8));
 #ifdef PARTIAL_SIGNED_IMAGE
-    reg(0x249,(u32)(texture>>40)|(21u<<20)|(3u<<30)); // R32_SINT, width=4
+    u32 format=21u;
 #else
-    reg(0x249,(u32)(texture>>40)|(20u<<20)|(3u<<30)); // R32_UINT, width=4
+    u32 format=20u;
 #endif
+#if PARTIAL_BYTE_CASE == 5
+    reg(0x249,(u32)(texture>>40)|(format<<20)); // width=1, height=4
+    reg(0x24a,3u<<14); reg(0x24b,0x90000fac);
+    reg(0x24c,0); reg(0x24d,0); reg(0x24e,0); reg(0x24f,0);
+#else
+    reg(0x249,(u32)(texture>>40)|(format<<20)|(3u<<30)); // width=4
     reg(0x24a,0); reg(0x24b,0x90000fac); // height=1, 2D
     reg(0x24c,3); reg(0x24d,0); reg(0x24e,0); reg(0x24f,0);
+#endif
 }
 static int dispatch(u32 groups,u32 signal) {
     u64 label=(u64)&completed;
@@ -82,18 +143,29 @@ int _start(void) {
     sleep_slot(300000);
 #ifdef PARTIAL_UNALIGNED_BYTE
     const u32 seed_value=0x11223344;
-    const u32 expected_first=0x11227b44;
-    const u32 expected_second=100;
+    const u32 expected_first=GPU_FIRST;
+    const u32 expected_second=GPU_SECOND;
+    const u32 dma_signal=3;
 #else
     const u32 seed_value=7;
     const u32 expected_first=7;
     const u32 expected_second=123;
+    const u32 dma_signal=2;
 #endif
     bind(seed,seed_value);
     int result=dispatch(1,1);
     if(result) return result;
     if(output[15]!=seed_value) return 72;
     for(u32 i=0;i<15;i++) if(output[i]!=0xdeadbeef) return 73;
+#ifdef PARTIAL_UNALIGNED_BYTE
+    // Seed the neighbor explicitly too; a newly created GPU image is not
+    // required to inherit stale CPU backing in its untouched texels.
+    bind(seed_neighbor,0x55667788);
+    result=dispatch(1,2);
+    if(result) return result;
+    if(output[15]!=0x55667788) return 86;
+    for(u32 i=0;i<15;i++) if(output[i]!=0xdeadbeef) return 73;
+#endif
     for(u32 i=0;i<16;i++) output[i]=0xdeadbeef;
     bind(read_image,0);
     // A managed DMA changes only the second image word. The first remains GPU 7,
@@ -102,7 +174,7 @@ int _start(void) {
     // Change byte 1 inside GPU-only texel 0. Its other three bytes must come
     // from the GPU value, not the stale CPU word 99. CPU becomes 0x00007b63;
     // the required GPU value is 0x11227b44.
-    u64 changed=(u64)image+1;
+    u64 changed=(u64)image+BYTE_OFFSET;
 #else
     u64 changed=(u64)&image[1];
 #endif
@@ -114,28 +186,28 @@ int _start(void) {
 #endif
     commands[n++]=(u32)changed; commands[n++]=(u32)(changed>>32);
 #ifdef PARTIAL_UNALIGNED_BYTE
-    commands[n++]=1;
+    commands[n++]=BYTE_LENGTH;
 #else
     commands[n++]=4;
 #endif
-    result=dispatch(1,2);
+    result=dispatch(1,dma_signal);
     if(result) return result;
     for(u32 i=0;i<16;i++) if(i!=2 && output[i]!=0xdeadbeef) return 81;
 #ifdef PARTIAL_UNALIGNED_BYTE
-    if(image[0]!=0x7b63 || image[1]!=100 || image[2]!=101 || image[3]!=102) return 82;
+    if(image[0]!=CPU_FIRST || image[1]!=CPU_SECOND || image[2]!=101 || image[3]!=102) return 82;
 #else
     if(image[0]!=99 || image[1]!=123 || image[2]!=101 || image[3]!=102) return 82;
 #endif
     if(output[2]!=expected_first) {
 #ifdef PARTIAL_UNALIGNED_BYTE
         // Distinguish the known stale-CPU replacement from other failures.
-        if(output[2]==0x7b63) return 85;
+        if(output[2]==CPU_FIRST) return 85;
 #endif
         return 80;
     }
     output[2]=0xdeadbeef;
     bind(read_image,1);
-    result=dispatch(1,3);
+    result=dispatch(1,dma_signal+1);
     if(result) return result;
     if(output[2]!=expected_second) return 83;
     for(u32 i=0;i<16;i++) if(i!=2 && output[i]!=0xdeadbeef) return 84;
