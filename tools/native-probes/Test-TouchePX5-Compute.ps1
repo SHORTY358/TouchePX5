@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$PartialImage, [switch]$ImageAtomicsCrossQueue, [switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
+param([switch]$UnalignedByte, [switch]$PartialImage, [switch]$ImageAtomicsCrossQueue, [switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
 $ErrorActionPreference = 'Stop'
+if($UnalignedByte) { $PartialImage=$true }
 if($PartialImage) { $ImageAtomics=$true }
 if($PartialImage -and $ImageAtomicsCrossQueue) { throw 'Choose either partial CPU image DMA or cross-queue image atomics.' }
 if($ImageAtomicsCrossQueue) { $ImageAtomics=$true }
@@ -21,6 +22,7 @@ $root = 'C:\Dev\TouchePX5\artifacts\smoke-compute'
 if($ImageAtomics) { $root += '-image-atomics' }
 if($ImageAtomicsCrossQueue) { $root += '-cross-queue' }
 if($PartialImage) { $root += '-partial' }
+if($UnalignedByte) { $root += '-byte' }
 if($BoundedAtomics) { $root += '-bounded-atomics' }
 if($BufferAtomics) { $root += '-buffer' }
 if($SignedImage) { $root += '-signed' }
@@ -35,6 +37,7 @@ $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $source=if($PartialImage) { 'compute-image-partial.c' } elseif($ImageAtomicsCrossQueue) { 'compute-image-atomic-cross.c' } elseif($LdsPaired) { 'compute-lds-paired.c' } elseif($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
 $fixtureOptions=@(
+    if($UnalignedByte) { '-DPARTIAL_UNALIGNED_BYTE=1' }
     if($BufferAtomics) { '-DCLAMP_BUFFER=1' }
     if($SignedImage) { if($PartialImage) { '-DPARTIAL_SIGNED_IMAGE=1' } else { '-DCLAMP_SIGNED_IMAGE=1' } }
     if($BaseRelative) { '-DINDIRECT_BASE_RELATIVE=1' }
@@ -69,9 +72,10 @@ try {
     if (-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Compute guest failed: $log" }
     if ($output -notmatch 'agc.compute_shader[^\r\n]*gpu=True[^\r\n]*global_writes=True') { throw "Missing translated GPU compute dispatch: $log" }
     if($PartialImage) {
+        $dmaBytes=if($UnalignedByte) { 1 } else { 4 }
         if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 3 -or
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=1 ').Count -ne 3 -or
-           [regex]::Matches($output,'agc.dma_packet [^\r\n]*bytes=4 src_sel=2 fill=True copied=True').Count -ne 1 -or
+           [regex]::Matches($output,"agc.dma_packet [^\r\n]*bytes=$dmaBytes src_sel=2 fill=True copied=True").Count -ne 1 -or
            [regex]::Matches($output,'vk.cpu_image_partial_upload [^\r\n]*spans=1 [^\r\n]*success=True').Count -ne 1) { throw 'Expected GPU seed, a one-texel CPU DMA and two independent GPU readbacks preserving its GPU-only neighbor.' }
     } elseif($LdsPaired) {
         if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 8 -or
@@ -128,7 +132,8 @@ try {
     if($ComputeQueue -and
         ([regex]::Matches($output,'agc.driver_submit_acb owner=7 ').Count -ne $expectedSubmissions -or
          $output.Contains('agc.driver_submit_dcb '))) { throw "Expected $expectedSubmissions compute-queue submissions only: $log" }
-    if($PartialImage) { Write-Output "PASS: Partial R32 CPU DMA changed only texel 1 to 123; separate GPU reads preserved GPU-only texel 0 at 7 while CPU backing stayed 99, with unchanged output and neighboring CPU guards. SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
+    if($UnalignedByte) { Write-Output "PASS: One-byte R32 DMA changed GPU 0x11223344 to 0x11227b44 while CPU backing became 0x7b63; separate GPU reads and CPU/output guards passed. SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
+    elseif($PartialImage) { Write-Output "PASS: Partial R32 CPU DMA changed only texel 1 to 123; separate GPU reads preserved GPU-only texel 0 at 7 while CPU backing stayed 99, with unchanged output and neighboring CPU guards. SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
     elseif($ImageAtomicsCrossQueue) { Write-Output "PASS: ACB image atomics returned unique old values; two graphics consumers suspended before their producers, resumed through real labels, and read sums 13/23 with unchanged CPU image backing and output guards." }
     elseif($LdsPaired) { Write-Output "PASS: Paired LDS stores at ordinary and ST64-scaled offsets verified each component through independent dword reads on all 64 invocations, untouched LDS locations, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
     elseif($LdsWide) { Write-Output "PASS: Masked 64/96/128-bit LDS stores verified each component through independent dword reads on all 64 invocations, a neighboring LDS guard, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }

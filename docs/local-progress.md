@@ -6,6 +6,25 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **New confirmed compatibility gap: byte-unaligned image DMA destroys GPU-only
+  bytes in an affected texel.** The opt-in compute probe `-UnalignedByte` seeds
+  GPU texel 0 with `0x11223344` while CPU backing is 99, then fills exactly byte 1
+  with `0x7b`. The required GPU result is `0x11227b44`; independent GPU readback
+  instead returned the stale CPU word `0x00007b63` (explicit guest failure 85).
+  CPU neighboring words and output guards were checked before that failure.
+  All four UINT/SINT x graphics/ACB variants reproduced the same replacement;
+  the aligned graphics and ACB controls still passed. Evidence and unchanged
+  248-file runtime manifest: `artifacts/r32-byte-before/report.json` and its
+  four preserved guest/runner log pairs.
+  The managed-write drain currently admits only four-byte-aligned spans to its
+  bounded upload path; this byte span therefore falls into the full stale-CPU
+  upload. Merely rounding the span to a texel would still overwrite GPU-only
+  neighboring bytes. No runtime fix has been made, and the failing opt-in probe
+  is not added to the passing aggregate. Next stage requires preserving the
+  current GPU texel bytes while merging the exact CPU write, with GPU ordering,
+  resource lifetime and upload-generation failure handling. Per user workflow,
+  request Astra Medium before that architectural change; the reproducible input
+  and evidence are ready.
 - **3/3 real-window recovery trials passed with human window control**:
   CPU frames, direct GPU image flips and ordered immutable GPU captures.
   Report and preserved guest/runner/pixel evidence:

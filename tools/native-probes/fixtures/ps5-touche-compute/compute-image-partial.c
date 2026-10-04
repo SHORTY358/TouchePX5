@@ -80,30 +80,64 @@ int _start(void) {
     for(u32 i=0;i<16;i++) output[i]=0xdeadbeef;
     if(flip_slot(video,0,1,0)!=0) return 63;
     sleep_slot(300000);
-    bind(seed,7);
+#ifdef PARTIAL_UNALIGNED_BYTE
+    const u32 seed_value=0x11223344;
+    const u32 expected_first=0x11227b44;
+    const u32 expected_second=100;
+#else
+    const u32 seed_value=7;
+    const u32 expected_first=7;
+    const u32 expected_second=123;
+#endif
+    bind(seed,seed_value);
     int result=dispatch(1,1);
     if(result) return result;
-    if(output[15]!=7) return 72;
+    if(output[15]!=seed_value) return 72;
     for(u32 i=0;i<15;i++) if(output[i]!=0xdeadbeef) return 73;
     for(u32 i=0;i<16;i++) output[i]=0xdeadbeef;
     bind(read_image,0);
     // A managed DMA changes only the second image word. The first remains GPU 7,
     // while its stale CPU backing stays 99 and must never replace that GPU texel.
+#ifdef PARTIAL_UNALIGNED_BYTE
+    // Change byte 1 inside GPU-only texel 0. Its other three bytes must come
+    // from the GPU value, not the stale CPU word 99. CPU becomes 0x00007b63;
+    // the required GPU value is 0x11227b44.
+    u64 changed=(u64)image+1;
+#else
     u64 changed=(u64)&image[1];
+#endif
     commands[n++]=0xc0055000; commands[n++]=2u<<29;
+#ifdef PARTIAL_UNALIGNED_BYTE
+    commands[n++]=0x7b; commands[n++]=0;
+#else
     commands[n++]=123; commands[n++]=0;
+#endif
     commands[n++]=(u32)changed; commands[n++]=(u32)(changed>>32);
+#ifdef PARTIAL_UNALIGNED_BYTE
+    commands[n++]=1;
+#else
     commands[n++]=4;
+#endif
     result=dispatch(1,2);
     if(result) return result;
-    if(output[2]!=7) return 80;
     for(u32 i=0;i<16;i++) if(i!=2 && output[i]!=0xdeadbeef) return 81;
+#ifdef PARTIAL_UNALIGNED_BYTE
+    if(image[0]!=0x7b63 || image[1]!=100 || image[2]!=101 || image[3]!=102) return 82;
+#else
     if(image[0]!=99 || image[1]!=123 || image[2]!=101 || image[3]!=102) return 82;
+#endif
+    if(output[2]!=expected_first) {
+#ifdef PARTIAL_UNALIGNED_BYTE
+        // Distinguish the known stale-CPU replacement from other failures.
+        if(output[2]==0x7b63) return 85;
+#endif
+        return 80;
+    }
     output[2]=0xdeadbeef;
     bind(read_image,1);
     result=dispatch(1,3);
     if(result) return result;
-    if(output[2]!=123) return 83;
+    if(output[2]!=expected_second) return 83;
     for(u32 i=0;i<16;i++) if(i!=2 && output[i]!=0xdeadbeef) return 84;
     for(u32 i=0;i<320*180;i++) pixels[i]=0xff20a060;
     if(flip_slot(video,0,1,1)!=0) return 71;
