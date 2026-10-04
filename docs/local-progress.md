@@ -6,13 +6,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Third-party launch is now the immediate target**: the unmodified Wolf4SDL
+  PS5 v1.0 shareware ELF reaches startup, then fails to resolve `sceKernelDlsym`
+  with SDK handles 1/0x2001. No game graphics have been reached. The bounded
+  reproducible launch is `tools/external-homebrew/Invoke-Wolf4SDL.ps1`; evidence:
+  `artifacts/external-homebrew/wolf4sdl-v1.0/runs/20261004-103943-897/report.json`.
+  See `docs/wolf4sdl-boot-investigation.md` for the separate resolver/syscall ABI
+  and privileged SDK startup blockers. A failed alias experiment was removed.
+  Baseline Release rebuild passed with zero warnings/errors; the focused
+  dynamic-module lifecycle and public-lookup isolation check passed afterward
+  (`artifacts/wolf-baseline-dynamic-module.log`). This rebuild was not rerun
+  through the full GPU aggregate; the following manifest result is historical.
+
 - **Byte-unaligned image DMA repair is verified by 100/100 native GPU cases**:
   `artifacts/native-gpu/20261004-100952-502/report.json`, clean probe commit
   `df68e3a`. General engineering passed **27/27 cases / 1,298 unit tests**:
   `artifacts/engineering/20261004-095709-889/report.json`, clean runtime code
   `a9f0b90`. The intervening commit changed only the sampled-frame oracle and
-  documentation; no runtime rebuild followed it. All **248 runtime entries**
-  match between the general post-run manifest, GPU aggregate and current build.
+  documentation; no runtime rebuild preceded that checkpoint comparison. All
+  **248 runtime entries** matched between the general post-run manifest, GPU
+  aggregate and build at that checkpoint.
   Independent final comparison: `artifacts/byte-patch-final-verification.json`.
   This includes the original 76 native scenarios and all 24 new R32 byte-span
   variants, preserving the strict successful capture count and pixel oracles.
