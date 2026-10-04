@@ -6,6 +6,24 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- An opt-in real-window recovery probe is prepared:
+  `Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -WindowRecovery` (also direct/ordered).
+  It pauses after frame 1, requires frame 2 to remain pending without an event,
+  then checks resumed presentation, swapchain recreation and all three colors.
+  It requires interactive window control and is not in the unattended aggregate.
+  The current computer-use helper enumerated the native window, but its click
+  failed with `coordinate input geometry is unavailable`; activation/capture
+  failed with `FrameArrived timed out: timed out waiting on channel`. Recovery
+  attempts did not minimize the window. Both trials correctly rejected early
+  frame-2 completion (guest 105), so OS-driven recovery is still unverified.
+  Evidence: `artifacts/flip-window-cpu-before.log` and
+  `artifacts/smoke-flip-cpu-none-window/flip.log`.
+  A final deliberately unminimized trial also rejected guest 105:
+  `artifacts/flip-window-negative-control.log`. This is negative-control evidence,
+  not a passing recovery test.
+  Ordinary CPU/direct/ordered controls passed after adding the opt-in branch:
+  `artifacts/flip-window-control-cpu.log`, `artifacts/flip-window-control-direct.log`,
+  `artifacts/flip-window-control-ordered.log`. No emulator rebuild was required.
 - Flip lifecycle implementation is verified on clean code commit `dfd37f2`:
   **76/76 native GPU cases passed** in
   `artifacts/native-gpu/20261004-090013-898/report.json`, and **27/27 general

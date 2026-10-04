@@ -4,16 +4,22 @@
 [CmdletBinding()]
 param(
     [ValidateSet('cpu','burst','direct','ordered')][string]$Mode='ordered',
-    [ValidateSet('none','acquire','present')][string]$Retry='none'
+    [ValidateSet('none','acquire','present')][string]$Retry='none',
+    [switch]$WindowRecovery
 )
 $ErrorActionPreference='Stop'
 $sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$root=Join-Path $sourceRoot "artifacts\smoke-flip-$Mode-$Retry"
+if($WindowRecovery -and ($Mode -eq 'burst' -or $Retry -ne 'none')) {
+    throw 'Window recovery requires a sequential mode and no injected retry.'
+}
+$suffix=if($WindowRecovery) { '-window' } else { '' }
+$root=Join-Path $sourceRoot "artifacts\smoke-flip-$Mode-$Retry$suffix"
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorAction SilentlyContinue
 $fixture=Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $llvm='C:\BuildTools\VC\Tools\Llvm\x64\bin'
 $defines=@()
+if($WindowRecovery) { $defines+='-DWINDOW_RECOVERY=1' }
 if($Mode -eq 'cpu') { $defines+='-DCPU_FLIP=1' }
 if($Mode -eq 'burst') { $defines+=@('-DCPU_FLIP=1','-DBURST_FLIP=1') }
 if($Mode -eq 'ordered') { $defines+='-DORDERED_FLIP=1' }
@@ -41,13 +47,17 @@ $settings=@{
 }
 $previous=@{}
 try {
+    if($WindowRecovery) {
+        Write-Output 'INTERACTIVE: minimize the native VideoOut window after frame 1; restore at least 36 seconds after frame 1. This test does not control the window itself.'
+    }
     foreach($key in $settings.Keys) {
         $previous[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
         [Environment]::SetEnvironmentVariable($key,$settings[$key],'Process')
     }
     $process=Start-Process -FilePath (Join-Path $sourceRoot 'artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe') -ArgumentList @('--cpu-engine=native','--fps-limit=60','--log-level=info',"--log-file=$log",$guest) -WindowStyle Hidden -PassThru
     try {
-        if(-not $process.WaitForExit(45000)) {
+        $timeoutMs=if($WindowRecovery) { 120000 } else { 45000 }
+        if(-not $process.WaitForExit($timeoutMs)) {
             $process.Kill()
             $process.WaitForExit(5000) | Out-Null
             throw "Flip lifecycle guest timed out: $log"
@@ -56,6 +66,12 @@ try {
     } finally { $process.Dispose() }
     $output=Get-Content -LiteralPath $log -Raw
     if(-not $output.Contains('[RUNTIME] DispatchEntry returned: ORBIS_GEN2_OK')) { throw "Guest lifecycle assertions failed: $log" }
+    if($WindowRecovery) {
+        $deferred=$output.IndexOf('vk.present_deferred window-unavailable')
+        $resumed=$output.IndexOf('vk.present_resumed window-restored')
+        if($deferred -lt 0 -or $resumed -le $deferred) { throw 'Real window defer/resume was not observed.' }
+        if(-not $output.Contains('Vulkan VideoOut recreated swapchain:')) { throw 'Restored window did not recreate its swapchain.' }
+    }
     $expectedFrames=if($Mode -eq 'burst') { 6 } else { 3 }
     if([regex]::Matches($output,'vk.flip_deferred ').Count -ne $expectedFrames) { throw "Expected exactly $expectedFrames deferred flips." }
     if($Retry -ne 'none') {
@@ -75,7 +91,7 @@ try {
     }
     & py -3 (Join-Path $PSScriptRoot 'verify-flip-lifecycle.py') $log $Mode (Join-Path $root 'verification.json')
     if($LASTEXITCODE -ne 0) { throw 'Presented pixel oracle failed.' }
-    Write-Output "PASS flip lifecycle mode=$Mode retry=$Retry; status, pending, events and pixels: $log"
+    Write-Output "PASS flip lifecycle mode=$Mode retry=$Retry windowRecovery=$WindowRecovery; status, pending, events and pixels: $log"
 } finally {
     foreach($key in $previous.Keys) { [Environment]::SetEnvironmentVariable($key,$previous[$key],'Process') }
 }

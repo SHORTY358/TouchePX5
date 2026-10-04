@@ -49,7 +49,15 @@ static int checked_flip(int video,int index,int mode,u64 arg) {
 
     // The renderer intentionally delays every tracked frame by 300ms.
     // An implementation that acknowledges submission fails this check.
+#ifdef WINDOW_RECOVERY
+    // The operator minimizes during the pause after frame 1. Frame 2 must
+    // stay pending for four seconds while the real native window is unavailable.
+    if(expected_count==1) {
+        for(int pause=0;pause<400;pause++) sleep_slot(10000);
+    } else sleep_slot(50000);
+#else
     sleep_slot(50000);
+#endif
     if(status_slot(video,status_words)!=0) return 104;
     if(status_words[0]!=expected_count || ((u32*)status_words)[0x34/4]!=1) return 105;
     if(pending_slot(video)!=1) return 106;
@@ -57,7 +65,12 @@ static int checked_flip(int video,int index,int mode,u64 arg) {
     wait_eq_slot(event_queue,event_words,1,&count,&timeout);
     if(count!=0) return 107;
 
-    for(int retry=0;retry<1500;retry++) {
+#ifdef WINDOW_RECOVERY
+    const int max_retries=6000;
+#else
+    const int max_retries=1500;
+#endif
+    for(int retry=0;retry<max_retries;retry++) {
         count=0; timeout=0;
         wait_eq_slot(event_queue,event_words,1,&count,&timeout);
         if(count) break;
@@ -72,6 +85,11 @@ static int checked_flip(int video,int index,int mode,u64 arg) {
     count=0; timeout=0;
     wait_eq_slot(event_queue,event_words,1,&count,&timeout);
     if(count) return 111;
+#ifdef WINDOW_RECOVERY
+    if(expected_count==1) {
+        for(int pause=0;pause<3000;pause++) sleep_slot(10000);
+    }
+#endif
     return 0;
 }
 

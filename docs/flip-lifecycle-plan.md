@@ -42,6 +42,19 @@ added 2026-10-04; final regression evidence is recorded in `local-progress.md`.
 
 ### Remaining boundaries
 
+An interactive real-window probe is available via
+`tools/native-probes/Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -WindowRecovery`.
+Direct and ordered modes are supported too; burst and injected retries are rejected.
+After the first frame appears, minimize the native VideoOut window during the
+30-second pause. Keep it minimized for at least 36 seconds after the first frame,
+then restore before the guest's 60-second completion wait expires. The guest checks
+that frame 2 has no completion/event while unavailable. The runner requires real
+defer/resume log markers, swapchain recreation, successful guest assertions and
+all three presented colors. The runner does not automate window control and is
+intentionally excluded from unattended aggregates. Do not treat a failed or
+uncontrolled trial as recovery evidence. Current computer-use capture/input failures
+prevented a successful minimize/restore trial; see `local-progress.md`.
+
 Host presentation acceptance is not physical scanout completion. `gcQueueNum`
 remains unchanged until its console semantics have an independent reference.
 Native OS-driven minimize/restore, host movie overlay interaction, Metal execution,
