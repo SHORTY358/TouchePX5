@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- General validation of the byte repair passed **27/27 cases / 1,298 tests**
+  on clean `a9f0b90`:
+  `artifacts/engineering/20261004-095709-889/report.json`.
+  The first 100-case GPU aggregate stopped after 53 passes because an existing
+  sampled-frame oracle counted a real QueuePresent OutOfDate retry as another
+  displayed image: `artifacts/native-gpu/20261004-095939-366/report.json`.
+  The preserved log shows one adjacent retry with completed recreation, then
+  three distinct image sources and four swapchain captures. The oracle now
+  permits adjacent repeats only with intervening OutOfDate/recreation markers;
+  successful capture counts, unique source count and pixel checks are preserved.
+  The actual retry trace is accepted and a repeat without OutOfDate is rejected:
+  `artifacts/byte-patch-retry-oracle-control.json`. Native graphics and cross-queue
+  sampled controls pass on unchanged runtime (`artifacts/byte-patch-sampled-control.log`
+  and `artifacts/byte-patch-sampled-acb-control.log`). A new full aggregate must
+  finish before this byte repair is declared generally verified.
 - **Byte-unaligned image DMA repair is implemented; 24 targeted native variants
   pass.** Initialized linear single-mip/depth-1 RGBA8/R32 images now preserve
   untouched edge bytes by reading only affected edge texels from the GPU before

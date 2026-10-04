@@ -258,8 +258,23 @@ try {
         }
     }
     if($DmaImageSample) {
-        $presentedImages=@([regex]::Matches($output,'vk.present_taken addr=0x([0-9A-F]+) ') |
-            ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -match '[1-9A-F]' })
+        $presentedImages=[Collections.Generic.List[string]]::new()
+        $previousAttempt=$null
+        foreach($attempt in [regex]::Matches($output,'vk.present_taken addr=0x([0-9A-F]+) ')) {
+            $address=$attempt.Groups[1].Value
+            if($address -notmatch '[1-9A-F]') { continue }
+            if($previousAttempt -and $address -eq $previousAttempt.Groups[1].Value) {
+                # A taken frame can be retried after a real OutOfDate result.
+                # Accept only adjacent repeats with a completed recreation;
+                # successful capture counts and every pixel are still checked below.
+                $between=$output.Substring($previousAttempt.Index,$attempt.Index-$previousAttempt.Index)
+                if($between -notmatch 'recreating swapchain after [^\r\n]*ErrorOutOfDateKhr' -or
+                   -not $between.Contains('Vulkan VideoOut recreated swapchain:')) {
+                    throw 'Repeated sampled image without an intervening OutOfDate recovery.'
+                }
+            } else { $presentedImages.Add($address) }
+            $previousAttempt=$attempt
+        }
         if($presentedImages.Count -ne 3 -or @($presentedImages | Select-Object -Unique).Count -ne 3) {
             throw 'Each sampled result must present a distinct image; a deferred flip must not see a later frame.'
         }
