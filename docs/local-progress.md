@@ -6,14 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- Flip lifecycle implementation is prepared for final frozen-runtime validation.
-  Targeted native CPU, direct GPU, ordered capture, six-frame burst and both owned-
-  capture retry branches have passed during development. The presentation-retry
-  oracle exposed stale readback state after swapchain recreation; resetting that
-  state fixed the false black capture. These targeted runs are not a substitute
-  for the final aggregate. See `docs/flip-lifecycle-plan.md` for implementation
-  boundaries and remaining platform/title validation. After this stage, stop for
-  the user's requested switch from Astra back to Sol; do not start another feature.
+- Flip lifecycle implementation is verified on clean code commit `dfd37f2`:
+  **76/76 native GPU cases passed** in
+  `artifacts/native-gpu/20261004-090013-898/report.json`, and **27/27 general
+  engineering cases**, including **1,298 unit tests**, passed in
+  `artifacts/engineering/20261004-002458-772/report.json`.
+  The general post-run manifest, GPU manifest and final runtime match exactly
+  across all **248 entries**. Sources and binaries were frozen throughout the
+  native aggregate. General fixtures are at `8f6e4b7`; their existing unrelated
+  local changes were preserved.
+  Eight new native cases independently verify pending/status/event ordering,
+  direct CPU/GPU flips, a six-frame burst, immutable ordered captures and both
+  acquire/present recreation branches with correct output colors. The retry
+  oracle exposed stale readback state after recreation; resetting that state
+  fixed the false black capture. See `docs/flip-lifecycle-plan.md` for boundaries.
+  The user has switched back to Sol Medium; the requested Astra stage is complete.
 - Complete **68/68 native GPU regression passed** on clean source `cfe6848`:
   `artifacts/native-gpu/20261003-030501-778/report.json`.
   All 248 runtime entries remained unchanged and exactly match the post-run
@@ -689,9 +696,10 @@ width-derived pitch and no existing backend image at the allocation address. It 
 per-draw CPU snapshots with exact-content Vulkan reuse. Tiled/array/storage/GPU-written
 chains and broad commercial-game compatibility remain separate work.
 
-Next architecture task: implement and verify flip-completion lifecycle using
-`docs/flip-lifecycle-plan.md`, after the requested model switch. Further tasks:
-validate minimize/restore with a functioning window-control path,
+Flip-completion lifecycle is implemented and passed the frozen-runtime aggregates
+above. Next validation: minimize/restore with a functioning window-control path;
+the diagnostic recreation checks do not prove OS-driven window recovery.
+Further tasks:
 extend partial-DMA coverage to byte-unaligned and non-linear layouts, and go beyond
 the passing sequential and cross-queue
 full-image transfers before changing its completion semantics. A transient-image

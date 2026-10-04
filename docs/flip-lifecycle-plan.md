@@ -32,6 +32,13 @@ added 2026-10-04; final regression evidence is recorded in `local-progress.md`.
   event ordering; the host verifies swapchain colors. Ordered cases overwrite the
   live GPU image after capture and before presentation, so a mutable-source retry
   cannot pass. Retry diagnostics enter actual resource recreation branches.
+- Final frozen-runtime validation passed on clean code commit `dfd37f2`:
+  **76/76 native GPU cases** in
+  `artifacts/native-gpu/20261004-090013-898/report.json` and **27/27 general
+  engineering cases / 1,298 unit tests** in
+  `artifacts/engineering/20261004-002458-772/report.json`.
+  All 248 runtime entries match between the general post-run manifest, native
+  aggregate and final runtime. General fixtures are at `8f6e4b7`.
 
 ### Remaining boundaries
 
@@ -42,8 +49,9 @@ and commercial title behavior remain unverified. Cancelling a flip does not inve
 a successful event or delete a caller-owned equeue; an unrelated guest thread
 waiting indefinitely on that queue still requires normal queue/session teardown.
 Direct GPU flips retain an address and require the caller to respect reuse waits;
-immutable versions are provided by the ordered AGC path. Full regressions on the
-final frozen runtime are required before declaring this checkpoint verified.
+immutable versions are provided by the ordered AGC path. The final frozen-runtime
+regressions verify the controlled lifecycle cases above, not these remaining
+platform and title boundaries.
 
 ## Observed implementation boundaries
 
@@ -117,6 +125,7 @@ Host QueuePresent acceptance is not proof that physical scanout has completed.
    window-control surface. Pure diagnostics or unit tests do not demonstrate
    native window recovery.
 
-The broad graphics and general engineering regressions must run on one frozen
-runtime after a lifecycle implementation. Current passing counts do not
-establish these lifecycle properties or commercial-game compatibility.
+The broad graphics and general engineering regressions have passed on one frozen
+runtime after the lifecycle implementation, as recorded above. These results do
+not establish physical scanout, OS-driven window recovery or commercial-game
+compatibility.
