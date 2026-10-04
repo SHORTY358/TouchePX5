@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Byte-unaligned image DMA repair is verified by 100/100 native GPU cases**:
+  `artifacts/native-gpu/20261004-100952-502/report.json`, clean probe commit
+  `df68e3a`. General engineering passed **27/27 cases / 1,298 unit tests**:
+  `artifacts/engineering/20261004-095709-889/report.json`, clean runtime code
+  `a9f0b90`. The intervening commit changed only the sampled-frame oracle and
+  documentation; no runtime rebuild followed it. All **248 runtime entries**
+  match between the general post-run manifest, GPU aggregate and current build.
+  Independent final comparison: `artifacts/byte-patch-final-verification.json`.
+  This includes the original 76 native scenarios and all 24 new R32 byte-span
+  variants, preserving the strict successful capture count and pixel oracles.
+  The first aggregate's actual OutOfDate retry was a test-oracle issue; its
+  retained failure and both positive/negative controls are recorded below.
+  The Astra implementation and Sol validation stages are complete. Next focused
+  coverage can exercise unaligned RGBA8 consumers and disjoint byte writes in
+  one texel; performance and failure-path injection remain separate work.
 - General validation of the byte repair passed **27/27 cases / 1,298 tests**
   on clean `a9f0b90`:
   `artifacts/engineering/20261004-095709-889/report.json`.
@@ -20,7 +35,8 @@ percentage or release-date estimate.
   `artifacts/byte-patch-retry-oracle-control.json`. Native graphics and cross-queue
   sampled controls pass on unchanged runtime (`artifacts/byte-patch-sampled-control.log`
   and `artifacts/byte-patch-sampled-acb-control.log`). A new full aggregate must
-  finish before this byte repair is declared generally verified.
+  finish before this byte repair is declared generally verified; the subsequent
+  100-case passing aggregate above now supplies that validation.
 - **Byte-unaligned image DMA repair is implemented; 24 targeted native variants
   pass.** Initialized linear single-mip/depth-1 RGBA8/R32 images now preserve
   untouched edge bytes by reading only affected edge texels from the GPU before
@@ -35,12 +51,11 @@ percentage or release-date estimate.
   and count bounded edge readbacks. `artifacts/byte-targeted-passed.json` and
   `artifacts/byte-*-signed-*-acb-*.log` record the targeted runs; Release build
   passed without warnings/errors in `artifacts/byte-patch-build.log`.
-  The full aggregate now contains 100 cases. A new frozen-runtime general/GPU
-  run is required before replacing the earlier aggregate below. The synchronous
+  The full aggregate now contains 100 cases and passed on the frozen runtime
+  recorded above. The synchronous
   edge path favors correctness; performance, fault injection, arbitrary tiled/
   mip layouts and native unaligned RGBA8 consumers remain separate validation.
-  The Astra implementation stage is complete; routine aggregate monitoring can
-  continue on Sol Medium without another architecture change.
+  The Astra implementation stage and subsequent Sol aggregate validation are complete.
 - **New confirmed compatibility gap: byte-unaligned image DMA destroys GPU-only
   bytes in an affected texel.** The opt-in compute probe `-UnalignedByte` seeds
   GPU texel 0 with `0x11223344` while CPU backing is 99, then fills exactly byte 1
