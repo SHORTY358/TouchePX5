@@ -4290,90 +4290,119 @@ public static partial class AgcExports
                     state.TranslatedDraw = null;
                 }
 
-                if (VideoOutExports.TryGetDisplayBufferInfo(
-                        handle,
-                        displayBufferIndex,
-                        out var cachedDisplayBuffer) &&
-                    GuestGpu.Current.TrySubmitOrderedGuestImageFlip(
-                        handle,
-                        displayBufferIndex,
-                        cachedDisplayBuffer.Address,
-                        cachedDisplayBuffer.Width,
-                        cachedDisplayBuffer.Height,
-                        cachedDisplayBuffer.PitchInPixel))
+                var flipResult = VideoOutExports.BeginFlip(handle, displayBufferIndex, flipArg, out var completion);
+                if (flipResult == 0)
                 {
-                    TraceDisplayBuffer(
-                        handle,
-                        displayBufferIndex,
-                        cachedDisplayBuffer,
-                        "gpu-cache");
-                }
-                else if (state.SawIndexedDraw &&
-                    state.TranslatedDraw is { } translatedDraw &&
-                    VideoOutExports.TryGetDisplayBufferInfo(
-                        handle,
-                        displayBufferIndex,
-                        out var translatedDisplayBuffer))
-                {
-                    TraceDisplayBuffer(
-                        handle,
-                        displayBufferIndex,
-                        translatedDisplayBuffer,
-                        "draw-fallback");
-                    var textures = CreateGuestDrawTextures(ctx, translatedDraw.Textures, out var fallbackTextureCount);
-                    var globalMemoryBuffers =
-                        CreateTranslatedDrawGlobalBuffersForPresent(ctx, translatedDraw);
-                    GuestGpu.Current.SubmitTranslatedDraw(
-                        translatedDraw.PixelShader,
-                        textures,
-                        globalMemoryBuffers,
-                        translatedDisplayBuffer.Width,
-                        translatedDisplayBuffer.Height,
-                        translatedDraw.AttributeCount);
-                    TraceAgcShader(
-                        $"agc.shader_present ps=0x{translatedDraw.PixelShaderAddress:X16} " +
-                        $"spirv={translatedDraw.PixelShader.Payload.Length} textures={textures.Count} " +
-                        $"global_buffers={globalMemoryBuffers.Count} " +
-                        $"fallback={fallbackTextureCount} {translatedDisplayBuffer.Width}x{translatedDisplayBuffer.Height}");
-
-                    for (var i = 0; i < translatedDraw.Textures.Count; i++)
+                    try
                     {
-                        var binding = translatedDraw.Textures[i];
-                        var d = binding.Descriptor;
+                        if (VideoOutExports.TryGetDisplayBufferInfo(
+                                handle,
+                                displayBufferIndex,
+                                out var cachedDisplayBuffer) &&
+                            GuestGpu.Current.TrySubmitOrderedGuestImageFlip(
+                                handle,
+                                displayBufferIndex,
+                                cachedDisplayBuffer.Address,
+                                cachedDisplayBuffer.Width,
+                                cachedDisplayBuffer.Height,
+                                cachedDisplayBuffer.PitchInPixel, completion))
+                        {
+                            TraceDisplayBuffer(
+                                handle,
+                                displayBufferIndex,
+                                cachedDisplayBuffer,
+                                "gpu-cache");
+                        }
+                        else if (state.SawIndexedDraw &&
+                            state.TranslatedDraw is { } translatedDraw &&
+                            VideoOutExports.TryGetDisplayBufferInfo(
+                                handle,
+                                displayBufferIndex,
+                                out var translatedDisplayBuffer))
+                        {
+                            TraceDisplayBuffer(
+                                handle,
+                                displayBufferIndex,
+                                translatedDisplayBuffer,
+                                "draw-fallback");
+                            var textures = CreateGuestDrawTextures(ctx, translatedDraw.Textures, out var fallbackTextureCount);
+                            var globalMemoryBuffers =
+                                CreateTranslatedDrawGlobalBuffersForPresent(ctx, translatedDraw);
+                            GuestGpu.Current.SubmitTranslatedDraw(
+                                translatedDraw.PixelShader,
+                                textures,
+                                globalMemoryBuffers,
+                                translatedDisplayBuffer.Width,
+                                translatedDisplayBuffer.Height,
+                                translatedDraw.AttributeCount, completion: completion);
+                            TraceAgcShader(
+                                $"agc.shader_present ps=0x{translatedDraw.PixelShaderAddress:X16} " +
+                                $"spirv={translatedDraw.PixelShader.Payload.Length} textures={textures.Count} " +
+                                $"global_buffers={globalMemoryBuffers.Count} " +
+                                $"fallback={fallbackTextureCount} {translatedDisplayBuffer.Width}x{translatedDisplayBuffer.Height}");
 
-                        TraceAgcShader(
-                            $"agc.present_desc[{i}] " +
-                            $"addr=0x{d.Address:X16} " +
-                            $"size={d.Width}x{d.Height} " +
-                            $"fmt={d.Format} " +
-                            $"num={d.NumberType} " +
-                            $"type={d.Type} " +
-                            $"tile={d.TileMode} " +
-                            $"storage={binding.IsStorage}");
+                            for (var i = 0; i < translatedDraw.Textures.Count; i++)
+                            {
+                                var binding = translatedDraw.Textures[i];
+                                var d = binding.Descriptor;
+
+                                TraceAgcShader(
+                                    $"agc.present_desc[{i}] " +
+                                    $"addr=0x{d.Address:X16} " +
+                                    $"size={d.Width}x{d.Height} " +
+                                    $"fmt={d.Format} " +
+                                    $"num={d.NumberType} " +
+                                    $"type={d.Type} " +
+                                    $"tile={d.TileMode} " +
+                                    $"storage={binding.IsStorage}");
+                            }
+                        }
+                        else if (state.SawIndexedDraw && state.PresenterTexture is { } sourceTexture)
+                        {
+                            if (!TrySoftwarePresent(
+                                ctx,
+                                sourceTexture,
+                                unchecked((int)videoOutHandle),
+                                displayBufferIndex, completion))
+                                completion?.Cancel();
+                        }
+                        else if (state.SawIndexedDraw &&
+                                 state.GuestDrawKind != GuestDrawKind.None &&
+                                 VideoOutExports.TryGetDisplayBufferInfo(
+                                     handle,
+                                     displayBufferIndex,
+                                     out var displayBuffer))
+                        {
+                            GuestGpu.Current.SubmitGuestDraw(
+                                state.GuestDrawKind,
+                                displayBuffer.Width,
+                                displayBuffer.Height, completion);
+                        }
+
+                        else if (displayBufferIndex == -1)
+                        {
+                            GuestGpu.Current.Submit(new byte[4], 1, 1, completion);
+                        }
+                        else
+                        {
+                            completion?.Cancel();
+                        }
+                        VideoOutExports.RecordFlipSubmission(ctx, handle, displayBufferIndex,
+                            unchecked((int)flipMode), flipArg, false,
+                            completion?.IsCancelled != true,
+                            VideoOutExports.TryGetDisplayBufferInfo(handle, displayBufferIndex, out var submittedBuffer)
+                                ? submittedBuffer.Address : 0);
+                    }
+                    catch
+                    {
+                        completion!.Cancel();
+                        throw;
                     }
                 }
-                else if (state.SawIndexedDraw && state.PresenterTexture is { } sourceTexture)
+                else
                 {
-                    _ = TrySoftwarePresent(
-                        ctx,
-                        sourceTexture,
-                        unchecked((int)videoOutHandle),
-                        displayBufferIndex);
+                    TraceAgcShader($"agc.flip_rejected handle={handle} index={displayBufferIndex} error=0x{flipResult:X8}");
                 }
-                else if (state.SawIndexedDraw &&
-                         state.GuestDrawKind != GuestDrawKind.None &&
-                         VideoOutExports.TryGetDisplayBufferInfo(
-                             handle,
-                             displayBufferIndex,
-                             out var displayBuffer))
-                {
-                    GuestGpu.Current.SubmitGuestDraw(
-                        state.GuestDrawKind,
-                        displayBuffer.Width,
-                        displayBuffer.Height);
-                }
-
-                _ = VideoOutExports.SubmitFlipFromAgc(ctx, handle, displayBufferIndex, unchecked((int)flipMode), flipArg);
                 state.SawIndexedDraw = false;
                 state.GuestDrawKind = GuestDrawKind.None;
                 if (state.PendingTargetlessDraw is { } unusedPendingDraw)
@@ -13475,7 +13504,7 @@ public static partial class AgcExports
         CpuContext ctx,
         TextureDescriptor source,
         int videoOutHandle,
-        int displayBufferIndex)
+        int displayBufferIndex, GuestPresentationCompletion? completion = null)
     {
         if (source.Format != Gen5TextureFormatR8G8B8A8Unorm ||
             source.TileMode != 0 ||
@@ -13597,7 +13626,7 @@ public static partial class AgcExports
             _softwarePresenterFingerprints[fingerprintKey] = fingerprint;
         }
 
-        VideoOutExports.SubmitHostRgbaFrame(sourceBytes, source.Width, source.Height);
+        VideoOutExports.SubmitHostRgbaFrame(sourceBytes, source.Width, source.Height, completion);
         TraceAgc(
             $"agc.software_presenter src=0x{source.Address:X16} {source.Width}x{source.Height} fmt={source.Format}/num{source.NumberType} " +
             $"dst=0x{destination.Address:X16} {destination.Width}x{destination.Height} fingerprint=0x{fingerprint:X16}");

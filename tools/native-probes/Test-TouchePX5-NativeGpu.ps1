@@ -20,6 +20,14 @@ function Save-Report { $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralP
 Save-Report
 try {
     foreach($case in @(
+        @{Name='flip-cpu'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-cpu-none\flip.log'; Parameters=@{Mode='cpu'}},
+        @{Name='flip-cpu-acquire-retry'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-cpu-acquire\flip.log'; Parameters=@{Mode='cpu';Retry='acquire'}},
+        @{Name='flip-cpu-present-retry'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-cpu-present\flip.log'; Parameters=@{Mode='cpu';Retry='present'}},
+        @{Name='flip-burst'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-burst-none\flip.log'; Parameters=@{Mode='burst'}},
+        @{Name='flip-direct'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-direct-none\flip.log'; Parameters=@{Mode='direct'}},
+        @{Name='flip-ordered'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-ordered-none\flip.log'; Parameters=@{Mode='ordered'}},
+        @{Name='flip-ordered-acquire-retry'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-ordered-acquire\flip.log'; Parameters=@{Mode='ordered';Retry='acquire'}},
+        @{Name='flip-ordered-present-retry'; Script='Test-TouchePX5-FlipLifecycle.ps1'; Guest='smoke-flip-ordered-present\flip.log'; Parameters=@{Mode='ordered';Retry='present'}},
         @{Name='compute-repeat'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute\compute.log'; Parameters=@{}},
         @{Name='compute-indirect-dimensions'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-indirect-dimensions\compute.log'; Parameters=@{IndirectDimensions=$true}},
         @{Name='compute-indirect-base'; Script='Test-TouchePX5-Compute.ps1'; Guest='smoke-compute-indirect-dimensions-base-relative\compute.log'; Parameters=@{BaseRelative=$true}},
@@ -97,7 +105,7 @@ try {
             $parameters=$case.Parameters
             & (Join-Path $PSScriptRoot $case.Script) @parameters *> $result.Log
             if(-not $?) { throw "Failed: $($case.Name)" }
-            if($case.Script -eq 'Test-TouchePX5-Triangle.ps1') {
+            if($case.Script -in @('Test-TouchePX5-Triangle.ps1','Test-TouchePX5-FlipLifecycle.ps1')) {
                 $verification=Join-Path (Split-Path (Join-Path $sourceRoot ('artifacts\'+$case.Guest))) 'verification.json'
                 Copy-Item -LiteralPath $verification -Destination (Join-Path $reportRoot ($case.Name+'-verification.json'))
             }

@@ -51,7 +51,8 @@ internal static partial class MetalVideoPresenter
         uint GuestImagePitch = 0,
         long RequiredGuestWorkSequence = 0,
         TranslatedGuestDraw? TranslatedDraw = null,
-        GuestDrawKind DrawKind = GuestDrawKind.None);
+        GuestDrawKind DrawKind = GuestDrawKind.None,
+        GuestPresentationCompletion? Completion = null);
 
     private static readonly object _gate = new();
     private static Thread? _thread;
@@ -91,6 +92,7 @@ internal static partial class MetalVideoPresenter
     private static nint _ownedVersionTexture;
     private static ulong _presentGuestAddress;
     private static long _presentedSequence = -1;
+    private static GuestPresentationCompletion? _pendingPresentCompletion;
     private static bool _userClosed;
     private static uint _windowWidth;
     private static uint _windowHeight;
@@ -152,10 +154,11 @@ internal static partial class MetalVideoPresenter
         }
     }
 
-    public static void Submit(byte[] bgraFrame, uint width, uint height)
+    public static void Submit(byte[] bgraFrame, uint width, uint height, GuestPresentationCompletion? completion = null)
     {
         if (bgraFrame.Length != checked((int)(width * height * 4)))
         {
+            completion?.Cancel();
             return;
         }
 
@@ -163,11 +166,14 @@ internal static partial class MetalVideoPresenter
         {
             if (_closed)
             {
+                completion?.Cancel();
                 return;
             }
 
             var sequence = (_latestPresentation?.Sequence ?? 0) + 1;
-            _latestPresentation = new Presentation(bgraFrame, width, height, sequence, IsSplash: false);
+            _latestPresentation = new Presentation(bgraFrame, width, height, sequence, IsSplash: false, Completion: completion);
+            if (completion is not null)
+                _pendingGuestImagePresentations.Enqueue(_latestPresentation);
             if (_thread is not null)
             {
                 return;
@@ -218,6 +224,8 @@ internal static partial class MetalVideoPresenter
             lock (_gate)
             {
                 _closed = true;
+                GuestPresentationCompletion.CancelSession();
+                _pendingPresentCompletion = null;
                 _thread = null;
                 // Wake guest-work waiters and backpressured producers so close
                 // never strands a blocked guest thread.
@@ -542,6 +550,8 @@ internal static partial class MetalVideoPresenter
         }
         catch (Exception exception)
         {
+            _pendingPresentCompletion?.Cancel();
+            _pendingPresentCompletion = null;
             Console.Error.WriteLine($"[LOADER][ERROR] Metal render frame failed: {exception}");
         }
     }
@@ -623,9 +633,18 @@ internal static partial class MetalVideoPresenter
 
             DrainGuestWork(_device, _commandQueue);
 
-            if (TryTakePresentation(_presentedSequence, out var presentation))
+            if (_pendingPresentCompletion?.IsCancelled == true)
+            {
+                _pendingPresentCompletion = null;
+                _presentTexture = 0;
+                _presentGuestAddress = 0;
+            }
+            if (_pendingPresentCompletion is null && TryTakePresentation(_presentedSequence, out var presentation))
             {
                 _presentedSequence = presentation.Sequence;
+                _pendingPresentCompletion = presentation.Completion;
+                _presentTexture = 0;
+                _presentGuestAddress = 0;
                 if (presentation.Pixels is not null)
                 {
                     UploadFrame(
@@ -706,6 +725,12 @@ internal static partial class MetalVideoPresenter
                 }
             }
 
+            if (_pendingPresentCompletion is not null && _presentTexture == 0)
+            {
+                _pendingPresentCompletion.Cancel();
+                _pendingPresentCompletion = null;
+            }
+
             // The window title reflects late guest state (the game registers its
             // application name after boot) plus the GPU suffix; the Vulkan
             // presenter re-reads it, so refresh periodically here for parity.
@@ -743,11 +768,23 @@ internal static partial class MetalVideoPresenter
 
             var drawableTexture = MetalNative.Send(drawable, MetalNative.Selector("texture"));
             var commandBuffer = MetalNative.Send(_commandQueue, MetalNative.Selector("commandBuffer"));
+            if (drawableTexture == 0 || commandBuffer == 0)
+            {
+                _pendingPresentCompletion?.Cancel();
+                _pendingPresentCompletion = null;
+                return;
+            }
             var pass = CreateClearPass(
                 drawableTexture,
                 new MtlClearColor { Red = 0, Green = 0, Blue = 0, Alpha = 1 });
             var encoder = MetalNative.Send(
                 commandBuffer, MetalNative.Selector("renderCommandEncoderWithDescriptor:"), pass);
+            if (encoder == 0)
+            {
+                _pendingPresentCompletion?.Cancel();
+                _pendingPresentCompletion = null;
+                return;
+            }
             if (_presentTexture != 0)
             {
                 EncodePresent(
@@ -769,6 +806,9 @@ internal static partial class MetalVideoPresenter
             MetalNative.SendVoid(encoder, MetalNative.Selector("endEncoding"));
             MetalNative.SendVoid(commandBuffer, MetalNative.Selector("presentDrawable:"), drawable);
             MetalNative.SendVoid(commandBuffer, MetalNative.Selector("commit"));
+            _pendingPresentCompletion?.Presented();
+            _pendingPresentCompletion = null;
+            VideoOutExports.ReportPresentedFrame();
             PerfOverlay.RecordPresent();
         }
         finally

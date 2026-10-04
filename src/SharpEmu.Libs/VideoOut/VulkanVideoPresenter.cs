@@ -108,7 +108,8 @@ internal sealed record VulkanOrderedGuestFlip(
     ulong Address,
     uint Width,
     uint Height,
-    uint PitchInPixel);
+    uint PitchInPixel,
+    GuestPresentationCompletion? Completion = null);
 
 internal sealed record VulkanOrderedGuestFlipWait(
     long Version,
@@ -989,6 +990,7 @@ internal static unsafe class VulkanVideoPresenter
 
     private static void ResetHostSessionStateLocked()
     {
+        GuestPresentationCompletion.CancelSession();
         _latestPresentation = null;
         _hostVideoOverlayPresentation = null;
         _hostVideoTextureFrame = null;
@@ -1052,10 +1054,11 @@ internal static unsafe class VulkanVideoPresenter
         }
     }
 
-    public static void Submit(byte[] bgraFrame, uint width, uint height)
+    public static void Submit(byte[] bgraFrame, uint width, uint height, GuestPresentationCompletion? completion = null)
     {
         if (bgraFrame.Length != checked((int)(width * height * 4)))
         {
+            completion?.Cancel();
             return;
         }
 
@@ -1063,6 +1066,7 @@ internal static unsafe class VulkanVideoPresenter
         {
             if (_closed)
             {
+                completion?.Cancel();
                 return;
             }
 
@@ -1075,7 +1079,9 @@ internal static unsafe class VulkanVideoPresenter
                 GuestDrawKind.None,
                 TranslatedDraw: null,
                 RequiredGuestWorkSequence: 0,
-                IsSplash: false);
+                IsSplash: false, Completion: completion);
+            if (completion is not null)
+                _pendingGuestImagePresentations.Enqueue(_latestPresentation.Value);
             if (_thread is not null)
             {
                 return;
@@ -1087,21 +1093,23 @@ internal static unsafe class VulkanVideoPresenter
         }
     }
 
-    public static void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height)
+    public static void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height, GuestPresentationCompletion? completion = null)
     {
         if (drawKind == GuestDrawKind.None || width == 0 || height == 0)
         {
+            completion?.Cancel();
             return;
         }
 
         lock (_gate)
         {
             if (_closed ||
-                _latestPresentation is { Pixels: null } latest &&
+                completion is null && _latestPresentation is { Pixels: null } latest &&
                 latest.DrawKind == drawKind &&
                 latest.Width == width &&
                 latest.Height == height)
             {
+                completion?.Cancel();
                 return;
             }
 
@@ -1114,7 +1122,9 @@ internal static unsafe class VulkanVideoPresenter
                 drawKind,
                 TranslatedDraw: null,
                 RequiredGuestWorkSequence: CurrentSubmittingQueueTailLocked(),
-                IsSplash: false);
+                IsSplash: false, Completion: completion);
+            if (completion is not null)
+                _pendingGuestImagePresentations.Enqueue(_latestPresentation.Value);
             if (_thread is not null)
             {
                 return;
@@ -1139,10 +1149,12 @@ internal static unsafe class VulkanVideoPresenter
         uint primitiveType = 4,
         GuestIndexBuffer? indexBuffer = null,
         IReadOnlyList<GuestVertexBuffer>? vertexBuffers = null,
-        GuestRenderState? renderState = null)
+        GuestRenderState? renderState = null,
+        GuestPresentationCompletion? completion = null)
     {
         if (pixelSpirv.Length == 0 || width == 0 || height == 0)
         {
+            completion?.Cancel();
             return;
         }
 
@@ -1150,6 +1162,7 @@ internal static unsafe class VulkanVideoPresenter
         {
             if (_closed)
             {
+                completion?.Cancel();
                 return;
             }
 
@@ -1173,7 +1186,9 @@ internal static unsafe class VulkanVideoPresenter
                     indexBuffer,
                     renderState ?? GuestRenderState.Default),
                 RequiredGuestWorkSequence: CurrentSubmittingQueueTailLocked(),
-                IsSplash: false);
+                IsSplash: false, Completion: completion);
+            if (completion is not null)
+                _pendingGuestImagePresentations.Enqueue(_latestPresentation.Value);
             if (_thread is not null)
             {
                 return;
@@ -1922,7 +1937,8 @@ internal static unsafe class VulkanVideoPresenter
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel)
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null)
     {
         var traceSubmission = false;
         lock (_gate)
@@ -1958,10 +1974,12 @@ internal static unsafe class VulkanVideoPresenter
                 // renderer and turns every flip into a dropped black frame.
                 RequiredGuestWorkSequence: requiredWorkSequence,
                 IsSplash: false,
-                GuestImageAddress: address);
+                GuestImageAddress: address, Completion: completion);
             _latestPresentation = presentation;
             _pendingGuestImagePresentations.Enqueue(presentation);
-            while (_pendingGuestImagePresentations.Count > MaxPendingGuestFlipVersions)
+            while (_pendingGuestImagePresentations.Count > MaxPendingGuestFlipVersions &&
+                   (_pendingGuestImagePresentations.Peek().Completion is null ||
+                    _pendingGuestImagePresentations.Peek().Completion!.IsCancelled))
             {
                 _pendingGuestImagePresentations.Dequeue();
             }
@@ -1990,7 +2008,8 @@ internal static unsafe class VulkanVideoPresenter
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel)
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null)
     {
         lock (_gate)
         {
@@ -2019,7 +2038,7 @@ internal static unsafe class VulkanVideoPresenter
                     address,
                     width,
                     height,
-                    pitchInPixel)) > 0;
+                    pitchInPixel, completion)) > 0;
             SharpEmu.Libs.Diagnostics.LoadProgressDiagnostics.TraceOrderedFlipEnqueue(
                 videoOutHandle,
                 displayBufferIndex,
@@ -3145,6 +3164,7 @@ internal static unsafe class VulkanVideoPresenter
             lock (_gate)
             {
                 _closed = true;
+                GuestPresentationCompletion.CancelSession();
                 _thread = null;
                 if (_hostSurfacePendingDetach is not null &&
                     ReferenceEquals(_hostSurface, _hostSurfacePendingDetach))
@@ -3252,9 +3272,11 @@ internal static unsafe class VulkanVideoPresenter
             // while it drains expensive work, so use the first completed flip
             // rather than repeatedly asking only for the newest one.
             while (_pendingGuestImagePresentations.Count > 0 &&
-                   _pendingGuestImagePresentations.Peek().Sequence <= presentedSequence)
+                   (_pendingGuestImagePresentations.Peek().Completion?.IsCancelled == true ||
+                    _pendingGuestImagePresentations.Peek().Sequence <= presentedSequence &&
+                    presentedSequence < (1L << 62)))
             {
-                _pendingGuestImagePresentations.Dequeue();
+                _pendingGuestImagePresentations.Dequeue().Completion?.Cancel();
             }
 
             if (_pendingGuestImagePresentations.Count > 0)
@@ -3272,6 +3294,7 @@ internal static unsafe class VulkanVideoPresenter
 
             if (_latestPresentation is not { } latest ||
                 latest.Sequence == presentedSequence ||
+                latest.Completion?.IsCancelled == true ||
                 !IsGuestWorkCompletedLocked(latest.RequiredGuestWorkSequence))
             {
                 if (_latestPresentation is { } rej &&
@@ -4206,7 +4229,8 @@ internal static unsafe class VulkanVideoPresenter
         long RequiredGuestWorkSequence,
         bool IsSplash,
         ulong GuestImageAddress = 0,
-        long GuestImageVersion = 0);
+        long GuestImageVersion = 0,
+        GuestPresentationCompletion? Completion = null);
 
     private sealed class Presenter : IDisposable
     {
@@ -5057,6 +5081,7 @@ internal static unsafe class VulkanVideoPresenter
                 lock (_gate)
                 {
                     _closed = true;
+                    GuestPresentationCompletion.CancelSession();
                     _presenterCloseRequested = true;
                     System.Threading.Monitor.PulseAll(_gate);
                 }
@@ -7422,6 +7447,8 @@ internal static unsafe class VulkanVideoPresenter
 
         private void ExecuteOrderedGuestFlip(VulkanOrderedGuestFlip work)
         {
+            if (work.Completion?.IsCancelled == true)
+                return;
             FlushBatchedGuestCommands();
 
             QueueFrameBoundaryGuestImageDumps();
@@ -7467,6 +7494,7 @@ internal static unsafe class VulkanVideoPresenter
                     $"[LOADER][WARN] vk.flip_capture_failed version={work.Version} " +
                     $"queue={_activeGuestQueue.Name} addr=0x{work.Address:X16} " +
                     $"found={(source is not null)} initialized={(source?.Initialized ?? false)}");
+                work.Completion?.Cancel();
                 return;
             }
 
@@ -7606,10 +7634,12 @@ internal static unsafe class VulkanVideoPresenter
                         RequiredGuestWorkSequence: _activeGuestWorkSequence,
                         IsSplash: false,
                         GuestImageAddress: work.Address,
-                        GuestImageVersion: work.Version);
+                        GuestImageVersion: work.Version, Completion: work.Completion);
                     _latestPresentation = presentation;
                     _pendingGuestImagePresentations.Enqueue(presentation);
-                    while (_pendingGuestImagePresentations.Count > MaxPendingGuestFlipVersions)
+                    while (_pendingGuestImagePresentations.Count > MaxPendingGuestFlipVersions &&
+                   (_pendingGuestImagePresentations.Peek().Completion is null ||
+                    _pendingGuestImagePresentations.Peek().Completion!.IsCancelled))
                     {
                         _pendingGuestImagePresentations.Dequeue();
                     }
@@ -8183,6 +8213,9 @@ internal static unsafe class VulkanVideoPresenter
                     referencedVersions.Add(latest.GuestImageVersion);
                 }
             }
+
+            if (_retryPresentation is { GuestImageVersion: not 0 } retry)
+                referencedVersions.Add(retry.GuestImageVersion);
 
             foreach (var entry in _guestImageVersions.ToArray())
             {
@@ -18459,6 +18492,7 @@ internal static unsafe class VulkanVideoPresenter
             }
             catch (Exception exception)
             {
+                GuestPresentationCompletion.CancelSession();
                 // Device loss can strike between any two Vulkan calls in the frame;
                 // keep the window loop pumping instead of tearing the presenter down.
                 if (!TryMarkDeviceLost(exception))
@@ -18468,7 +18502,43 @@ internal static unsafe class VulkanVideoPresenter
             }
         }
 
+        private void RetainPresentationForRetry(Presentation presentation, int frameSlot,
+            GuestImageResource? image, bool ownsVersion)
+        {
+            // Detach the capture before recreation retires the frame slots.
+            // Recreation waits for all submitted GPU use before the next retry.
+            _retryPresentation = presentation;
+            if (ownsVersion && image is not null)
+            {
+                _frameGuestImageVersions[frameSlot] = null;
+                _guestImageVersions.Add(presentation.GuestImageVersion, image);
+            }
+        }
+
         private bool _windowPresentationDeferred;
+        private Presentation? _retryPresentation;
+        private readonly int _diagnosticFlipDelayMs =
+            int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DIAGNOSTIC_FLIP_DELAY_MS"), out var delay)
+                ? Math.Clamp(delay, 0, 5000) : 0;
+        private readonly string? _diagnosticFlipRetry =
+            Environment.GetEnvironmentVariable("SHARPEMU_DIAGNOSTIC_FLIP_RETRY");
+        private readonly int _diagnosticFlipRetryFrame =
+            int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DIAGNOSTIC_FLIP_RETRY_FRAME"), out var frame)
+                ? Math.Max(frame, 1) : 1;
+        private long _diagnosticFlipSequence = -1;
+        private long _diagnosticFlipNotBefore;
+        private int _diagnosticFlipOrdinal;
+        private bool _diagnosticFlipRetryInjected;
+
+        private bool InjectFlipRetry(string phase, Presentation presentation)
+        {
+            if (_diagnosticFlipRetryInjected || presentation.Completion is null ||
+                _diagnosticFlipOrdinal != _diagnosticFlipRetryFrame || _diagnosticFlipRetry != phase)
+                return false;
+            _diagnosticFlipRetryInjected = true;
+            Console.Error.WriteLine($"[LOADER][TRACE] vk.flip_retry_injected phase={phase} version={presentation.GuestImageVersion}");
+            return true;
+        }
 
         private void RenderCore()
         {
@@ -18794,8 +18864,17 @@ internal static unsafe class VulkanVideoPresenter
                 }
             }
 
+            if (Stopwatch.GetTimestamp() < _diagnosticFlipNotBefore)
+                return;
+            if (_retryPresentation?.Completion?.IsCancelled == true)
+                _retryPresentation = null;
             Presentation presentation;
-            if (!TryTakePresentation(_presentedSequence, out presentation))
+            if (_retryPresentation is { } retry && retry.Completion?.IsCancelled != true)
+            {
+                presentation = retry;
+                _retryPresentation = null;
+            }
+            else if (!TryTakePresentation(_presentedSequence, out presentation))
             {
 				if (_pendingHostSplashReplay is { } splash)
 				{
@@ -18838,6 +18917,22 @@ internal static unsafe class VulkanVideoPresenter
                 }
             }
 
+            if (presentation.Completion is not null && _diagnosticFlipSequence != presentation.Sequence)
+            {
+                _diagnosticFlipSequence = presentation.Sequence;
+                _diagnosticFlipOrdinal++;
+                if (_diagnosticFlipDelayMs > 0)
+                {
+                    _diagnosticFlipNotBefore = Stopwatch.GetTimestamp() +
+                        _diagnosticFlipDelayMs * Stopwatch.Frequency / 1000;
+                    _retryPresentation = presentation;
+                    Console.Error.WriteLine($"[LOADER][TRACE] vk.flip_deferred sequence={presentation.Sequence} delay_ms={_diagnosticFlipDelayMs}");
+                    return;
+                }
+            }
+            if (presentation.Completion?.IsCancelled == true)
+                return;
+
             SharpEmu.Libs.Diagnostics.LoadProgressDiagnostics.TracePresentTaken(
                 presentation.Sequence,
                 presentation.GuestImageAddress,
@@ -18856,6 +18951,7 @@ internal static unsafe class VulkanVideoPresenter
                 presentation.TranslatedDraw is null &&
                 presentation.GuestImageAddress == 0)
             {
+                presentation.Completion?.Cancel();
                 _presentedSequence = presentation.Sequence;
                 return;
             }
@@ -18880,6 +18976,7 @@ internal static unsafe class VulkanVideoPresenter
                         _extent.Height);
                 if ((ulong)pixels.Length > _stagingSize)
                 {
+                    presentation.Completion?.Cancel();
                     _presentedSequence = presentation.Sequence;
                     return;
                 }
@@ -18920,6 +19017,7 @@ internal static unsafe class VulkanVideoPresenter
                     DestroyGuestImage(presentedGuestImage);
                 }
 
+                presentation.Completion?.Cancel();
                 _presentedSequence = presentation.Sequence;
                 return;
             }
@@ -18968,6 +19066,7 @@ internal static unsafe class VulkanVideoPresenter
                 }
                 catch (Exception exception)
                 {
+                    presentation.Completion?.Cancel();
                     _presentedSequence = presentation.Sequence;
                     Console.Error.WriteLine(
                         $"[LOADER][ERROR] Vulkan VideoOut translated draw setup failed: {exception.Message}");
@@ -18975,8 +19074,10 @@ internal static unsafe class VulkanVideoPresenter
                 }
             }
 
-            uint imageIndex;
-            var acquireResult = _swapchainApi.AcquireNextImage(
+            uint imageIndex = 0;
+            var acquireResult = InjectFlipRetry("acquire", presentation)
+                ? Result.ErrorOutOfDateKhr
+                : _swapchainApi.AcquireNextImage(
                 _device,
                 _swapchain,
                 ulong.MaxValue,
@@ -18985,26 +19086,11 @@ internal static unsafe class VulkanVideoPresenter
                 &imageIndex);
             if (acquireResult == Result.ErrorOutOfDateKhr)
             {
+                RetainPresentationForRetry(presentation, frameSlot, presentedGuestImage,
+                    ownsPresentedGuestImageVersion);
                 RecreateSwapchainResources("vkAcquireNextImageKHR", acquireResult);
                 if (translatedResources is not null)
-                {
                     DestroyTranslatedDrawResources(translatedResources);
-                }
-                if (ownsPresentedGuestImageVersion && presentedGuestImage is not null)
-                {
-                    if (_frameGuestImageVersions.Length > frameSlot &&
-                        ReferenceEquals(
-                            _frameGuestImageVersions[frameSlot],
-                            presentedGuestImage))
-                    {
-                        _frameGuestImageVersions[frameSlot] = null;
-                        _capturedGuestFlipVersions.Remove(
-                            presentedGuestImage.FlipVersion);
-                        DestroyGuestImage(presentedGuestImage);
-                    }
-                }
-
-                _presentedSequence = presentation.Sequence;
                 return;
             }
 
@@ -19121,18 +19207,22 @@ internal static unsafe class VulkanVideoPresenter
                 PSwapchains = &swapchain,
                 PImageIndices = &imageIndex,
             };
-            var presentResult = _swapchainApi.QueuePresent(_queue, &presentInfo);
+            var presentResult = InjectFlipRetry("present", presentation)
+                ? Result.ErrorOutOfDateKhr
+                : _swapchainApi.QueuePresent(_queue, &presentInfo);
             if (presentResult == Result.ErrorOutOfDateKhr)
             {
                 // The submitted frame still executes; RecreateSwapchainResources
                 // drains it (and every frame slot) before destroying anything.
+                RetainPresentationForRetry(presentation, frameSlot, presentedGuestImage,
+                    ownsPresentedGuestImageVersion);
                 RecreateSwapchainResources("vkQueuePresentKHR", presentResult);
-                _presentedSequence = presentation.Sequence;
                 return;
             }
 
             CheckSwapchainResult(presentResult, "vkQueuePresentKHR");
             recreateAfterPresent |= presentResult == Result.SuboptimalKhr;
+            presentation.Completion?.Presented();
             VideoOutExports.ReportPresentedFrame();
             PerfOverlay.RecordPresent();
             if (_traceHostVideoOverlay && presentation.Sequence >= (1L << 62))
@@ -22434,6 +22524,10 @@ internal static unsafe class VulkanVideoPresenter
             _vk.DeviceWaitIdle(_device);
             DrainFrameSlots();
             CollectCompletedGuestSubmissions(waitForOldest: false);
+            // Readback storage belongs to the old swapchain. A failed present
+            // may have recorded a copy but never consumed it for diagnostics.
+            _swapchainReadbackPending = false;
+            _tracedPresentedSwapchain = false;
             DestroySwapchainResources();
             CreateSwapchain();
             CreateCommandResources();
@@ -22629,6 +22723,12 @@ internal static unsafe class VulkanVideoPresenter
             }
 
             _deviceLost = true;
+            lock (_gate)
+            {
+                _closed = true;
+                GuestPresentationCompletion.CancelSession();
+                System.Threading.Monitor.PulseAll(_gate);
+            }
             if (!_deviceLostLogged)
             {
                 _deviceLostLogged = true;

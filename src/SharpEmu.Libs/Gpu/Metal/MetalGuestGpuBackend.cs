@@ -154,15 +154,16 @@ internal sealed class MetalGuestGpuBackend : IGuestGpuBackend
     public void HideSplashScreen() =>
         MetalVideoPresenter.HideSplashScreen();
 
-    public void Submit(byte[] bgraFrame, uint width, uint height) =>
-        MetalVideoPresenter.Submit(bgraFrame, width, height);
+    public void Submit(byte[] bgraFrame, uint width, uint height, GuestPresentationCompletion? completion = null) =>
+        MetalVideoPresenter.Submit(bgraFrame, width, height, completion);
 
     public bool TrySubmitGuestImage(
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel) =>
-        MetalVideoPresenter.TrySubmitGuestImage(address, width, height, pitchInPixel);
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null) =>
+        MetalVideoPresenter.TrySubmitGuestImage(address, width, height, pitchInPixel, completion);
 
     public bool TrySubmitOrderedGuestImageFlip(
         int videoOutHandle,
@@ -170,14 +171,15 @@ internal sealed class MetalGuestGpuBackend : IGuestGpuBackend
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel) =>
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null) =>
         MetalVideoPresenter.TrySubmitOrderedGuestImageFlip(
             videoOutHandle,
             displayBufferIndex,
             address,
             width,
             height,
-            pitchInPixel);
+            pitchInPixel, completion);
 
     public void RegisterKnownDisplayBuffer(ulong address, uint guestFormat) =>
         MetalVideoPresenter.RegisterKnownDisplayBuffer(address, guestFormat);
@@ -208,8 +210,8 @@ internal sealed class MetalGuestGpuBackend : IGuestGpuBackend
             destinationFormat,
             destinationNumberType);
 
-    public void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height) =>
-        MetalVideoPresenter.SubmitGuestDraw(drawKind, width, height);
+    public void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height, GuestPresentationCompletion? completion = null) =>
+        MetalVideoPresenter.SubmitGuestDraw(drawKind, width, height, completion);
 
     public void SubmitTranslatedDraw(
         IGuestCompiledShader pixelShader,
@@ -224,7 +226,8 @@ internal sealed class MetalGuestGpuBackend : IGuestGpuBackend
         uint primitiveType = 4,
         GuestIndexBuffer? indexBuffer = null,
         IReadOnlyList<GuestVertexBuffer>? vertexBuffers = null,
-        GuestRenderState? renderState = null) =>
+        GuestRenderState? renderState = null,
+        GuestPresentationCompletion? completion = null) =>
         MetalVideoPresenter.SubmitTranslatedDraw(
             Msl(pixelShader),
             textures,
@@ -238,7 +241,7 @@ internal sealed class MetalGuestGpuBackend : IGuestGpuBackend
             primitiveType,
             indexBuffer,
             vertexBuffers,
-            renderState);
+            renderState, completion);
 
     public void SubmitDepthOnlyTranslatedDraw(
         IGuestCompiledShader pixelShader,

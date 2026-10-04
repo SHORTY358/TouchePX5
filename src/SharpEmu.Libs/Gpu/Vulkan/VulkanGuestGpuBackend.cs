@@ -133,11 +133,11 @@ internal sealed class VulkanGuestGpuBackend : IGuestGpuBackend
     public void HideSplashScreen() =>
         VulkanVideoPresenter.HideSplashScreen();
 
-    public void Submit(byte[] bgraFrame, uint width, uint height) =>
-        VulkanVideoPresenter.Submit(bgraFrame, width, height);
+    public void Submit(byte[] bgraFrame, uint width, uint height, GuestPresentationCompletion? completion = null) =>
+        VulkanVideoPresenter.Submit(bgraFrame, width, height, completion);
 
-    public void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height) =>
-        VulkanVideoPresenter.SubmitGuestDraw(drawKind, width, height);
+    public void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height, GuestPresentationCompletion? completion = null) =>
+        VulkanVideoPresenter.SubmitGuestDraw(drawKind, width, height, completion);
 
     public void SubmitTranslatedDraw(
         IGuestCompiledShader pixelShader,
@@ -152,7 +152,8 @@ internal sealed class VulkanGuestGpuBackend : IGuestGpuBackend
         uint primitiveType = 4,
         GuestIndexBuffer? indexBuffer = null,
         IReadOnlyList<GuestVertexBuffer>? vertexBuffers = null,
-        GuestRenderState? renderState = null) =>
+        GuestRenderState? renderState = null,
+        GuestPresentationCompletion? completion = null) =>
         VulkanVideoPresenter.SubmitTranslatedDraw(
             Spirv(pixelShader),
             textures,
@@ -166,7 +167,7 @@ internal sealed class VulkanGuestGpuBackend : IGuestGpuBackend
             primitiveType,
             indexBuffer,
             vertexBuffers,
-            renderState);
+            renderState, completion);
 
     public void SubmitDepthOnlyTranslatedDraw(
         IGuestCompiledShader pixelShader,
@@ -292,8 +293,9 @@ internal sealed class VulkanGuestGpuBackend : IGuestGpuBackend
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel) =>
-        VulkanVideoPresenter.TrySubmitGuestImage(address, width, height, pitchInPixel);
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null) =>
+        VulkanVideoPresenter.TrySubmitGuestImage(address, width, height, pitchInPixel, completion);
 
     public bool TrySubmitOrderedGuestImageFlip(
         int videoOutHandle,
@@ -301,14 +303,15 @@ internal sealed class VulkanGuestGpuBackend : IGuestGpuBackend
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel) =>
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null) =>
         VulkanVideoPresenter.TrySubmitOrderedGuestImageFlip(
             videoOutHandle,
             displayBufferIndex,
             address,
             width,
             height,
-            pitchInPixel);
+            pitchInPixel, completion);
 
     public void RegisterKnownDisplayBuffer(ulong address, uint guestFormat) =>
         VulkanVideoPresenter.RegisterKnownDisplayBuffer(address, guestFormat);

@@ -41,6 +41,14 @@ IMPORT close_slot, "uquVH4-Du78#B#B", 5
 IMPORT sleep_slot, "1jfXLRVzisc#C#C", 6
 IMPORT submit_slot, "UglJIZjGssM#D#D", 7
 IMPORT submit_acb_slot, "gSRnr79F8tQ#D#D", 8
+#ifdef FLIP_LIFECYCLE
+IMPORT status_slot, "SbU3dwp80lQ#B#B", 9
+IMPORT pending_slot, "zgXifHT9ErY#B#B", 10
+IMPORT create_eq_slot, "D0OdFMjp46I#C#C", 11
+IMPORT wait_eq_slot, "fzyMKs9kim0#C#C", 12
+IMPORT delete_eq_slot, "jpFjmgAC5AE#C#C", 13
+IMPORT add_flip_event_slot, "HXzjK9yI30k#B#B", 14
+#endif
 .section .guest_dynstr,"a"
 guest_dynstr_end:
 .section .guest_dynsym,"a"

@@ -47,7 +47,8 @@ internal static partial class MetalVideoPresenter
         ulong Address,
         uint Width,
         uint Height,
-        uint PitchInPixel);
+        uint PitchInPixel,
+        GuestPresentationCompletion? Completion = null);
 
     private sealed record OrderedGuestFlipWait(
         long Version,
@@ -464,7 +465,7 @@ internal static partial class MetalVideoPresenter
         }
     }
 
-    public static bool TrySubmitGuestImage(ulong address, uint width, uint height, uint pitchInPixel)
+    public static bool TrySubmitGuestImage(ulong address, uint width, uint height, uint pitchInPixel, GuestPresentationCompletion? completion = null)
     {
         lock (_gate)
         {
@@ -490,10 +491,12 @@ internal static partial class MetalVideoPresenter
                 IsSplash: false,
                 GuestImageAddress: address,
                 GuestImagePitch: pitchInPixel,
-                RequiredGuestWorkSequence: requiredWorkSequence);
+                RequiredGuestWorkSequence: requiredWorkSequence, Completion: completion);
             _latestPresentation = presentation;
             _pendingGuestImagePresentations.Enqueue(presentation);
-            while (_pendingGuestImagePresentations.Count > MaxPendingGuestWork)
+            while (_pendingGuestImagePresentations.Count > MaxPendingGuestWork &&
+                   (_pendingGuestImagePresentations.Peek().Completion is null ||
+                    _pendingGuestImagePresentations.Peek().Completion!.IsCancelled))
             {
                 RetireSkippedPresentationLocked(_pendingGuestImagePresentations.Dequeue());
             }
@@ -508,7 +511,8 @@ internal static partial class MetalVideoPresenter
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel)
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null)
     {
         lock (_gate)
         {
@@ -527,7 +531,7 @@ internal static partial class MetalVideoPresenter
                     address,
                     width,
                     height,
-                    pitchInPixel)) > 0;
+                    pitchInPixel, completion)) > 0;
         }
     }
 
@@ -778,6 +782,8 @@ internal static partial class MetalVideoPresenter
                 }
                 catch (Exception exception)
                 {
+                    if (pendingGuestWork.Work is OrderedGuestFlip failedFlip)
+                        failedFlip.Completion?.Cancel();
                     Console.Error.WriteLine(
                         $"[LOADER][ERROR] Metal guest work failed " +
                         $"({pendingGuestWork.Work.GetType().Name}): {exception.Message}");
@@ -867,6 +873,9 @@ internal static partial class MetalVideoPresenter
 
     private static void ExecuteOrderedGuestFlip(nint device, nint queue, OrderedGuestFlip flip)
     {
+        if (flip.Completion?.IsCancelled == true)
+            return;
+
         // The flipped VideoOut address is the display buffer's start, but games
         // render into the pixel surface, which sits past the buffer's surface
         // metadata (64KB+ on PS5). Prefer a drawn image inside the buffer's
@@ -880,6 +889,7 @@ internal static partial class MetalVideoPresenter
         image ??= EnsureGuestImage(device, flip.Address, flip.Width, flip.Height, flip.PitchInPixel);
         if (image is null || !image.Initialized)
         {
+            flip.Completion?.Cancel();
             return;
         }
 
@@ -895,6 +905,7 @@ internal static partial class MetalVideoPresenter
         };
         if (captured.Texture == 0)
         {
+            flip.Completion?.Cancel();
             return;
         }
 
@@ -909,13 +920,16 @@ internal static partial class MetalVideoPresenter
                 var oldest = 0L;
                 foreach (var version in _guestImageVersions.Keys)
                 {
+                    if (_pendingGuestImagePresentations.Any(p =>
+                        p.GuestImageVersion == version && p.Completion is not null && !p.Completion.IsCancelled))
+                        continue;
                     if (oldest == 0 || version < oldest)
                     {
                         oldest = version;
                     }
                 }
 
-                if (oldest == flip.Version)
+                if (oldest == 0 || oldest == flip.Version)
                 {
                     break;
                 }
@@ -934,10 +948,12 @@ internal static partial class MetalVideoPresenter
                 sequence,
                 IsSplash: false,
                 GuestImageAddress: flip.Address,
-                GuestImageVersion: flip.Version);
+                GuestImageVersion: flip.Version, Completion: flip.Completion);
             _latestPresentation = presentation;
             _pendingGuestImagePresentations.Enqueue(presentation);
-            while (_pendingGuestImagePresentations.Count > MaxPendingGuestWork)
+            while (_pendingGuestImagePresentations.Count > MaxPendingGuestWork &&
+                   (_pendingGuestImagePresentations.Peek().Completion is null ||
+                    _pendingGuestImagePresentations.Peek().Completion!.IsCancelled))
             {
                 RetireSkippedPresentationLocked(_pendingGuestImagePresentations.Dequeue());
             }
@@ -1105,6 +1121,7 @@ internal static partial class MetalVideoPresenter
 
     private static void RetireSkippedPresentationLocked(Presentation presentation)
     {
+        presentation.Completion?.Cancel();
         if (presentation.GuestImageVersion != 0 &&
             _guestImageVersions.Remove(presentation.GuestImageVersion, out var version))
         {
@@ -1131,38 +1148,28 @@ internal static partial class MetalVideoPresenter
             : MtlPixelFormat.Rgba8Unorm;
     }
 
-    /// <summary>Picks the newest ready queued guest presentation (retiring the ones
-    /// it supersedes), falling back to the latest CPU frame or splash.</summary>
+    /// <summary>Preserves queued flip order, falling back to the latest unqueued
+    /// CPU frame or splash only after the queue is empty.</summary>
     private static bool TryTakePresentation(long presentedSequence, out Presentation presentation)
     {
         lock (_gate)
         {
-            Presentation? selected = null;
             while (_pendingGuestImagePresentations.Count > 0)
             {
                 var head = _pendingGuestImagePresentations.Peek();
+                if (head.Completion?.IsCancelled == true || head.Sequence <= presentedSequence)
+                {
+                    RetireSkippedPresentationLocked(_pendingGuestImagePresentations.Dequeue());
+                    continue;
+                }
                 if (!IsGuestWorkCompletedLocked(head.RequiredGuestWorkSequence))
-                {
                     break;
-                }
-
-                _pendingGuestImagePresentations.Dequeue();
-                if (selected is not null)
-                {
-                    RetireSkippedPresentationLocked(selected);
-                }
-
-                selected = head;
-            }
-
-            if (selected is not null)
-            {
-                presentation = selected;
+                presentation = _pendingGuestImagePresentations.Dequeue();
                 return true;
             }
-
-            if (_latestPresentation is { } latest &&
-                latest.Sequence > presentedSequence &&
+            if (_pendingGuestImagePresentations.Count == 0 &&
+                _latestPresentation is { } latest && latest.Sequence > presentedSequence &&
+                latest.Completion?.IsCancelled != true &&
                 (latest.Pixels is not null ||
                  (latest.TranslatedDraw is not null || latest.DrawKind != GuestDrawKind.None) &&
                  IsGuestWorkCompletedLocked(latest.RequiredGuestWorkSequence)))
@@ -1170,7 +1177,6 @@ internal static partial class MetalVideoPresenter
                 presentation = latest;
                 return true;
             }
-
             presentation = default!;
             return false;
         }

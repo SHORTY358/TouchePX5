@@ -218,6 +218,8 @@ public static class VideoOutExports
         public int FlipRate { get; set; }
         public ulong VblankCount { get; set; }
         public ulong FlipCount { get; set; }
+        public Dictionary<long, GuestPresentationCompletion> PendingFlips { get; } = new();
+        public long NextFlipId;
         public int CurrentBuffer { get; set; } = -1;
         public ulong LastFlipProcessTime { get; set; }
         public ulong LastFlipProcessTimeCounter { get; set; }
@@ -363,7 +365,12 @@ public static class VideoOutExports
         var handle = unchecked((int)ctx[CpuRegister.Rdi]);
         lock (_stateGate)
         {
-            _ports.Remove(handle);
+            if (_ports.Remove(handle, out var port))
+            {
+                foreach (var completion in port.PendingFlips.Values)
+                    completion.Cancel();
+                port.PendingFlips.Clear();
+            }
         }
 
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
@@ -739,8 +746,10 @@ public static class VideoOutExports
         ulong submitProcessTimeCounter;
         long flipArg;
         int currentBuffer;
+        int pendingCount;
         lock (_stateGate)
         {
+            pendingCount = port.PendingFlips.Count;
             count = port.FlipCount;
             processTime = port.LastFlipProcessTime;
             processTimeCounter = port.LastFlipProcessTimeCounter;
@@ -758,7 +767,7 @@ public static class VideoOutExports
             flipArg,
             submitProcessTimeCounter,
             gcQueueNum: 0,
-            flipPendingNum: 0,
+            flipPendingNum: pendingCount,
             currentBuffer);
         TraceVideoOut(
             $"videoout.get_flip_status handle={handle} count={count} current={currentBuffer} " +
@@ -810,14 +819,15 @@ public static class VideoOutExports
     public static int VideoOutIsFlipPending(CpuContext ctx)
     {
         var handle = unchecked((int)ctx[CpuRegister.Rdi]);
-        if (!TryGetPort(handle, out _))
+        lock (_stateGate)
         {
-            return OrbisVideoOutErrorInvalidHandle;
+            if (!_ports.TryGetValue(handle, out var port))
+                return OrbisVideoOutErrorInvalidHandle;
+            var pending = port.PendingFlips.Count;
+            TraceVideoOut($"videoout.is_flip_pending handle={handle} pending={pending}");
+            ctx[CpuRegister.Rax] = unchecked((ulong)pending);
+            return pending;
         }
-
-        TraceVideoOut($"videoout.is_flip_pending handle={handle} pending=0");
-        ctx[CpuRegister.Rax] = 0;
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
     [SysAbiExport(
@@ -891,13 +901,11 @@ public static class VideoOutExports
             : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
     }
 
-    public static int SubmitFlipFromAgc(CpuContext ctx, int handle, int bufferIndex, int flipMode, long flipArg) =>
-        SubmitFlip(ctx, handle, bufferIndex, flipMode, flipArg, submitGpuImage: false);
-
-    internal static void SubmitHostRgbaFrame(ReadOnlySpan<byte> rgbaFrame, uint width, uint height)
+    internal static void SubmitHostRgbaFrame(ReadOnlySpan<byte> rgbaFrame, uint width, uint height, GuestPresentationCompletion? completion = null)
     {
         if (rgbaFrame.Length != checked((int)(width * height * 4)))
         {
+            completion?.Cancel();
             return;
         }
 
@@ -910,7 +918,7 @@ public static class VideoOutExports
             bgraFrame[offset + 3] = rgbaFrame[offset + 3];
         }
 
-        GuestGpu.Current.Submit(bgraFrame, width, height);
+        GuestGpu.Current.Submit(bgraFrame, width, height, completion);
     }
 
     private sealed record HostVideoOverlayFrame(ulong Owner, byte[] Bgra, uint Width, uint Height);
@@ -1259,111 +1267,81 @@ public static class VideoOutExports
         long flipArg,
         bool submitGpuImage)
     {
+        var result = BeginFlip(handle, bufferIndex, flipArg, out var completion);
+        if (result != 0)
+            return result;
         if (!TryGetPort(handle, out var port))
         {
+            completion!.Cancel();
             return OrbisVideoOutErrorInvalidHandle;
         }
 
-        if (bufferIndex < -1 || bufferIndex >= MaxDisplayBuffers)
+        try
         {
-            return OrbisVideoOutErrorInvalidIndex;
-        }
+            PaceFlip(port.FlipRate);
+            PerfOverlay.RecordSubmit();
 
-        // Pooled snapshot for the same reason as SignalVblank: triggers run outside
-        // _stateGate, and SubmitFlip is per-frame so a fresh List copy is steady churn.
-        ulong eventHint;
-        FlipEventRegistration[]? flipEvents = null;
-        int flipEventCount;
-        lock (_stateGate)
-        {
-            if (bufferIndex != -1 && port.BufferSlots[bufferIndex].GroupIndex < 0)
+            var guestImageSubmitted = false;
+            ulong guestImageAddress = 0;
+            if (submitGpuImage &&
+                bufferIndex >= 0 &&
+                TryGetDisplayBufferInfo(handle, bufferIndex, out var displayBuffer))
             {
-                return OrbisVideoOutErrorInvalidIndex;
-            }
-
-            port.CurrentBuffer = bufferIndex;
-            port.FlipCount++;
-            var now = Stopwatch.GetTimestamp();
-            port.LastFlipProcessTime = unchecked((ulong)(Math.Max(now - port.OpenTimestamp, 0) *
-                1_000_000L / Stopwatch.Frequency));
-            port.LastFlipProcessTimeCounter = unchecked((ulong)now);
-            port.LastFlipSubmitProcessTimeCounter = unchecked((ulong)now);
-            port.LastFlipArg = flipArg;
-            eventHint = SceVideoOutInternalEventFlip |
-                ((unchecked((ulong)flipArg) & 0x0000_FFFF_FFFF_FFFFUL) << 16);
-            flipEventCount = port.FlipEvents.Count;
-            if (flipEventCount != 0)
-            {
-                flipEvents = ArrayPool<FlipEventRegistration>.Shared.Rent(flipEventCount);
-                port.FlipEvents.CopyTo(flipEvents);
-            }
-        }
-
-        PaceFlip(port.FlipRate);
-        PerfOverlay.RecordSubmit();
-
-        var guestImageSubmitted = false;
-        ulong guestImageAddress = 0;
-        if (submitGpuImage &&
-            bufferIndex >= 0 &&
-            TryGetDisplayBufferInfo(handle, bufferIndex, out var displayBuffer))
-        {
-            guestImageAddress = displayBuffer.Address;
-            guestImageSubmitted = GuestGpu.Current.TrySubmitGuestImage(
-                displayBuffer.Address,
-                displayBuffer.Width,
-                displayBuffer.Height,
-                displayBuffer.PitchInPixel);
-            if (!guestImageSubmitted && TryReadLinearDisplayFrame(ctx, displayBuffer, out var bgra))
-            {
-                GuestGpu.Current.Submit(bgra, displayBuffer.Width, displayBuffer.Height);
-                guestImageSubmitted = true;
-                TraceVideoOut($"videoout.submit_cpu_frame addr=0x{displayBuffer.Address:X16} {displayBuffer.Width}x{displayBuffer.Height}");
-            }
-        }
-
-        if (_dumpVideoOut)
-        {
-            _ = TryDumpFrame(ctx, port, bufferIndex, flipMode, flipArg);
-        }
-
-        void TriggerFlipEvents()
-        {
-            if (flipEvents is null)
-            {
-                return;
-            }
-
-            try
-            {
-                for (var i = 0; i < flipEventCount; i++)
+                guestImageAddress = displayBuffer.Address;
+                guestImageSubmitted = GuestGpu.Current.TrySubmitGuestImage(
+                    displayBuffer.Address,
+                    displayBuffer.Width,
+                    displayBuffer.Height,
+                    displayBuffer.PitchInPixel, completion);
+                if (!guestImageSubmitted && TryReadLinearDisplayFrame(ctx, displayBuffer, out var bgra))
                 {
-                    _ = KernelEventQueueCompatExports.TriggerDisplayEvent(
-                        flipEvents[i].Equeue,
-                        SceVideoOutInternalEventFlip,
-                        OrbisKernelEventFilterVideoOut,
-                        eventHint,
-                        flipEvents[i].UserData);
+                    GuestGpu.Current.Submit(bgra, displayBuffer.Width, displayBuffer.Height, completion);
+                    guestImageSubmitted = true;
+                    TraceVideoOut($"videoout.submit_cpu_frame addr=0x{displayBuffer.Address:X16} {displayBuffer.Width}x{displayBuffer.Height}");
                 }
             }
-            finally
-            {
-                ArrayPool<FlipEventRegistration>.Shared.Return(flipEvents);
-                flipEvents = null;
-            }
-        }
 
-        if (submitGpuImage)
-        {
-            TriggerFlipEvents();
+            if (_dumpVideoOut)
+            {
+                _ = TryDumpFrame(ctx, port, bufferIndex, flipMode, flipArg);
+            }
+
+            if (bufferIndex == -1)
+            {
+                // Indexless flips are explicit blank frames, not immediate completions.
+                GuestGpu.Current.Submit(new byte[4], 1, 1, completion);
+                guestImageSubmitted = true;
+            }
+            if (!guestImageSubmitted)
+                completion!.Cancel();
+            RecordFlipSubmission(ctx, handle, bufferIndex, flipMode, flipArg,
+                submitGpuImage, guestImageSubmitted, guestImageAddress);
+            return completion!.IsCancelled
+                ? OrbisVideoOutErrorResourceBusy
+                : (int)OrbisGen2Result.ORBIS_GEN2_OK;
         }
-        else if (GuestGpu.Current.SubmitOrderedGuestAction(
-                     TriggerFlipEvents,
-                     $"videoout flip complete handle={handle} index={bufferIndex}") == 0)
+        catch
         {
-            // Headless startup has no render queue to order against.
-            TriggerFlipEvents();
+            completion!.Cancel();
+            throw;
         }
+    }
+
+    internal static void RecordFlipSubmission(CpuContext ctx, int handle, int bufferIndex,
+        int flipMode, long flipArg, bool submitGpuImage, bool guestImageSubmitted, ulong guestImageAddress)
+    {
+        if (!TryGetPort(handle, out var port))
+            return;
+        if (!submitGpuImage)
+        {
+            PaceFlip(port.FlipRate);
+            PerfOverlay.RecordSubmit();
+            if (_dumpVideoOut)
+                _ = TryDumpFrame(ctx, port, bufferIndex, flipMode, flipArg);
+        }
+        int flipEventCount;
+        lock (_stateGate)
+            flipEventCount = port.FlipEvents.Count;
 
         TraceVideoOut(
             $"videoout.submit_flip handle={handle} index={bufferIndex} mode={flipMode} " +
@@ -1386,7 +1364,63 @@ public static class VideoOutExports
                 $"[LOADER][INFO] Holding guest flip #{diagnosticFlipNumber} for {_holdFirstFlipMilliseconds} ms for visual verification.");
             Thread.Sleep(_holdFirstFlipMilliseconds);
         }
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    // This bound protects host resources; it is not a claimed console queue size.
+    internal static int BeginFlip(int handle, int bufferIndex, long flipArg,
+        out GuestPresentationCompletion? completion)
+    {
+        completion = null;
+        lock (_stateGate)
+        {
+            if (!_ports.TryGetValue(handle, out var port))
+                return OrbisVideoOutErrorInvalidHandle;
+            if (bufferIndex < -1 || bufferIndex >= MaxDisplayBuffers ||
+                bufferIndex >= 0 && port.BufferSlots[bufferIndex].GroupIndex < 0)
+                return OrbisVideoOutErrorInvalidIndex;
+            if (port.PendingFlips.Count >= MaxDisplayBuffers)
+                return OrbisVideoOutErrorResourceBusy;
+            var id = ++port.NextFlipId;
+            var submitted = Stopwatch.GetTimestamp();
+            completion = new GuestPresentationCompletion((presented, timestamp) =>
+                ResolveFlip(port, id, bufferIndex, flipArg, submitted, presented, timestamp));
+            port.PendingFlips.Add(id, completion);
+            return 0;
+        }
+    }
+
+    private static void ResolveFlip(VideoOutPortState port, long id, int bufferIndex,
+        long flipArg, long submitted, bool presented, long timestamp)
+    {
+        lock (_stateGate)
+        {
+            if (!_ports.TryGetValue(port.Handle, out var current) ||
+                !ReferenceEquals(current, port) || !port.PendingFlips.Remove(id))
+                return;
+            if (!presented)
+                return;
+            port.FlipCount++;
+            // Concurrent callbacks may arrive in a different order. Count each
+            // present once, but never rewind the last displayed frame metadata.
+            if (unchecked((ulong)timestamp) >= port.LastFlipProcessTimeCounter)
+            {
+                port.CurrentBuffer = bufferIndex;
+                port.LastFlipArg = flipArg;
+                port.LastFlipProcessTime = unchecked((ulong)(Math.Max(timestamp - port.OpenTimestamp, 0) *
+                    1_000_000L / Stopwatch.Frequency));
+                port.LastFlipProcessTimeCounter = unchecked((ulong)timestamp);
+                port.LastFlipSubmitProcessTimeCounter = unchecked((ulong)submitted);
+            }
+            var hint = SceVideoOutInternalEventFlip |
+                ((unchecked((ulong)flipArg) & 0x0000_FFFF_FFFF_FFFFUL) << 16);
+            // Holding the port lock makes close/event removal atomic with delivery.
+            // The notifier runs outside all GPU locks; the kernel event queue does
+            // not call back into VideoOut while holding its own lock.
+            foreach (var registration in port.FlipEvents)
+                _ = KernelEventQueueCompatExports.TriggerDisplayEvent(
+                    registration.Equeue, SceVideoOutInternalEventFlip,
+                    OrbisKernelEventFilterVideoOut, hint, registration.UserData);
+        }
     }
 
     internal static void ReportPresentedFrame() =>

@@ -150,10 +150,12 @@ internal static partial class MetalVideoPresenter
         uint primitiveType,
         GuestIndexBuffer? indexBuffer,
         IReadOnlyList<GuestVertexBuffer>? vertexBuffers,
-        GuestRenderState? renderState)
+        GuestRenderState? renderState,
+        GuestPresentationCompletion? completion = null)
     {
         if (width == 0 || height == 0)
         {
+            completion?.Cancel();
             return;
         }
 
@@ -161,6 +163,7 @@ internal static partial class MetalVideoPresenter
         {
             if (_closed)
             {
+                completion?.Cancel();
                 return;
             }
 
@@ -183,7 +186,9 @@ internal static partial class MetalVideoPresenter
                     instanceCount,
                     primitiveType,
                     indexBuffer,
-                    renderState ?? GuestRenderState.Default));
+                    renderState ?? GuestRenderState.Default), Completion: completion);
+            if (completion is not null)
+                _pendingGuestImagePresentations.Enqueue(_latestPresentation);
             if (_thread is not null)
             {
                 return;
@@ -195,21 +200,23 @@ internal static partial class MetalVideoPresenter
         }
     }
 
-    public static void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height)
+    public static void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height, GuestPresentationCompletion? completion = null)
     {
         if (drawKind == GuestDrawKind.None || width == 0 || height == 0)
         {
+            completion?.Cancel();
             return;
         }
 
         lock (_gate)
         {
             if (_closed ||
-                _latestPresentation is { Pixels: null } latest &&
+                completion is null && _latestPresentation is { Pixels: null } latest &&
                 latest.DrawKind == drawKind &&
                 latest.Width == width &&
                 latest.Height == height)
             {
+                completion?.Cancel();
                 return;
             }
 
@@ -221,7 +228,9 @@ internal static partial class MetalVideoPresenter
                 sequence,
                 IsSplash: false,
                 RequiredGuestWorkSequence: CurrentSubmittingQueueTailLocked(),
-                DrawKind: drawKind);
+                DrawKind: drawKind, Completion: completion);
+            if (completion is not null)
+                _pendingGuestImagePresentations.Enqueue(_latestPresentation);
             if (_thread is not null)
             {
                 return;

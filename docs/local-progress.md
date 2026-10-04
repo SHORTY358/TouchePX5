@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-10-03
+# Local engineering checkpoint — 2026-10-04
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,6 +6,14 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- Flip lifecycle implementation is prepared for final frozen-runtime validation.
+  Targeted native CPU, direct GPU, ordered capture, six-frame burst and both owned-
+  capture retry branches have passed during development. The presentation-retry
+  oracle exposed stale readback state after swapchain recreation; resetting that
+  state fixed the false black capture. These targeted runs are not a substitute
+  for the final aggregate. See `docs/flip-lifecycle-plan.md` for implementation
+  boundaries and remaining platform/title validation. After this stage, stop for
+  the user's requested switch from Astra back to Sol; do not start another feature.
 - Complete **68/68 native GPU regression passed** on clean source `cfe6848`:
   `artifacts/native-gpu/20261003-030501-778/report.json`.
   All 248 runtime entries remained unchanged and exactly match the post-run
@@ -14,10 +22,7 @@ percentage or release-date estimate.
   This validates the current R32 partial-DMA repair, cross-queue image-atomic
   consumer, masked and wider/paired LDS operations, and every prior native
   graphics/coherence scenario on the same binaries.
-  The next architecture change is flip-completion tracking; its observed
-  boundaries and proposed independent checks are in `docs/flip-lifecycle-plan.md`.
-  The user confirmed Sol is currently selected and requested switching to
-  Astra before that change. Implementation has not started.
+  This is the baseline before the flip-completion changes above.
 - Fixed **partial DMA replacing GPU-only R32 texels**. The former RGBA8-only
   dirty-span gate uploaded the entire stale R32 CPU image after a one-word DMA,
   replacing GPU value 7 with CPU value 99. The native preserved-word oracle

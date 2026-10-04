@@ -87,10 +87,10 @@ internal interface IGuestGpuBackend
     void HideSplashScreen();
 
     /// <summary>Presents one CPU-produced BGRA frame.</summary>
-    void Submit(byte[] bgraFrame, uint width, uint height);
+    void Submit(byte[] bgraFrame, uint width, uint height, GuestPresentationCompletion? completion = null);
 
     /// <summary>Presents a recognized fixed-function guest draw (see GuestDrawKind).</summary>
-    void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height);
+    void SubmitGuestDraw(GuestDrawKind drawKind, uint width, uint height, GuestPresentationCompletion? completion = null);
 
     void SubmitTranslatedDraw(
         IGuestCompiledShader pixelShader,
@@ -105,7 +105,8 @@ internal interface IGuestGpuBackend
         uint primitiveType = 4,
         GuestIndexBuffer? indexBuffer = null,
         IReadOnlyList<GuestVertexBuffer>? vertexBuffers = null,
-        GuestRenderState? renderState = null);
+        GuestRenderState? renderState = null,
+        GuestPresentationCompletion? completion = null);
 
     void SubmitDepthOnlyTranslatedDraw(
         IGuestCompiledShader pixelShader,
@@ -173,7 +174,8 @@ internal interface IGuestGpuBackend
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel);
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null);
 
     bool TrySubmitOrderedGuestImageFlip(
         int videoOutHandle,
@@ -181,7 +183,8 @@ internal interface IGuestGpuBackend
         ulong address,
         uint width,
         uint height,
-        uint pitchInPixel);
+        uint pitchInPixel,
+        GuestPresentationCompletion? completion = null);
 
     /// <summary>Registers a display buffer with its guest texture format tag.</summary>
     void RegisterKnownDisplayBuffer(ulong address, uint guestFormat);

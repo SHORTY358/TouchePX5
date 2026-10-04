@@ -1,6 +1,49 @@
 # Flip lifecycle audit, 2026-10-03
 
-Read-only investigation; no runtime behavior has been changed by this audit.
+The observations below describe the pre-change source. Implementation checkpoint
+added 2026-10-04; final regression evidence is recorded in `local-progress.md`.
+
+## Implementation checkpoint, 2026-10-04
+
+- A per-submission terminal ticket carries completion back to its exact port
+  instance. Presentation and cancellation resolve once. Notifications are ordered
+  on a worker outside GPU locks; close invalidates late callbacks. Flip count,
+  current buffer, argument, timestamps and flip events change only on presentation
+  acceptance; pending count/IsFlipPending reflect outstanding tickets.
+- Direct CPU, direct GPU, AGC ordered capture, translated-draw and software
+  fallback paths carry the ticket. CPU/tracked draws join the presentation queue
+  instead of replacing earlier accepted frames. Host resource admission is capped
+  at 16 pending tickets per port (not a claim about Sony's queue capacity).
+- Vulkan preserves the taken presentation and any owned immutable capture across
+  Acquire/Present OutOfDate recreation. Frame-slot ownership is detached before
+  draining/recreating resources. Old swapchain readback state is discarded too.
+  Failed capture/render, port close, session reset and presenter teardown cancel
+  tickets without incrementing the flip count or generating false flip events.
+- Metal now retains tracked frames while no drawable is available and resolves
+  after presentDrawable/commit. Failed source/command creation and thrown work
+  cancel their tickets. This path is compiled but not natively tested on Windows.
+- New unit checks cover pending/completed/cancelled status, exact-once events,
+  capacity, invalid submission, two ports, close/late callback, session cancellation
+  and concurrent terminal outcomes. They drive real VideoOut status/event exports
+  with the same BeginFlip/ticket mechanism used by production submission.
+- `Test-TouchePX5-FlipLifecycle.ps1` adds eight native cases to the GPU aggregate:
+  CPU, CPU acquire/present retry, six-frame CPU burst, direct GPU, ordered GPU,
+  ordered acquire/present retry. The guest independently asserts pending/status/
+  event ordering; the host verifies swapchain colors. Ordered cases overwrite the
+  live GPU image after capture and before presentation, so a mutable-source retry
+  cannot pass. Retry diagnostics enter actual resource recreation branches.
+
+### Remaining boundaries
+
+Host presentation acceptance is not physical scanout completion. `gcQueueNum`
+remains unchanged until its console semantics have an independent reference.
+Native OS-driven minimize/restore, host movie overlay interaction, Metal execution,
+and commercial title behavior remain unverified. Cancelling a flip does not invent
+a successful event or delete a caller-owned equeue; an unrelated guest thread
+waiting indefinitely on that queue still requires normal queue/session teardown.
+Direct GPU flips retain an address and require the caller to respect reuse waits;
+immutable versions are provided by the ordered AGC path. Full regressions on the
+final frozen runtime are required before declaring this checkpoint verified.
 
 ## Observed implementation boundaries
 
