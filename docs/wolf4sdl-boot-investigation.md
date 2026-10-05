@@ -132,3 +132,81 @@ shareware data, followed by input and a playable level. No estimate is justified
 until the source build and its next actual runtime blocker are known. Source
 inspection/build preparation can proceed on Sol; request Astra again only for
 a specific unresolved startup architecture decision.
+
+## 2026-10-05: explicit PS5 source build and first presentation
+
+The source route is now built on Windows with LLVM 19 targeting
+`x86_64-sie-ps5`. This is an explicitly adapted startup profile, **not** proof
+that the unchanged upstream payload boots. Its engine and static SDL backend
+remain PS5 code. The separate unchanged-release test remains available.
+
+Pinned inputs:
+
+- `alex-free/wolf4sdl`, branch `sdl2remap`, engine
+  `5e639973a665443053c58a0498b68f487537ec80` (clean checkout).
+- Controller database `01275a5bbefbab17f274e60393cd75405f74feb3`.
+- Shareware recipe inspected from `alex-free/pacbrew-repo`, branch `wolf4sdl`,
+  `b8addd833fbb6c8c7f1996b4292c475505975115`.
+- Open dependency bundle:
+  `https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.40.2/ps5-payload-dev.tar.gz`,
+  SHA256 `A85F65DE418A8E6A898C6C3E3C870D50FFF7618A200E4DD59EA9692AF6ECEC4D`.
+- Linker script from open payload SDK v0.43:
+  `https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip`,
+  SHA256 `A9CC9929F21B2B2C5D5B309F3BAB4997067C45281C0622CF4838B1AECBA66FCB`.
+
+`tools/external-homebrew/Extract-WolfSdk.py` verifies the dependency archive,
+extracts selected build inputs inside the checked output root, and materializes
+32 safe file aliases as regular files (6,447 regular archive inputs). It does
+not execute package scripts. `Build-Wolf4SDL.ps1` copies the pinned engine
+inputs, applies the shareware defines, generates controller mappings and links
+the PS5 ELF using `wolf4sdl-start.S`. The latter translates the emulator's
+inline argument frame to `main(argc, argv, NULL)`; the runtime still owns ELF
+preinit/init/fini array execution. DATADIR is `/app0/`, with guest arguments
+`--configdir /app0`; the runner copies the eight official .WL1 shareware files
+next to the ELF, which is the actual `/app0` mount.
+
+Re-extraction and rebuild completed. Source ELF SHA256 is unchanged:
+`D7A1C8A46BC2DFC958ED9237480C9E0523D53D9F1C1739036F243CB2C0A4577A`.
+Existing upstream pragma-pack warnings remain; the emulator Release build has
+zero warnings/errors. Build and launch reports record hashes and provenance.
+
+Runtime fixes exercised by this independent engine:
+
+1. Native import setup resolves ordinary exported names as well as NIDs, then
+   uses the canonical NID for existing intrinsic/dispatch classification.
+2. `getenv` returns NULL for the currently empty guest environment. This is
+   not support for setenv, environment inheritance or environment mutation.
+3. snprintf/vsnprintf output, main-direct allocation output, event-queue
+   handles and VideoOut buffer descriptor reads accept live libc malloc
+   storage as well as mapped guest memory. The new fallback checks allocation
+   ownership and bounds; it does not accept arbitrary writable host pointers.
+4. Return-address classification formerly rejected everything below 12 GiB.
+   The PS5 source ELF is mapped at 0x400000. The invalid heuristic selected a
+   host trampoline from a later stack slot at import 192 and poisoned the
+   captured continuation. The classifier now permits low canonical addresses
+   while still requiring executable mapping. The real launch passes this
+   point and reaches import 661, where controller mapping parsing requests
+   the missing `strtok` export.
+
+Evidence: before the address fix, run
+`artifacts/external-homebrew/wolf4sdl-userland/runs/20261005-010523-202`
+shows valid low returns being rejected, the substituted return, successful
+mutex acquisition, and deadline termination. After the fix, run
+`20261005-010652-425` proceeds through SDL initialization into controller
+mapping parsing; `strtok` is the next actual blocker. VideoOut logs its first
+1920x1080 presentation, but **no menu screenshot or gameplay was verified**.
+The bounded launch still reaches its deadline. Remaining unresolved calls
+include sigaction, sceKeyboardInit and sceUserServiceGetForegroundUser;
+four imported data relocations also remain unresolved. These are not silently
+reported as supported.
+
+Focused validation includes malloc output/truncation/ownership/freed-pointer
+checks, event-queue output and empty guest environment; native return-address
+validation checks executable low memory, nonexecutable memory and invalid
+addresses. Existing payload resolver/syscall ABI checks passed 2/2 again in
+`artifacts/payload-bootstrap/20261005-010124-079/report.json`.
+
+Focused checks passed 288/288 in `artifacts/wolf-userland-focused-tests.log`,
+including the real low executable mapping regression. Next: checkpoint this
+stage, then return to Sol for tokenization and the next real startup blocker. The
+acceptance target remains an independently captured actual game menu.

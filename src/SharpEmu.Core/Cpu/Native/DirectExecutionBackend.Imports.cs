@@ -37,6 +37,7 @@ public sealed partial class DirectExecutionBackend
 	private readonly object _importResultLogSampleGate = new();
 	private readonly Dictionary<string, int> _importResultLogSamples = new(StringComparer.Ordinal);
 	private int _il2CppExceptionDiagnosticCount;
+	private int _invalidImportReturnDiagnosticCount;
 
 	private static ulong ImportDispatchGatewayManaged(nint backendHandle, int importIndex, nint argPackPtr)
 	{
@@ -236,6 +237,14 @@ public sealed partial class DirectExecutionBackend
 		var isGuestWorker = GuestThreadExecution.IsGuestThread;
 		if (!IsLikelyReturnAddress(num7))
 		{
+			if (_logImportFrames && Interlocked.Increment(ref _invalidImportReturnDiagnosticCount) <= 8)
+			{
+				Console.Error.WriteLine(
+					$"[LOADER][TRACE] invalid-import-return nid={importStubEntry.Nid} raw=0x{num7:X16} " +
+					$"rsp=0x{importStackPointer:X16} rbp=0x{value4:X16} " +
+					$"s8=0x{*(ulong*)(argPackPtr + 104):X16} s16=0x{*(ulong*)(argPackPtr + 112):X16} " +
+					$"s24=0x{*(ulong*)(argPackPtr + 120):X16} s32=0x{*(ulong*)(argPackPtr + 128):X16}");
+			}
 			for (int i = 1; i <= 4; i++)
 			{
 				ulong num8 = *(ulong*)(argPackPtr + 96 + i * 8);

@@ -359,7 +359,12 @@ public sealed partial class DirectExecutionBackend
 
 	private static bool IsPlausibleReturnAddress(ulong address)
 	{
-		return address >= 12884901888L && address < 17592186044416L && !IsUnresolvedSentinel(address);
+		// Open payload SDK PIEs can be mapped at 0x400000. A retail-image
+		// address floor rejects their real return slots and lets stack scanning
+		// substitute unrelated host trampoline addresses. Plausibility only
+		// excludes the null page/noncanonical range; IsLikelyReturnAddress still
+		// requires an executable mapping before a candidate is accepted.
+		return address >= 65536UL && address < 0x0000800000000000UL && !IsUnresolvedSentinel(address);
 	}
 
 	private static bool TryGetPlausibleReturnFromStack(ulong rsp, out ulong returnRip, out ulong nextRsp)
@@ -430,7 +435,7 @@ public sealed partial class DirectExecutionBackend
 		}
 	}
 
-	private static bool IsLikelyReturnAddress(ulong address)
+	internal static bool IsLikelyReturnAddress(ulong address)
 	{
 		if (!IsPlausibleReturnAddress(address))
 		{

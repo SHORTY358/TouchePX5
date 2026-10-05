@@ -6,6 +6,24 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Explicit Wolf4SDL PS5 source build reaches VideoOut and controller mapping parsing.**
+  The adapted userland entry preserves the pinned engine and PS5 SDL backend;
+  it does not make the unchanged payload compatible. Native named imports,
+  empty guest getenv, bounded libc-heap output/descriptor access and low-address
+  executable returns are repaired. Before the last fix, a valid 0x570F3F return
+  was rejected by a 12 GiB floor and a host trampoline was selected from the
+  stack. Afterward the actual engine reaches controller parsing and missing
+  `strtok`. Latest bounded run:
+  `artifacts/external-homebrew/wolf4sdl-userland/runs/20261005-010933-782/report.json`.
+  The log records first 1920x1080 presentation; no actual menu or gameplay was
+  visually verified, and the run still terminates at its deadline. Focused
+  checks passed **288/288**, payload ABI checks **2/2** in
+  `artifacts/payload-bootstrap/20261005-010928-499/report.json`; final emulator
+  Release build passed with zero warnings/errors. Open dependency extraction
+  and source rebuild reproduced the same ELF SHA256. See
+  `docs/wolf4sdl-boot-investigation.md` for provenance and exact limitations.
+  Next routine Sol work is the actual `strtok` blocker and then a captured menu.
+
 - **Wolf4SDL now passes its first resolver calls and reaches syscall 0x289**.
   The unmodified PS5 shareware ELF no longer times out at the old boundary:
   unsupported kernel introspection unwinds to the host with a concrete error.
@@ -17,8 +35,8 @@ percentage or release-date estimate.
   (`artifacts/wolf-adapter-dynamic-module.log`), and 111 focused loader/module
   unit tests passed (`artifacts/wolf-adapter-unit-tests.log`). The full GPU
   aggregate was not repeated for this startup-only change; its result below
-  remains historical. Next work is the userland startup route described in
-  `docs/wolf4sdl-boot-investigation.md`, not speculative GPU extensions.
+  remains historical. This unchanged-release boundary is retained separately
+  from the explicit source profile above.
 
 - **Byte-unaligned image DMA repair is verified by 100/100 native GPU cases**:
   `artifacts/native-gpu/20261004-100952-502/report.json`, clean probe commit

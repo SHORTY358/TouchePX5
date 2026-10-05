@@ -17,6 +17,21 @@ namespace SharpEmu.Libs.Kernel;
 
 public static class KernelRuntimeCompatExports
 {
+    [SysAbiExport(
+        Nid = "smbQukfxYJM",
+        ExportName = "getenv",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Getenv(CpuContext ctx)
+    {
+        // Process entry currently supplies no envp and no guest environment
+        // mutation API. The guest environment is therefore empty: POSIX getenv
+        // returns NULL for absent variables, never an error-valued pointer.
+        // Host Windows environment variables are not the guest environment.
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
     private const ulong TlsErrnoOffset = 0x40;
     private const ulong TlsStackChkGuardBaseOffset = 0x800;
     private const ulong StackChkGuardFieldOffset = 0x10;

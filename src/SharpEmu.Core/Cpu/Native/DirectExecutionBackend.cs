@@ -1273,9 +1273,16 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		int num = 0;
 		int num2 = 0;
 		int num3 = 0;
-		foreach (var (num4, text2) in importStubs)
+		foreach (var (num4, importSymbol) in importStubs)
 		{
-			_ = _moduleManager.TryGetExport(text2, out var resolvedExport);
+			if (!_moduleManager.TryGetExport(importSymbol, out var resolvedExport))
+			{
+				_ = _moduleManager.TryGetExportByName(importSymbol, out resolvedExport);
+			}
+			// Open payload SDK ELFs import plain names; console ELFs use NIDs.
+			// Canonicalize an existing HLE export once so the native intrinsics,
+			// dispatch policy and special ABI cases retain the same classification.
+			var text2 = resolvedExport?.Nid ?? importSymbol;
 			_importEntries[num] = new ImportStubEntry(
 				num4,
 				text2,

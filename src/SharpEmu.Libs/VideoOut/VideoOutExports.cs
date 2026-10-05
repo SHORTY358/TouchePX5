@@ -1248,8 +1248,8 @@ public static class VideoOutExports
         for (var i = 0; i < bufferNum; i++)
         {
             var entryAddress = buffersAddress + ((ulong)i * VideoOutBuffersEntrySize);
-            if (!ctx.TryReadUInt64(entryAddress + 0x00, out addresses[i]) ||
-                !ctx.TryReadUInt64(entryAddress + 0x08, out _))
+            if (!KernelMemoryCompatExports.TryReadGuestOrLibcHeapUInt64(ctx, entryAddress + 0x00, out addresses[i]) ||
+                !KernelMemoryCompatExports.TryReadGuestOrLibcHeapUInt64(ctx, entryAddress + 0x08, out _))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
             }

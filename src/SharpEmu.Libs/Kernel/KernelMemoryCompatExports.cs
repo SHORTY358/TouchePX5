@@ -3125,7 +3125,7 @@ public static partial class KernelMemoryCompatExports
             }
         }
 
-        if (!ctx.TryWriteUInt64(outAddress, aligned))
+        if (!TryWriteGuestOrLibcHeapUInt64(ctx, outAddress, aligned))
         {
             TraceDirectMemoryCall(
                 ctx,
@@ -4088,13 +4088,13 @@ public static partial class KernelMemoryCompatExports
         {
             var maxWritable = (int)Math.Min((ulong)int.MaxValue, bufferSize - 1);
             var copyLength = Math.Min(maxWritable, outputBytes.Length);
-            if (copyLength > 0 && !ctx.Memory.TryWrite(destination, outputBytes[..copyLength]))
+            if (copyLength > 0 && !TryWriteGuestOrLibcHeap(ctx, destination, outputBytes[..copyLength]))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
             }
 
             Span<byte> nullTerminator = stackalloc byte[1];
-            if (!ctx.Memory.TryWrite(destination + (ulong)copyLength, nullTerminator))
+            if (!TryWriteGuestOrLibcHeap(ctx, destination + (ulong)copyLength, nullTerminator))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
             }
@@ -7010,6 +7010,50 @@ public static partial class KernelMemoryCompatExports
         {
             return false;
         }
+    }
+
+    internal static bool TryWriteGuestOrLibcHeapUInt64(CpuContext ctx, ulong address, ulong value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(ulong)];
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes, value);
+        return TryWriteGuestOrLibcHeap(ctx, address, bytes);
+    }
+
+    internal static bool TryReadGuestOrLibcHeapUInt64(CpuContext ctx, ulong address, out ulong value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(ulong)];
+        if (!ctx.Memory.TryRead(address, bytes) && !TryReadTrackedLibcHeap(address, bytes))
+        {
+            value = 0;
+            return false;
+        }
+        value = BinaryPrimitives.ReadUInt64LittleEndian(bytes);
+        return true;
+    }
+
+    private static bool TryWriteGuestOrLibcHeap(CpuContext ctx, ulong address, ReadOnlySpan<byte> source)
+    {
+        if (source.IsEmpty || ctx.Memory.TryWrite(address, source))
+        {
+            return true;
+        }
+
+        // malloc returns native-backed guest storage. Only live allocations
+        // owned by this libc heap qualify; an arbitrary writable host page does not.
+        lock (_libcAllocGate)
+        {
+            foreach (var (allocationAddress, allocation) in _libcAllocations)
+            {
+                var size = (ulong)allocation.Size;
+                var offset = address >= allocationAddress ? address - allocationAddress : ulong.MaxValue;
+                if (offset <= size && (ulong)source.Length <= size - offset)
+                {
+                    return TryWriteHostMemory(address, source);
+                }
+            }
+        }
+
+        return false;
     }
 
     internal static bool TryReadTrackedLibcHeap(

@@ -276,7 +276,7 @@ public static class KernelEventQueueCompatExports
             _registeredEvents[handle] = new Dictionary<(ulong Ident, short Filter), KernelEventRegistration>();
         }
 
-        if (!ctx.TryWriteUInt64(outAddress, handle))
+        if (!KernelMemoryCompatExports.TryWriteGuestOrLibcHeapUInt64(ctx, outAddress, handle))
         {
             lock (_eventQueueGate)
             {
