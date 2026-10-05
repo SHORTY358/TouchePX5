@@ -603,8 +603,11 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
             return false;
         }
 
-        importStubs[stubAddress] = RuntimeStubNids.BootstrapBridge;
-        importStubs[stubAddress + 0x0A] = RuntimeStubNids.BootstrapBridge;
+        // The SDK calls the resolver at +0 and its syscall entry at +0xA.
+        // Native import patches occupy 16 bytes: patch separate landing pads,
+        // never these two adjacent ABI entry points.
+        importStubs[stubAddress + 0x100] = RuntimeStubNids.BootstrapBridge;
+        importStubs[stubAddress + 0x120] = RuntimeStubNids.BootstrapSyscall;
 
         context[CpuRegister.Rdi] = payloadAddress;
         return true;
@@ -613,8 +616,10 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
     private ulong TryMapBootstrapStubRegion()
     {
         var stubData = new byte[(int)BootstrapRegionSize];
-        stubData[0] = 0xCC;
-        stubData[1] = 0xC3;
+        stubData[0] = 0xE9; // jmp resolver landing pad
+        BinaryPrimitives.WriteInt32LittleEndian(stubData.AsSpan(1), 0x100 - 5);
+        stubData[0xA] = 0xE9; // jmp syscall landing pad; preserve incoming RAX
+        BinaryPrimitives.WriteInt32LittleEndian(stubData.AsSpan(0xB), 0x120 - 0xF);
 
         const ulong stride = 0x0100_0000UL;
         for (var i = 0; i < 16; i++)

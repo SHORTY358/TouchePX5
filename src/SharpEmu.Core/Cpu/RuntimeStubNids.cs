@@ -7,5 +7,7 @@ internal static class RuntimeStubNids
 {
     public const string BootstrapBridge = "__internal_bootstrap_bridge";
 
+    public const string BootstrapSyscall = "__internal_bootstrap_syscall";
+
     public const string KernelDynlibDlsym = "__internal_kernel_dynlib_dlsym";
 }

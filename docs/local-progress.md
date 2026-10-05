@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-10-04
+# Local engineering checkpoint — 2026-10-05
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
@@ -6,17 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- **Third-party launch is now the immediate target**: the unmodified Wolf4SDL
-  PS5 v1.0 shareware ELF reaches startup, then fails to resolve `sceKernelDlsym`
-  with SDK handles 1/0x2001. No game graphics have been reached. The bounded
-  reproducible launch is `tools/external-homebrew/Invoke-Wolf4SDL.ps1`; evidence:
-  `artifacts/external-homebrew/wolf4sdl-v1.0/runs/20261004-103943-897/report.json`.
-  See `docs/wolf4sdl-boot-investigation.md` for the separate resolver/syscall ABI
-  and privileged SDK startup blockers. A failed alias experiment was removed.
-  Baseline Release rebuild passed with zero warnings/errors; the focused
-  dynamic-module lifecycle and public-lookup isolation check passed afterward
-  (`artifacts/wolf-baseline-dynamic-module.log`). This rebuild was not rerun
-  through the full GPU aggregate; the following manifest result is historical.
+- **Wolf4SDL now passes its first resolver calls and reaches syscall 0x289**.
+  The unmodified PS5 shareware ELF no longer times out at the old boundary:
+  unsupported kernel introspection unwinds to the host with a concrete error.
+  No game graphics have been reached. Evidence with all 248 runtime file hashes:
+  `artifacts/external-homebrew/wolf4sdl-v1.0/runs/20261005-003038-642/report.json`.
+  Release build passed (zero warnings/errors), two native payload ABI cases
+  passed (`artifacts/payload-bootstrap/20261005-003033-743/report.json`), the
+  dynamic-module lifecycle/public-lookup check passed
+  (`artifacts/wolf-adapter-dynamic-module.log`), and 111 focused loader/module
+  unit tests passed (`artifacts/wolf-adapter-unit-tests.log`). The full GPU
+  aggregate was not repeated for this startup-only change; its result below
+  remains historical. Next work is the userland startup route described in
+  `docs/wolf4sdl-boot-investigation.md`, not speculative GPU extensions.
 
 - **Byte-unaligned image DMA repair is verified by 100/100 native GPU cases**:
   `artifacts/native-gpu/20261004-100952-502/report.json`, clean probe commit

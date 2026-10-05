@@ -4,6 +4,7 @@
 param([ValidateRange(1,60)][int]$TimeoutSeconds = 20)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+. (Join-Path $root 'tools\native-probes\RuntimeManifest.ps1')
 $inputRoot = Join-Path $root 'artifacts\external-homebrew\wolf4sdl-v1.0'
 $elf = Join-Path $inputRoot 'Wolf4SDL\payloads\wolf3d-shareware.elf'
 $exe = Join-Path $root 'artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe'
@@ -19,11 +20,14 @@ $report = [ordered]@{
     SourceChanges = @(& git -C $root status --porcelain)
     ElfSha256 = (Get-FileHash -LiteralPath $elf).Hash
     ExecutableSha256 = (Get-FileHash -LiteralPath $exe).Hash
+    RuntimeFiles = @(Get-ToucheRuntimeManifest -Directory (Split-Path $exe))
     StartedUtc = [DateTime]::UtcNow.ToString('o')
     TimeoutSeconds = $TimeoutSeconds
     TerminatedAtDeadline = $false
     ExitCode = $null
     ResolverFailureObserved = $false
+    UnsupportedSyscall = $null
+    ExecutionResult = $null
     GameplayVerified = $false
     Note = 'Boot investigation only. No guest --datadir/--configdir arguments supplied yet. Exit is not a success verdict.'
 }
@@ -44,7 +48,10 @@ try {
     if ($null -ne $process -and -not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
     $report.FinishedUtc = [DateTime]::UtcNow.ToString('o')
     if (Test-Path -LiteralPath $log) {
-        $report.ResolverFailureObserved = (Get-Content -LiteralPath $log -Raw).Contains("bootstrap_bridge unresolved: handle=0x1 symbol='sceKernelDlsym'")
+        $runtimeText = Get-Content -LiteralPath $log -Raw
+        $report.ResolverFailureObserved = $runtimeText.Contains("bootstrap_bridge unresolved: handle=0x1 symbol='sceKernelDlsym'")
+        if ($runtimeText -match 'Unsupported payload syscall (0x[0-9A-F]+)') { $report.UnsupportedSyscall = $Matches[1] }
+        if ($runtimeText -match 'execution completed\. Result=(\w+)') { $report.ExecutionResult = $Matches[1] }
     }
     $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'report.json') -Encoding utf8
     if ($null -ne $process) { $process.Dispose() }

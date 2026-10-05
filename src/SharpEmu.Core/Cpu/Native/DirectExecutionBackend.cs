@@ -1338,7 +1338,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			{
 				Console.Error.WriteLine($"[LOADER][DEBUG] SetupImportStubs: Trampoline for {text2} -> 0x{num5:X16}");
 			}
-			if (!PatchImportStub((nint)num4, num5))
+			if (!PatchImportStub((nint)num4, num5, preserveRax: text2 == RuntimeStubNids.BootstrapSyscall))
 			{
 				LastError = $"Failed to patch import stub at 0x{num4:X16}";
 				return false;
@@ -2285,7 +2285,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		}
 	}
 
-	private unsafe bool PatchImportStub(nint address, nint trampoline)
+	private unsafe bool PatchImportStub(nint address, nint trampoline, bool preserveRax = false)
 	{
 		uint flNewProtect = default(uint);
 		if (!VirtualProtect((void*)address, 16u, 64u, &flNewProtect))
@@ -2295,6 +2295,18 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		}
 		try
 		{
+			if (preserveRax)
+			{
+				// jmp qword ptr [rip]; unlike mov rax/jmp rax, this retains the
+				// payload syscall number for the existing argument trampoline.
+				*(byte*)address = 0xFF;
+				*(byte*)(address + 1) = 0x25;
+				*(int*)(address + 2) = 0;
+				*(nint*)(address + 6) = trampoline;
+				*(byte*)(address + 14) = 0x90;
+				*(byte*)(address + 15) = 0x90;
+				return true;
+			}
 			*(sbyte*)address = 72;
 			*(sbyte*)(address + 1) = -72;
 			*(long*)(address + 2) = trampoline;

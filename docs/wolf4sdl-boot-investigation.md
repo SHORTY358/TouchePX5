@@ -1,4 +1,4 @@
-# Wolf4SDL PS5 boot investigation, 2026-10-04
+# Wolf4SDL PS5 boot investigation, updated 2026-10-05
 
 The new integration target is the unmodified third-party Wolf4SDL PS5 v1.0
 shareware ELF. **No game window or gameplay has been verified.** This replaces
@@ -18,7 +18,7 @@ further speculative GPU-format work as the immediate compatibility target.
 Inputs are under `artifacts/external-homebrew/wolf4sdl-v1.0`. No external build
 scripts were executed; the archive contains official shareware game data.
 
-## Observed boundary
+## Original boundary (2026-10-04, superseded below)
 
 The loader accepts the ELF, maps it at 0x400000, and reaches entry 0x400040.
 It installs 241 import bridges and discovers 9,938 runtime symbols. Its FreeBSD
@@ -70,3 +70,65 @@ failures (`runs/20261004-103943-897/report.json`), and the existing focused
 dynamic-module lifecycle/public-symbol-isolation check passed
 (`artifacts/wolf-baseline-dynamic-module.log`). No runtime changes remain from
 the alias experiment.
+
+## Implemented startup correction (2026-10-05)
+
+The injected resolver and syscall addresses were 10 bytes apart, but native
+import patching writes 16 bytes. They now jump to disjoint landing pads.
+The syscall pad uses a RIP-relative indirect jump so RAX retains the syscall
+number. The public module resolver remains unchanged; the payload callback
+uses a separate, deliberately limited namespace (standalone libkernel handle
+1 and libc handle 2; only already-installed HLE functions). Alternative
+hijacked-process handle 0x2001 and remote process IDs are not aliases.
+
+The SDK helper now reads `(pid, handle, name)` and returns an address directly.
+The resolver callback reads `(handle, name, out)` and returns a status instead.
+Payload names/output pointers use mapped guest memory; invalid pointers cannot
+fall through to raw host reads/writes. An adversarial native fixture exposed a
+hang in the old raw-read fallback, which this path now avoids. Ordinary module
+lookup and its visibility/stopped-module rules were not relaxed.
+
+Confirmed on the **unchanged release ELF**: the first resolver succeeds, and
+`__kernel_init` reaches `SYS_dynlib_get_obj_member` (0x289) with handle 2,
+member 8 and a guest output pointer. Unsupported payload syscalls stop at a
+diagnostic boundary and unwind to the host; no firmware data is invented and
+the launch is reported as an error, not success. Before: deadline termination
+after 20 seconds. After: natural emulator exit with code 4 / CPU_TRAP and the
+exact unsupported syscall. This is boot progress, not game initialization.
+
+Evidence:
+
+- Real release: `artifacts/external-homebrew/wolf4sdl-v1.0/runs/20261005-003038-642/report.json`
+  (248 runtime hashes; resolver failure false; unsupported syscall 0x289;
+  deadline termination false; gameplay false).
+- Native ABI checks: `artifacts/payload-bootstrap/20261005-003033-743/report.json`
+  (2/2; callable resolver, direct-return SDK helper, bad PID/handle/name/output
+  cases, RAX/R10 syscall preservation, explicit failure unwind).
+- Focused loader/module units: 111/111 in `artifacts/wolf-adapter-unit-tests.log`.
+- Existing native module lifecycle and public symbol isolation: pass in
+  `artifacts/wolf-adapter-dynamic-module.log`.
+- Release build: zero warnings/errors in `artifacts/wolf-bootstrap-adapter-build.log`.
+
+## Next work: userland startup route
+
+The reference SDK proceeds from the firmware query into kernel memory reads,
+process credential lookup and direct-map/IOMMU discovery. Adding a made-up
+version field would merely hide this dependency. The current payload argument
+placeholders still do not supply a real kernel environment. Raw payload
+syscalls, dynamically loaded payload handles and general SDK compatibility
+remain unsupported.
+
+Next, inspect and pin the actual engine branch
+`https://github.com/alex-free/wolf4sdl/tree/sdl2remap` and its PS5 build recipe.
+Prepare a clearly labelled source build with a userland startup contract that
+preserves the engine, PS5 SDL backend, constructors, arguments and data paths.
+If implementing an explicit emulator startup adapter is preferable, first
+specify those same obligations; do not silently jump to `main` or silently
+return success from privileged SDK initialization. Keep the original release
+launch available as a separate compatibility test.
+
+The next visible acceptance target is a real Wolf4SDL menu using the official
+shareware data, followed by input and a playable level. No estimate is justified
+until the source build and its next actual runtime blocker are known. Source
+inspection/build preparation can proceed on Sol; request Astra again only for
+a specific unresolved startup architecture decision.

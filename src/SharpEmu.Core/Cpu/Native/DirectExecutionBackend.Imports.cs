@@ -317,7 +317,7 @@ public sealed partial class DirectExecutionBackend
 		if (_logBootstrap && string.Equals(importStubEntry.Nid, RuntimeStubNids.BootstrapBridge, StringComparison.Ordinal))
 		{
 			string symbolText = "<unreadable>";
-			if (TryReadAsciiZ(value2, 256, out var sym))
+			if (TryReadPayloadSymbolName(value2, out var sym))
 			{
 				symbolText = sym;
 			}
@@ -514,8 +514,15 @@ public sealed partial class DirectExecutionBackend
 				{
 					orbisGen2Result = DispatchBootstrapBridge();
 				}
-				else if (string.Equals(importStubEntry.Nid, RuntimeStubNids.KernelDynlibDlsym, StringComparison.Ordinal) ||
-					string.Equals(importStubEntry.Nid, "LwG8g3niqwA", StringComparison.Ordinal))
+				else if (string.Equals(importStubEntry.Nid, RuntimeStubNids.BootstrapSyscall, StringComparison.Ordinal))
+				{
+					orbisGen2Result = DispatchBootstrapSyscall();
+				}
+				else if (string.Equals(importStubEntry.Nid, RuntimeStubNids.KernelDynlibDlsym, StringComparison.Ordinal))
+				{
+					orbisGen2Result = DispatchPayloadDynlibDlsym();
+				}
+				else if (string.Equals(importStubEntry.Nid, "LwG8g3niqwA", StringComparison.Ordinal))
 				{
 					orbisGen2Result = DispatchKernelDynlibDlsym();
 				}
@@ -2275,13 +2282,11 @@ public sealed partial class DirectExecutionBackend
 		ulong bridgeHandle = cpuContext[CpuRegister.Rdi];
 		ulong symbolNameAddress = cpuContext[CpuRegister.Rsi];
 		ulong outputAddress = cpuContext[CpuRegister.Rdx];
-		_ = TryReadAsciiZ(symbolNameAddress, 512, out var symbolName);
+		_ = TryReadPayloadSymbolName(symbolNameAddress, out var symbolName);
 
-		OrbisGen2Result result = DispatchKernelDynlibDlsym();
-		if (result != OrbisGen2Result.ORBIS_GEN2_OK)
-		{
-			return result;
-		}
+		var resolved = TryResolvePayloadSymbol(unchecked((int)bridgeHandle), symbolName, out var address);
+		var written = outputAddress != 0 && cpuContext.TryWriteUInt64(outputAddress, resolved ? address : 0);
+		cpuContext[CpuRegister.Rax] = resolved && written ? 0UL : ulong.MaxValue;
 		if (_logBootstrap)
 		{
 			Console.Error.WriteLine(
@@ -2295,6 +2300,107 @@ public sealed partial class DirectExecutionBackend
 
 		Console.Error.WriteLine(
 			$"[LOADER][WARN] bootstrap_bridge unresolved: handle=0x{bridgeHandle:X} symbol='{symbolName}' out=0x{outputAddress:X16}");
+		return OrbisGen2Result.ORBIS_GEN2_OK;
+	}
+
+	private OrbisGen2Result DispatchPayloadDynlibDlsym()
+	{
+		var context = ActiveCpuContext!;
+		// SDK helper ABI: (pid, handle, name) -> address. It has no output
+		// pointer and must not run the public (handle, name, out) dispatcher.
+		var pid = unchecked((int)context[CpuRegister.Rdi]);
+		var handle = unchecked((int)context[CpuRegister.Rsi]);
+		var address = 0UL;
+		if (pid == -1 && TryReadPayloadSymbolName(context[CpuRegister.Rdx], out var name))
+		{
+			_ = TryResolvePayloadSymbol(handle, name, out address);
+		}
+		context[CpuRegister.Rax] = address;
+		return OrbisGen2Result.ORBIS_GEN2_OK;
+	}
+
+	private bool TryReadPayloadSymbolName(ulong address, out string name)
+	{
+		name = string.Empty;
+		const int limit = 512;
+		if (address == 0 || address > ulong.MaxValue - limit)
+		{
+			return false;
+		}
+		Span<byte> buffer = stackalloc byte[limit];
+		for (var index = 0; index < limit; index++)
+		{
+			// A bad guest pointer is an unresolved symbol, not permission to
+			// dereference arbitrary host memory through the legacy compat path.
+			if (!ActiveCpuContext!.Memory.TryRead(address + (ulong)index, buffer.Slice(index, 1)))
+			{
+				return false;
+			}
+			if (buffer[index] == 0)
+			{
+				name = Encoding.ASCII.GetString(buffer[..index]);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private bool TryResolvePayloadSymbol(int handle, string name, out ulong address)
+	{
+		address = 0;
+		// This is the standalone payload SDK namespace, not ordinary module
+		// handles. Only the injected bridge and the SDK helper use it. In
+		// particular, do not turn handle 1 of sceKernelDlsym into global lookup.
+		var resolver = _importEntries.FirstOrDefault(entry => entry.Nid == RuntimeStubNids.BootstrapBridge);
+		if (resolver.Address == 0 || string.IsNullOrEmpty(name))
+		{
+			return false;
+		}
+		if (handle == 1 && name == "sceKernelDlsym")
+		{
+			// A distinct callable address makes the SDK select callback+0xA
+			// as the raw syscall entry, rather than inspecting getpid's code.
+			address = resolver.Address;
+			return true;
+		}
+		if (handle is not (1 or 2))
+		{
+			// 0x2001 is the SDK's alternative hijacked-process libkernel.
+			// We expose only the standalone environment, never both at once.
+			return false;
+		}
+		foreach (var entry in _importEntries)
+		{
+			if (entry.Export is not { } export ||
+				(export.Target & ActiveCpuContext!.TargetGeneration) == 0 ||
+				!(handle == 1 ? IsKernelLibrary(export.LibraryName) : IsLibcLibrary(export.LibraryName)))
+			{
+				continue;
+			}
+			if (export.Name == name || export.Nid == name)
+			{
+				address = entry.Address;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private OrbisGen2Result DispatchBootstrapSyscall()
+	{
+		var context = ActiveCpuContext!;
+		var number = context[CpuRegister.Rax];
+		// This landing pad is not a host syscall instruction. Until a guest
+		// syscall is implemented, stop at the concrete boundary instead of
+		// interpreting its arguments as a symbol resolver or inventing kernel data.
+		LastError = $"Unsupported payload syscall 0x{number:X}: " +
+			$"rdi=0x{context[CpuRegister.Rdi]:X} rsi=0x{context[CpuRegister.Rsi]:X} " +
+			$"rdx=0x{context[CpuRegister.Rdx]:X} r10=0x{context[CpuRegister.R10]:X}";
+		Console.Error.WriteLine($"[LOADER][ERROR] {LastError}");
+		ActiveForcedGuestExit = true;
+		GuestThreadExecution.RequestCurrentEntryExit("unsupported_payload_syscall",
+			(int)OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP);
+		context[CpuRegister.Rax] = unchecked((ulong)(int)OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP);
 		return OrbisGen2Result.ORBIS_GEN2_OK;
 	}
 
