@@ -327,3 +327,20 @@ shows ammo 8 at the spawn door. Frame 22 shows ammo 7 and the firing pose after
 the movement/turn sequence and second Ctrl press. This visually confirms at
 least one shot consumed ammunition; it does not claim a kill or held autofire.
 All 22 captured-frame hashes and diagnostic settings are in its report.
+
+### Repeatable level scenario and actual presented image
+
+`tools/external-homebrew/Invoke-Wolf4SDLLevelSmoke.ps1` runs the recorded
+60-second acknowledgement/menu/level/movement/shooting sequence. It restores
+its process environment and saves bounded CPU snapshots plus periodic Vulkan
+swapchain readbacks. CPU and GPU presentation now share the same diagnostic
+readback interval/trigger selection; default first-frame/continuous behavior
+is retained. This is opt-in diagnostic plumbing, not a rendering shortcut.
+
+Run `20261008-051524-780` preserved nine actual swapchain samples under
+`level-smoke/20261008-051524-692`. The ninth sample was converted losslessly to
+`presented-level.png` and visually inspected: blue-wall view, weapon, HUD,
+100 health and 7 ammunition. This confirms the game image survived actual
+Vulkan presentation, independently of the CPU-buffer BMP observations.
+The native tiled three-frame pixel oracle passed again after the shared
+diagnostic change (`artifacts/wolf-readback-tiled-check.log`).

@@ -6,6 +6,14 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Wolf4SDL's level is confirmed in an actual Vulkan swapchain readback.**
+  `Invoke-Wolf4SDLLevelSmoke.ps1` provides the bounded one-command scenario.
+  Run `20261008-051524-780` preserves CPU snapshots and nine actual presented
+  samples in `level-smoke/20261008-051524-692`; `presented-level.png` shows
+  the level, weapon and ammo 7. CPU presentation now respects the existing
+  periodic diagnostic readback settings. Tiled native pixel/lifecycle checks
+  still pass after this change. No physical-control or commercial-game claim.
+
 - **First Wolf4SDL shareware level, movement/turn and one shot are visually verified
   with opt-in test input.** Run `20261008-050746-265/frames` shows ammo 8 in
   frame 1, and ammo 7 plus the firing pose in frame 22 after left Ctrl. Earlier

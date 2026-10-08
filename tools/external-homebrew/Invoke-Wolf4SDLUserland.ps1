@@ -38,6 +38,9 @@ $report=[ordered]@{
         DumpAfterFlip=[Environment]::GetEnvironmentVariable('SHARPEMU_DUMP_VIDEOOUT_AFTER_FLIP','Process')
         DumpEveryFlip=[Environment]::GetEnvironmentVariable('SHARPEMU_DUMP_VIDEOOUT_EVERY_FLIP','Process')
         MaximumFrames=[Environment]::GetEnvironmentVariable('SHARPEMU_DUMP_VIDEOOUT_MAX_FRAMES','Process')
+        SwapchainDumpDirectory=[Environment]::GetEnvironmentVariable('SHARPEMU_GUEST_IMAGE_DUMP_DIR','Process')
+        SwapchainDumpEvery=[Environment]::GetEnvironmentVariable('SHARPEMU_SWAPCHAIN_DUMP_EVERY','Process')
+        SwapchainDumpContinuous=[Environment]::GetEnvironmentVariable('SHARPEMU_GUEST_IMAGE_DUMP_CONTINUOUS','Process')
     }
     StartedUtc=[DateTime]::UtcNow.ToString('o')
     TerminatedAtDeadline=$false

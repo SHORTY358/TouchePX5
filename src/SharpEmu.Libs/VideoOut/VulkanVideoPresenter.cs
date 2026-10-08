@@ -21721,12 +21721,8 @@ internal static unsafe class VulkanVideoPresenter
                 1,
                 &copyRegion);
 
-            var traceDestination = ShouldTracePresentedGuestImageContentsForDiagnostics() && !_tracedPresentedSwapchain;
-            if (traceDestination)
-            {
-                _tracedPresentedSwapchain = true;
-                RecordSwapchainReadback(imageIndex);
-            }
+            var traceDestination = ShouldReadbackPresentedFrame();
+            if (traceDestination) RecordSwapchainReadback(imageIndex);
 
             var toPresent = new ImageMemoryBarrier
             {
@@ -21850,18 +21846,7 @@ internal static unsafe class VulkanVideoPresenter
             uint imageIndex,
             GuestImageResource source)
         {
-            var presentedCount = Interlocked.Increment(ref _presentedSwapchainCount);
-            var periodicDumpInterval = SwapchainDumpInterval();
-            var frameBoundaryTraceReady =
-                !_traceGuestImagesAtFlip ||
-                !_traceGuestImageTriggerEnabled ||
-                File.Exists(_traceGuestImageTriggerFile!);
-            var traceDestination =
-                frameBoundaryTraceReady &&
-                ShouldTracePresentedGuestImageContentsForDiagnostics() &&
-                (!_tracedPresentedSwapchain ||
-                 periodicDumpInterval > 0 && presentedCount % periodicDumpInterval == 0);
-            _tracedPresentedSwapchain |= traceDestination;
+            var traceDestination = ShouldReadbackPresentedFrame();
             BeginDebugLabel(
                 _commandBuffer,
                 $"SharpEmu present image 0x{source.Address:X16}");
@@ -22188,6 +22173,18 @@ internal static unsafe class VulkanVideoPresenter
         }
 
         private static readonly long _swapchainDumpInterval = ParseSwapchainDumpInterval();
+
+        private bool ShouldReadbackPresentedFrame()
+        {
+            var presentedCount = Interlocked.Increment(ref _presentedSwapchainCount);
+            var interval = SwapchainDumpInterval();
+            var triggerReady = !_traceGuestImagesAtFlip || !_traceGuestImageTriggerEnabled ||
+                               File.Exists(_traceGuestImageTriggerFile!);
+            var capture = triggerReady && ShouldTracePresentedGuestImageContentsForDiagnostics() &&
+                          (!_tracedPresentedSwapchain || interval > 0 && presentedCount % interval == 0);
+            _tracedPresentedSwapchain |= capture;
+            return capture;
+        }
 
         private static long SwapchainDumpInterval() => _swapchainDumpInterval;
 
