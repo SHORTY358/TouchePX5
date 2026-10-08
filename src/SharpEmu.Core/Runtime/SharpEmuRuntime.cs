@@ -37,6 +37,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
     private readonly ISymbolCatalog _symbolCatalog;
     private readonly CpuExecutionOptions _cpuExecutionOptions;
     private readonly IFileSystem _fileSystem;
+    private readonly Generation? _generationOverride;
     private bool _disposed;
 
     public string? LastExecutionDiagnostics { get; private set; }
@@ -56,7 +57,8 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         IModuleManager moduleManager,
         ISymbolCatalog? symbolCatalog = null,
         CpuExecutionOptions cpuExecutionOptions = default,
-        IFileSystem? fileSystem = null)
+        IFileSystem? fileSystem = null,
+        Generation? generationOverride = null)
     {
         _selfLoader = selfLoader ?? throw new ArgumentNullException(nameof(selfLoader));
         _virtualMemory = virtualMemory ?? throw new ArgumentNullException(nameof(virtualMemory));
@@ -71,6 +73,9 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             DebugHook = cpuExecutionOptions.DebugHook,
         };
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
+        if (generationOverride is not (null or Generation.Gen4 or Generation.Gen5))
+            throw new ArgumentOutOfRangeException(nameof(generationOverride));
+        _generationOverride = generationOverride;
     }
 
     public static ISharpEmuRuntime CreateDefault(SharpEmuRuntimeOptions options = default)
@@ -99,7 +104,8 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             moduleManager,
             Aerolib.Instance,
             cpuExecutionOptions,
-            fileSystem);
+            fileSystem,
+            options.GenerationOverride);
     }
 
     public SelfImage LoadImage(string ebootPath)
@@ -150,6 +156,11 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         KernelRuntimeCompatExports.ConfigureProcessProcParamAddress(image.ProcParamAddress);
         Console.Error.WriteLine($"[RUNTIME] Entry: 0x{image.EntryPoint:X16}");
         var generation = image.ElfHeader.AbiVersion == 2 ? Generation.Gen5 : Generation.Gen4;
+        if (_generationOverride is { } explicitGeneration)
+        {
+            Console.Error.WriteLine($"[RUNTIME] Explicit generation: {explicitGeneration}; ELF autodetection: {generation}");
+            generation = explicitGeneration;
+        }
         var activeImportStubs = new Dictionary<ulong, string>(image.ImportStubs);
         var activeRuntimeSymbols = new Dictionary<string, ulong>(image.RuntimeSymbols, StringComparer.Ordinal);
         var processImageName = Path.GetFileName(ebootPath);

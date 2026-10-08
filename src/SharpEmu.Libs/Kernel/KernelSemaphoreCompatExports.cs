@@ -651,7 +651,7 @@ public static class KernelSemaphoreCompatExports
     private static bool TryReadUInt32(CpuContext ctx, ulong address, out uint value)
     {
         Span<byte> buffer = stackalloc byte[sizeof(uint)];
-        if (!ctx.Memory.TryRead(address, buffer))
+        if (!KernelMemoryCompatExports.TryReadGuestOrLibcHeap(ctx, address, buffer))
         {
             value = 0;
             return false;
@@ -665,7 +665,7 @@ public static class KernelSemaphoreCompatExports
     {
         Span<byte> buffer = stackalloc byte[sizeof(uint)];
         BinaryPrimitives.WriteUInt32LittleEndian(buffer, value);
-        return ctx.Memory.TryWrite(address, buffer);
+        return KernelMemoryCompatExports.TryWriteGuestOrLibcHeap(ctx, address, buffer);
     }
 
     private static bool TryReadNullTerminatedUtf8(CpuContext ctx, ulong address, int maxLength, out string value)

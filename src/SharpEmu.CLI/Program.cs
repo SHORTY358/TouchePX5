@@ -1072,7 +1072,7 @@ internal static partial class Program
 
     private static void PrintUsage()
     {
-        Log.Info("Usage: TouchePx5 [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--fps-limit=<0-240>] [--log-level=<level>] [--log-file[=<path>]] [--debug-server[=host:port]] <path-to-eboot.bin>");
+        Log.Info("Usage: TouchePx5 [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--generation=<ps4|ps5>] [--fps-limit=<0-240>] [--log-level=<level>] [--log-file[=<path>]] [--debug-server[=host:port]] <path-to-eboot.bin>");
         Log.Info(@"Example: TouchePx5 --cpu-engine=native --fps-limit=60 --trace-imports=64 --log-level=debug --log-file ""E:\Games\...\eboot.bin""");
         Log.Info("Debug server: --debug-server starts a live debug listener (default 127.0.0.1:5714); connect with SharpEmu.DebugClient.");
     }
@@ -1133,6 +1133,7 @@ internal static partial class Program
         var importTraceLimit = 0;
         var fpsLimit = 60;
         var cpuEngine = CpuExecutionEngine.NativeOnly;
+        Generation? generationOverride = null;
         logFilePath = null;
         logLevel = SharpEmuLog.MinimumLevel;
         var pathTokens = new List<string>(args.Length);
@@ -1270,6 +1271,23 @@ internal static partial class Program
                 continue;
             }
 
+            const string generationPrefix = "--generation=";
+            if (argument.StartsWith(generationPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var platform = argument[generationPrefix.Length..];
+                if (string.Equals(platform, "ps5", StringComparison.OrdinalIgnoreCase)) generationOverride = Generation.Gen5;
+                else if (string.Equals(platform, "ps4", StringComparison.OrdinalIgnoreCase)) generationOverride = Generation.Gen4;
+                else
+                {
+                    ebootPath = string.Empty;
+                    runtimeOptions = default;
+                    logLevel = SharpEmuLog.MinimumLevel;
+                    logFilePath = null;
+                    return false;
+                }
+                continue;
+            }
+
             const string tracePrefix = "--trace-imports=";
             if (argument.StartsWith(tracePrefix, StringComparison.OrdinalIgnoreCase))
             {
@@ -1329,6 +1347,7 @@ internal static partial class Program
             FpsLimit = fpsLimit,
             StrictDynlibResolution = strictDynlibResolution,
             ImportTraceLimit = importTraceLimit,
+            GenerationOverride = generationOverride,
         };
         return true;
     }

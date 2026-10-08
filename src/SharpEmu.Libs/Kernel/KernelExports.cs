@@ -215,7 +215,7 @@ public static class KernelExports
             name,
             priority,
             affinityMask);
-        if (threadIdAddress != 0 && !ctx.TryWriteUInt64(threadIdAddress, threadHandle))
+        if (threadIdAddress != 0 && !KernelMemoryCompatExports.TryWriteGuestOrLibcHeapUInt64(ctx, threadIdAddress, threadHandle))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }

@@ -210,3 +210,39 @@ Focused checks passed 288/288 in `artifacts/wolf-userland-focused-tests.log`,
 including the real low executable mapping regression. Next: checkpoint this
 stage, then return to Sol for tokenization and the next real startup blocker. The
 acceptance target remains an independently captured actual game menu.
+
+## 2026-10-08: controller parsing, data reads and audio startup
+
+The source profile retains ELF SHA256
+`D7A1C8A46BC2DFC958ED9237480C9E0523D53D9F1C1739036F243CB2C0A4577A`.
+It now implements the requested strtok, ASCII C-locale case conversion, strlcpy,
+strlcat, LP64 strtol, atoi, puts, and XMM0 double sin/log/exp2 value results.
+Math errno/fenv and broader locale support are not implemented by these additions.
+Implicit strtok cursor is scoped to guest memory/process. Reads/writes to native
+malloc buffers require ownership and allocation bounds: fread, kernel read,
+semaphores, pthread handle output and single-port AudioOut now use this storage.
+
+The open ELF autodetects Gen4 despite using the PS5 SDL backend. CLI
+`--generation=ps5` and the runtime option explicitly select PS5 without patching
+the file. The runner records this selection. The audio output export then resolves
+and the worker submits buffers instead of repeatedly reporting missing imports.
+
+Evidence progression (all bounded, no gameplay claim):
+- `20261008-041220-339`: sem_wait completes after worker sem_post; sem_destroy follows.
+- `20261008-041446-077`: libc trace advances through game headers, then last malloc
+  returns to `0x5AD2EE` in C++ operator new, caller `0x41FAF2` in US_SetScanNames.
+- `20261008-041856-947`: return probe preserves 0x5AD2EE, yield=False.
+- `20261008-042420-247`: periodic native host snapshots repeatedly place the main
+  thread at managed exception-handler trampoline +0x285. The earlier snapshot
+  also sampled +0x26B. Audio worker remains active. Cached CpuContext.Rip still
+  names malloc and must not be treated as the actual native instruction pointer.
+
+Next investigation must recover the original exception and establish why the
+handler cannot finish, including its recursive entry lock. Do not bypass errors,
+force success, or replace the engine map code to hide this fault.
+
+Validation: 43/43 focused startup regressions, 1193/1193 full library tests;
+CLI build zero warnings/errors. Added regressions cover live malloc audio bytes
+and an allocation overrun, malloc-backed semaphore lifecycle, and XMM0 math values
+including NaN/infinity. The earlier first-frame BMP is red horizontal stripes,
+not an actual game menu; it was produced by bmp-linear-read with tiling_mode=0.

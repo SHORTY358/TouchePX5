@@ -3,6 +3,7 @@
 
 using SharpEmu.HLE;
 using SharpEmu.HLE.Host;
+using SharpEmu.Libs.Kernel;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
@@ -360,7 +361,7 @@ public static class AudioOutExports
         try
         {
             var source = buffer.AsSpan(0, port.BufferByteLength);
-            if (!ctx.Memory.TryRead(sourceAddress, source))
+            if (!KernelMemoryCompatExports.TryReadGuestOrLibcHeap(ctx, sourceAddress, source))
             {
                 return ctx.SetReturn((int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
             }

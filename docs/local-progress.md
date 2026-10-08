@@ -1,10 +1,26 @@
-# Local engineering checkpoint — 2026-10-05
+# Local engineering checkpoint — 2026-10-08
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **Wolf4SDL source profile now passes controller parsing, reads game data and starts the audio worker.**
+  Added the actually requested C string/number and elementary double math exports;
+  file reads, semaphore storage, pthread output and audio buffers now accept bounded
+  live libc allocations. The runner explicitly selects PS5 for ambiguous open-SDK
+  ELF metadata without changing the guest file. Latest diagnostic run:
+  `artifacts/external-homebrew/wolf4sdl-userland/runs/20261008-042420-247/report.json`.
+  Main execution repeatedly stops inside the managed exception-handler trampoline
+  at offsets 0x285/0x26B after malloc returns into C++ operator new. Audio continues.
+  The last observed game caller is `US_SetScanNames`; this is not a verified game-data
+  parsing fault or a semaphore deadlock. Next: inspect the original exception and
+  trampoline lock/return path before changing its behavior. No menu/gameplay verified.
+  Focused startup checks passed 43/43; full library suite passed 1193/1193 in
+  `artifacts/wolf-libs-regressions.log`. CLI builds with zero warnings/errors.
+  The first captured frame from the prior 20261005-013304-765 run contains red stripes,
+  not a menu; its linear-read dump of tiling_mode=0 does not prove rendering layout.
 
 - **Explicit Wolf4SDL PS5 source build reaches VideoOut and controller mapping parsing.**
   The adapted userland entry preserves the pinned engine and PS5 SDL backend;

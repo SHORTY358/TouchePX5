@@ -13,6 +13,35 @@ public sealed class LibcHeapOutputTests
     private const ulong GuestBase = 0x1_0000_0000;
 
     [Fact]
+    public void Semaphore_UsesMallocStorageAcrossWaitPostAndDestroy()
+    {
+        var ctx = new CpuContext(new FakeCpuMemory(GuestBase, 0x1000), Generation.Gen5);
+        ctx[CpuRegister.Rdi] = 4;
+        Assert.Equal(0, KernelMemoryCompatExports.Malloc(ctx));
+        var heap = ctx[CpuRegister.Rax];
+        try
+        {
+            ctx[CpuRegister.Rdi] = heap;
+            ctx[CpuRegister.Rsi] = 0;
+            ctx[CpuRegister.Rdx] = 1;
+            Assert.Equal(0, KernelSemaphoreCompatExports.PosixSemInit(ctx));
+            ctx[CpuRegister.Rdi] = heap;
+            Assert.Equal(0, KernelSemaphoreCompatExports.PosixSemTryWait(ctx));
+            ctx[CpuRegister.Rdi] = heap;
+            Assert.True(KernelSemaphoreCompatExports.PosixSemTryWait(ctx) < 0);
+            ctx[CpuRegister.Rdi] = heap;
+            Assert.Equal(0, KernelSemaphoreCompatExports.PosixSemPost(ctx));
+            ctx[CpuRegister.Rdi] = heap;
+            Assert.Equal(0, KernelSemaphoreCompatExports.PosixSemTryWait(ctx));
+            ctx[CpuRegister.Rdi] = heap;
+            Assert.Equal(0, KernelSemaphoreCompatExports.PosixSemDestroy(ctx));
+            ctx[CpuRegister.Rdi] = heap;
+            Assert.True(KernelSemaphoreCompatExports.PosixSemPost(ctx) < 0);
+        }
+        finally { ctx[CpuRegister.Rdi] = heap; KernelMemoryCompatExports.Free(ctx); }
+    }
+
+    [Fact]
     public void Snprintf_TruncatesAndTerminatesInsideMallocAllocation()
     {
         var memory = new FakeCpuMemory(GuestBase, 0x1000);

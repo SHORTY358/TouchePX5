@@ -5,6 +5,7 @@ namespace SharpEmu.Core.Runtime;
 
 using SharpEmu.Core.Cpu;
 using SharpEmu.Core.Cpu.Debugging;
+using SharpEmu.HLE;
 
 public readonly struct SharpEmuRuntimeOptions
 {
@@ -16,6 +17,9 @@ public readonly struct SharpEmuRuntimeOptions
     public bool StrictDynlibResolution { get; init; }
 
     public int ImportTraceLimit { get; init; }
+
+    /// <summary>Explicit platform for open homebrew with ambiguous ELF ABI metadata; null keeps autodetection.</summary>
+    public Generation? GenerationOverride { get; init; }
 
     /// <summary>
     /// An optional debugger to attach to guest execution. Flows through to

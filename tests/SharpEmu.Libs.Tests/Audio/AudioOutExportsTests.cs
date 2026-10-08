@@ -5,6 +5,8 @@ using System.Buffers.Binary;
 using SharpEmu.HLE;
 using SharpEmu.HLE.Host;
 using SharpEmu.Libs.Audio;
+using SharpEmu.Libs.Kernel;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace SharpEmu.Libs.Tests.Audio;
@@ -38,6 +40,30 @@ public sealed class AudioOutExportsTests : IDisposable
             return stream;
         });
         _ctx = new CpuContext(_memory, Generation.Gen5);
+    }
+
+    [Fact]
+    public void Output_ReadsLiveMallocBufferAndRejectsBufferOverrun()
+    {
+        var handle = OpenPort(bufferLength: 2);
+        byte[] source = [1, 0, 2, 0, 3, 0, 4, 0];
+        _ctx[CpuRegister.Rdi] = 8;
+        Assert.Equal(0, KernelMemoryCompatExports.Malloc(_ctx));
+        var heap = _ctx[CpuRegister.Rax];
+        Assert.NotEqual(0UL, heap);
+        try
+        {
+            Marshal.Copy(source, 0, (nint)heap, source.Length);
+            Assert.Equal(0, SubmitSingle(handle, heap));
+            Assert.Equal(source, Assert.Single(_streams[0].Submissions));
+            Assert.True(SubmitSingle(handle, heap + 1) < 0);
+            Assert.Single(_streams[0].Submissions);
+        }
+        finally
+        {
+            _ctx[CpuRegister.Rdi] = heap;
+            KernelMemoryCompatExports.Free(_ctx);
+        }
     }
 
     [Fact]

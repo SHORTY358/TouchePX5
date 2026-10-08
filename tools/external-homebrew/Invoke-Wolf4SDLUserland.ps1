@@ -24,12 +24,15 @@ $report=[ordered]@{
     RuntimeFiles=@(Get-ToucheRuntimeManifest -Directory (Split-Path $exe))
     DataFiles=@($dataFiles | ForEach-Object { [ordered]@{Name=$_.Name; Sha256=(Get-FileHash -LiteralPath $_.FullName).Hash} })
     GuestArguments='--configdir /app0'
+    ExplicitGeneration='ps5'
     TraceImports=$TraceImports
     DiagnosticEnvironment=[ordered]@{
         LogAllImports=[Environment]::GetEnvironmentVariable('SHARPEMU_LOG_ALL_IMPORTS','Process')
         ImportFilter=[Environment]::GetEnvironmentVariable('SHARPEMU_LOG_IMPORT_FILTER','Process')
         ImportFrames=[Environment]::GetEnvironmentVariable('SHARPEMU_LOG_IMPORT_FRAMES','Process')
         Pthreads=[Environment]::GetEnvironmentVariable('SHARPEMU_LOG_PTHREADS','Process')
+        PeriodicSnapshots=[Environment]::GetEnvironmentVariable('SHARPEMU_PERIODIC_SNAPSHOT_SECONDS','Process')
+        VideoOutDump=[Environment]::GetEnvironmentVariable('SHARPEMU_DUMP_VIDEOOUT','Process')
     }
     StartedUtc=[DateTime]::UtcNow.ToString('o')
     TerminatedAtDeadline=$false
@@ -40,7 +43,7 @@ $previousArgs=[Environment]::GetEnvironmentVariable('SHARPEMU_GUEST_ARGS','Proce
 $process=$null
 try {
     [Environment]::SetEnvironmentVariable('SHARPEMU_GUEST_ARGS',$report.GuestArguments,'Process')
-    $process=Start-Process -FilePath $exe -ArgumentList @('--cpu-engine=native',('--trace-imports='+$TraceImports),('--log-file="'+$log+'"'),('"'+$elf+'"')) `
+    $process=Start-Process -FilePath $exe -ArgumentList @('--cpu-engine=native','--generation=ps5',('--trace-imports='+$TraceImports),('--log-file="'+$log+'"'),('"'+$elf+'"')) `
         -WorkingDirectory $inputRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $output 'stdout.log') -RedirectStandardError (Join-Path $output 'stderr.log')
     if(-not $process.WaitForExit($TimeoutSeconds*1000)) { $report.TerminatedAtDeadline=$true; $process.Kill(); $process.WaitForExit() }

@@ -776,6 +776,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 	private volatile bool _stallWatchdogStop;
 
 	private Thread? _stallWatchdogThread;
+	private int _mainNativeHostThreadId;
 
 	private volatile bool _readyDispatchStop;
 
@@ -6227,6 +6228,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				Console.Error.WriteLine("[LOADER][INFO] Sentinel probe returned.");
 			}
 			Console.Error.WriteLine("[LOADER][INFO] Calling guest entry...");
+			Volatile.Write(ref _mainNativeHostThreadId, unchecked((int)GetCurrentThreadId()));
 			StartStallWatchdog();
 			StartReadyThreadDispatcher();
 			int num6 = -1;
@@ -6286,6 +6288,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		{
 			StopReadyThreadDispatcher();
 			StopStallWatchdog();
+			Volatile.Write(ref _mainNativeHostThreadId, 0);
 			ActiveEntryReturnSentinelRip = 0uL;
 			TlsSetValue(_hostRspSlotTlsIndex, previousHostRspSlotValue);
 			if (_hostRspSlotStorage != 0)
@@ -6666,6 +6669,11 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				return;
 			}
 			ulong rsp = cpuContext[CpuRegister.Rsp];
+			if (TryCaptureHostThreadContext(Volatile.Read(ref _mainNativeHostThreadId), out var mainHostContext))
+			{
+				Console.Error.WriteLine($"[LOADER][ERROR] Stall main host: rip=0x{mainHostContext.Rip:X16} rsp=0x{mainHostContext.Rsp:X16} rbp=0x{mainHostContext.Rbp:X16} rax=0x{mainHostContext.Rax:X16} rbx=0x{mainHostContext.Rbx:X16} rcx=0x{mainHostContext.Rcx:X16} rdx=0x{mainHostContext.Rdx:X16}");
+				Console.Error.WriteLine($"[LOADER][ERROR] Stall handler mappings: raw=0x{(ulong)_rawExceptionHandlerStub:X16} managed=0x{(ulong)_exceptionHandlerStub:X16} unhandled=0x{(ulong)_unhandledFilterStub:X16}");
+			}
 			Console.Error.WriteLine($"[LOADER][ERROR] Stall snapshot: rip=0x{cpuContext.Rip:X16} rsp=0x{rsp:X16} rbp=0x{cpuContext[CpuRegister.Rbp]:X16} rax=0x{cpuContext[CpuRegister.Rax]:X16} rbx=0x{cpuContext[CpuRegister.Rbx]:X16} rcx=0x{cpuContext[CpuRegister.Rcx]:X16} rdx=0x{cpuContext[CpuRegister.Rdx]:X16} rsi=0x{cpuContext[CpuRegister.Rsi]:X16} rdi=0x{cpuContext[CpuRegister.Rdi]:X16}");
 			ulong num = cpuContext.Rip & 0xFFFFFFFFFFFFFFF0uL;
 			for (int i = 0; i < _importEntries.Length; i++)

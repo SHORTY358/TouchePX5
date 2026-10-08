@@ -2331,7 +2331,7 @@ public static partial class KernelMemoryCompatExports
         {
             var randomBytes = GC.AllocateUninitializedArray<byte>(requested);
             RandomNumberGenerator.Fill(randomBytes);
-            if (!ctx.Memory.TryWrite(bufferAddress, randomBytes))
+            if (!TryWriteGuestOrLibcHeap(ctx, bufferAddress, randomBytes))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
             }
@@ -2377,7 +2377,7 @@ public static partial class KernelMemoryCompatExports
                 Bink2MovieBridge.WaitForHostPlaybackToFinish(stream.Name);
             }
         }
-        if (read > 0 && !ctx.Memory.TryWrite(bufferAddress, buffer.AsSpan(0, read)))
+        if (read > 0 && !TryWriteGuestOrLibcHeap(ctx, bufferAddress, buffer.AsSpan(0, read)))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -7022,7 +7022,7 @@ public static partial class KernelMemoryCompatExports
     internal static bool TryReadGuestOrLibcHeapUInt64(CpuContext ctx, ulong address, out ulong value)
     {
         Span<byte> bytes = stackalloc byte[sizeof(ulong)];
-        if (!ctx.Memory.TryRead(address, bytes) && !TryReadTrackedLibcHeap(address, bytes))
+        if (!TryReadGuestOrLibcHeap(ctx, address, bytes))
         {
             value = 0;
             return false;
@@ -7031,7 +7031,10 @@ public static partial class KernelMemoryCompatExports
         return true;
     }
 
-    private static bool TryWriteGuestOrLibcHeap(CpuContext ctx, ulong address, ReadOnlySpan<byte> source)
+    internal static bool TryReadGuestOrLibcHeap(CpuContext ctx, ulong address, Span<byte> destination) =>
+        ctx.Memory.TryRead(address, destination) || TryReadTrackedLibcHeap(address, destination);
+
+    internal static bool TryWriteGuestOrLibcHeap(CpuContext ctx, ulong address, ReadOnlySpan<byte> source)
     {
         if (source.IsEmpty || ctx.Memory.TryWrite(address, source))
         {
