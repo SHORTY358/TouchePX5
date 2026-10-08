@@ -8,6 +8,16 @@ namespace SharpEmu.Libs.Kernel;
 
 public static partial class KernelMemoryCompatExports
 {
+    [SysAbiExport(Nid = "eGkOpTojJl4", ExportName = "isprint",
+        Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Isprint(CpuContext ctx)
+    {
+        // C-locale printable ASCII, including space; EOF is not printable.
+        var value = unchecked((int)ctx[CpuRegister.Rdi]);
+        ctx[CpuRegister.Rax] = value is >= 0x20 and <= 0x7E ? 1UL : 0UL;
+        return 0;
+    }
+
     [SysAbiExport(Nid = "g7zzzLDYGw0", ExportName = "strdup",
         Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
     public static int Strdup(CpuContext ctx)

@@ -3,11 +3,19 @@
 [CmdletBinding()]
 param([ValidateRange(1,60)][int]$TimeoutSeconds=20,
       [ValidateRange(1,4096)][int]$TraceImports=32,
-      [string]$KeyboardReplay='')
+      [string]$KeyboardReplay='',
+      [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$ConfigSubdirectory='')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 . (Join-Path $root 'tools\native-probes\RuntimeManifest.ps1')
 $inputRoot=Join-Path $root 'artifacts\external-homebrew\wolf4sdl-userland'
+$guestConfig='/app0'
+$configRoot=$null
+if($ConfigSubdirectory.Length -gt 0) {
+    $configRoot=Join-Path $inputRoot $ConfigSubdirectory
+    New-Item -ItemType Directory -Path $configRoot -Force | Out-Null
+    $guestConfig='/temp0'
+}
 $elf=Join-Path $inputRoot 'wolf3d-shareware-userland.elf'
 $data=Join-Path $root 'artifacts\external-homebrew\wolf4sdl-v1.0\Wolf4SDL\shareware'
 $exe=Join-Path $root 'artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe'
@@ -24,7 +32,8 @@ $report=[ordered]@{
     ElfSha256=(Get-FileHash -LiteralPath $elf).Hash
     RuntimeFiles=@(Get-ToucheRuntimeManifest -Directory (Split-Path $exe))
     DataFiles=@($dataFiles | ForEach-Object { [ordered]@{Name=$_.Name; Sha256=(Get-FileHash -LiteralPath $_.FullName).Hash} })
-    GuestArguments='--configdir /app0'
+    GuestArguments="--configdir $guestConfig"
+    ConfigHostDirectory=$configRoot
     ExplicitGeneration='ps5'
     KeyboardReplay=$KeyboardReplay
     TraceImports=$TraceImports
@@ -50,10 +59,12 @@ $report=[ordered]@{
 }
 $previousArgs=[Environment]::GetEnvironmentVariable('SHARPEMU_GUEST_ARGS','Process')
 $previousReplay=[Environment]::GetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY','Process')
+$previousTemp0=[Environment]::GetEnvironmentVariable('SHARPEMU_TEMP0_DIR','Process')
 $process=$null
 try {
     [Environment]::SetEnvironmentVariable('SHARPEMU_GUEST_ARGS',$report.GuestArguments,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY',$KeyboardReplay,'Process')
+    if($null -ne $configRoot) { [Environment]::SetEnvironmentVariable('SHARPEMU_TEMP0_DIR',$configRoot,'Process') }
     $process=Start-Process -FilePath $exe -ArgumentList @('--cpu-engine=native','--generation=ps5',('--trace-imports='+$TraceImports),('--log-file="'+$log+'"'),('"'+$elf+'"')) `
         -WorkingDirectory $inputRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $output 'stdout.log') -RedirectStandardError (Join-Path $output 'stderr.log')
@@ -63,6 +74,7 @@ try {
     if($null -ne $process) { if(-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }; $process.Dispose() }
     [Environment]::SetEnvironmentVariable('SHARPEMU_GUEST_ARGS',$previousArgs,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY',$previousReplay,'Process')
+    [Environment]::SetEnvironmentVariable('SHARPEMU_TEMP0_DIR',$previousTemp0,'Process')
     $report.FinishedUtc=[DateTime]::UtcNow.ToString('o')
     # Preserve only dumps produced by this launch, never stale files from another run.
     $frameRoot=Join-Path $root 'logs'

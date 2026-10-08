@@ -6,6 +6,23 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Wolf4SDL can write a save and load it in a fresh process.** The explicit
+  source profile now supports an isolated writable `/temp0` configuration
+  directory via `Invoke-Wolf4SDLUserland.ps1 -ConfigSubdirectory <name>`.
+  Run `20261008-052937-455` wrote slot `sol1`, 23,468 bytes, map 0, health 100,
+  ammo 8. Run `20261008-053753-026` read the entire save through position 23,468
+  and returned to the level; frame 25 shows the loaded scene and firing pose.
+  The stronger roundtrip also passes: run `20261008-054252-396` saved `sol2`
+  with ammo 7 after firing/turning; fresh run `20261008-054353-483` read the
+  full file and frame 15 shows the changed blue-wall view and ammo 7.
+  `Invoke-Wolf4SDLSaveLoadSmoke.ps1` repeats both processes with a unique folder.
+  `fwrite` now rejects NULL streams and overflowing requests, supports bounded
+  owned-libc-heap input, and no longer prints a failed NULL save to stdout.
+  Denied `fopen` paths return NULL instead of throwing. ASCII `isprint` supports
+  save-name entry. Invalid `fread` sizes and write-only streams return failure
+  before attempting host I/O. Full library checks pass 1232/1232; CLI build has no warnings
+  or errors (`artifacts/wolf-save-full-tests.log`, `wolf-save-build.log`).
+
 - **CPU tiled decoding is faster with identical benchmark pixels.** On this
   i5-12400F, a fixed seeded 1920x1080 frame measured 14.553 -> 8.278 ms median
   across 12 warm samples, and 17,207,432 -> 8,302,299 allocated bytes/frame.

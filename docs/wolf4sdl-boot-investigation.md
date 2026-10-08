@@ -344,3 +344,36 @@ Run `20261008-051524-780` preserved nine actual swapchain samples under
 Vulkan presentation, independently of the CPU-buffer BMP observations.
 The native tiled three-frame pixel oracle passed again after the shared
 diagnostic change (`artifacts/wolf-readback-tiled-check.log`).
+
+### Writable configuration and save/load
+
+The original `/app0` configuration argument was read-only. The engine's save
+code does not check every stdio failure, and a NULL `FILE*` reached `fwrite`.
+The old fallback mistakenly printed save bytes to stdout. This is now a
+zero-element failure; overflowing requests and writes outside an owned libc
+allocation are rejected. `fopen` also returns NULL for a denied resolved path.
+`fread` rejects overflowing sizes and write-only streams before host reads.
+Regression checks cover real file bytes, heap bounds, read/write access,
+size arithmetic, zero counts, and ASCII `isprint` used by save-name entry.
+
+`Invoke-Wolf4SDLUserland.ps1 -ConfigSubdirectory <safe-basename>` maps only a
+new/selected artifact subdirectory to writable `/temp0` for the child process.
+The runner restores `SHARPEMU_TEMP0_DIR` afterward and records the actual host
+configuration directory. `/app0` remains read-only.
+
+Run `20261008-052937-455` created `save-probe-20261008/savegam0.wl1`, 23,468
+bytes, slot `sol1`, map 0, health 100, ammo 8. In fresh run
+`20261008-053753-026`, F3/Enter opened that file for reading, consumed it through
+position 23,468, and returned to the level. Preserved frame 25 shows the
+spawn-door scene, weapon firing pose and HUD. This establishes actual engine
+save/load. The stronger scenario in run `20261008-054252-396` saved slot
+`sol2` with ammo 7 after firing and turning. Fresh run `20261008-054353-483`
+consumed all 23,468 bytes; frame 15 shows the changed view and ammo 7.
+Its save is retained in `save-roundtrip-20261008-054252-323`.
+
+`Invoke-Wolf4SDLSaveLoadSmoke.ps1` provides a two-process bounded scenario
+with a unique configuration folder. Its phase-one header assertions require
+slot `sol2` and ammo 7; phase-two captures and read trace must still be inspected.
+The first scenario revision missed its final confirmation near the wall-clock
+deadline and correctly failed because no save existed. Fixed-time test input
+is not a proof of physical keyboard usability or a reliable unattended game bot.

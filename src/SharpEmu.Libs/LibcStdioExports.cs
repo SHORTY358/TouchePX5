@@ -67,6 +67,11 @@ public static class LibcStdioExports
         }
 
         var hostPath = KernelMemoryCompatExports.ResolveGuestPath(guestPath);
+        if (string.IsNullOrWhiteSpace(hostPath))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_PERMISSION_DENIED;
+        }
         if (fileAccess != FileAccess.Read && KernelMemoryCompatExports.IsReadOnlyGuestMutationPath(guestPath))
         {
             if (_traceStdio)
@@ -240,13 +245,19 @@ public static class LibcStdioExports
             return (int)OrbisGen2Result.ORBIS_GEN2_OK;
         }
 
-        if (destination == 0 || !_fileHandles.TryGetValue(handle, out var stream))
+        if (destination == 0 || elementSize > ulong.MaxValue / elementCount ||
+            !_fileHandles.TryGetValue(handle, out var stream) || !stream.CanRead)
         {
             ctx[CpuRegister.Rax] = 0;
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
 
         var totalRequested = elementSize * elementCount;
+        if (destination > ulong.MaxValue - totalRequested)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
         var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min((ulong)ReadChunkSize, totalRequested));
         ulong totalRead = 0;
 
@@ -488,13 +499,18 @@ public static class LibcStdioExports
         }
 
         var knownHandle = _fileHandles.TryGetValue(handle, out var stream);
-        if (source == 0)
+        if (source == 0 || handle == 0 || elementSize > ulong.MaxValue / elementCount)
         {
             ctx[CpuRegister.Rax] = 0;
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
 
         var totalRequested = elementSize * elementCount;
+        if (source > ulong.MaxValue - totalRequested || knownHandle && !stream!.CanWrite)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
         var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min((ulong)ReadChunkSize, totalRequested));
         ulong totalWritten = 0;
 
@@ -503,7 +519,7 @@ public static class LibcStdioExports
             while (totalWritten < totalRequested)
             {
                 var request = (int)Math.Min((ulong)buffer.Length, totalRequested - totalWritten);
-                if (!ctx.Memory.TryRead(source + totalWritten, buffer.AsSpan(0, request)))
+                if (!KernelMemoryCompatExports.TryReadGuestOrLibcHeap(ctx, source + totalWritten, buffer.AsSpan(0, request)))
                 {
                     ctx[CpuRegister.Rax] = totalWritten / elementSize;
                     return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
