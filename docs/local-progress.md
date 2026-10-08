@@ -6,13 +6,28 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Wolf basic play is user-confirmed.** The user confirms the title-bar mouse
+  fix works, the first level was completed, level transitions work, the saved
+  game loaded after a process restart, and audio matches the game. These are
+  physical user observations, not automated coverage of every action. Fast
+  movement is explicitly accepted for now; no timing correctness is inferred.
+  Wolf remains a regression reference. Long-run stability and the historical
+  intermittent HUD omission are not declared solved.
+
+- **An independently written GPU cube now builds and reaches main.** The
+  unchanged ps5link-sdk cube and native startup link as an SCE ELF with 30
+  imports. Native execution stops before rendering on the real `sceAgcInit`
+  NID, different from the emulator's existing similarly named export. See
+  `independent-3d-homebrew.md` for pins, reproduction and the first two missing
+  imports. No successful independent 3D rendering is claimed.
+
 - **Mouse capture now requires a click inside the game.** The user reports the
   GLFW Raw revision works, with one remaining issue: dragging the title bar
   captured immediately on window activation. Activation now leaves Normal mode;
   only a focused client-area left click captures. F8 or focus loss releases and
   activation alone never recaptures. A regression covers title-bar coordinates,
   release and reactivation. All 1246 library tests pass; CLI build has zero
-  warnings/errors. The final physical drag/release check is pending.
+  warnings/errors. The user subsequently confirms the final drag/release revision works.
   The earlier screenshot's centered 640x400 image was caused by
   `--windowed-mouse`; that argument is removed. A decoded 1920x1080 frame fills
   its framebuffer, and the user broadly reports the latest version works.

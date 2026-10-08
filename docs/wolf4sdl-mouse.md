@@ -22,7 +22,7 @@ Focus loss restores Normal mode and resets motion; closing detaches/disposes
 the input context. The user reports the Raw revision works, but title-bar dragging
 previously captured immediately. Capture now requires a focused client-area left
 click. F8 releases without recapturing while focused. This final title-bar fix
-has passed regression checks; its physical drag/release check is pending.
+has passed regression checks and the user confirms the result works.
 
 Rebuild with `Build-Wolf4SDL.ps1 -EnableMouseBridge`. This creates a separate
 `wolf3d-shareware-userland-mouse.elf`, source adapter and build-report-mouse.json.
