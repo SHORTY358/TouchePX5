@@ -6,6 +6,34 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Physical mouse turning and left-button firing are user-confirmed.** The
+  explicit `Build-Wolf4SDL.ps1 -EnableMouseBridge` produces a separate mouse
+  source ELF; `Invoke-Wolf4SDLUserland.ps1 -Mouse` selects it. A source-only SDL
+  adapter calls the actual mouse HLE imports; the Windows backend delivers
+  focused motion/buttons and optionally recenters the cursor. The initial
+  implementation allowed fast motion to escape and left the cursor visible;
+  the user reported both problems. The revised opt-in mode confines the cursor
+  to the focused game's client area and uses GLFW cursor hiding, releasing on
+  focus loss and presenter closing/disposal. This revised capture still awaits
+  the user's physical check; the basic turning/firing confirmation below applies
+  to the first implementation. Run
+  `20261008-121910-159` opened the game window and the user confirmed both
+  turning and firing. `Start-Wolf4SDLMouse.cmd` provides an interactive launch
+  without the diagnostic deadline; revised interactive session uses `mouse-play`.
+  Wheel input and other host platforms remain
+  unsupported. Mouse state is isolated per guest memory; two new motion/ABI and
+  isolation checks pass. Full library suite: 1244/1244, CLI zero warnings/errors.
+
+- **Synchronous HUD stage capture is available, but no scaling fix is proven.**
+  The optional source-profile surface slots now capture on the submitting guest
+  thread alongside each selected raw display source. This removes the earlier
+  asynchronous cross-frame ambiguity for that thread; other threads are not
+  frozen. Run `20261008-121104-739` records texture scale mode 0, blend 0,
+  blit flags 0x200 and no colorkey/native texture. Its inspected synchronous
+  samples show complete numbers, including death/restart. Earlier concurrent
+  source/window differences still require reproduction at submission before
+  attributing a root cause to scaling. The HUD omission is not fixed.
+
 - **The HUD omission now has captured source-byte evidence.** In run
   `20261008-115543-460`, all twelve comparable raw-source/BMP HUD pairs match,
   including the late frame where most numeric fields are absent. Independent

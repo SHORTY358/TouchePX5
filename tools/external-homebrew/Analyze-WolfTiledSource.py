@@ -19,6 +19,7 @@ freely, subject to the following restrictions:
 import argparse
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -77,6 +78,8 @@ def main():
         fields = dict(line.split('=', 1) for line in metadata.read_text().splitlines() if '=' in line)
         frames[int(fields['flip_arg'])] = metadata.with_suffix('.bmp')
     for path in sorted(args.run.glob('tiled-source-*.bin')):
+        if not re.fullmatch(r'tiled-source-\d+-0x[0-9A-Fa-f]+\.bin', path.name):
+            continue
         data = path.read_bytes()
         if len(data) > 16 * 1024 * 1024:
             raise ValueError('Captured source exceeds diagnostic bound')
@@ -112,6 +115,18 @@ def main():
             entry['guest_bmp_hud_sha256'] = bmp_hud_hash(captured)
             entry['guest_bmp_matches_source'] = entry['hud_sha256'] == entry['guest_bmp_hud_sha256']
         report.append(entry)
+    for path in sorted(args.run.glob('tiled-source-*.surfaces.json')):
+        surfaces = json.loads(path.read_text(encoding='utf-8-sig'))['surfaces']
+        for surface in surfaces:
+            if surface['name'] not in ('textureSurface', 'windowSurface'):
+                continue
+            source = args.run / surface['file']
+            data = source.read_bytes()
+            width = surface['width']
+            if len(data) != width * 200 * 4 or surface['pitch'] != width * 4:
+                raise ValueError('Unexpected synchronous surface geometry')
+            rows = 74 if surface['name'] == 'textureSurface' else 200
+            write_rgba_bmp(source.with_suffix('.bmp'), data[-width * rows * 4:], width, rows)
     for path in sorted(args.run.glob('surface-*-windowSurface.bin')):
         data = path.read_bytes()
         if len(data) != args.width * 200 * 4:

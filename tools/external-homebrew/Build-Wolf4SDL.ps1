@@ -1,7 +1,7 @@
 # Copyright (C) 2026 SharpEmu Emulator Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param()
+param([switch]$EnableMouseBridge)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $source = Join-Path $root 'artifacts\external-homebrew\wolf4sdl-engine-source'
@@ -44,19 +44,34 @@ foreach ($file in $sources) {
     $objectPaths += $object
     Write-Output "Compiled $file"
 }
+$mouseLinkFlags=@()
+if($EnableMouseBridge) {
+    $mouseObject=Join-Path $objects 'mouse-bridge.o'
+    & (Join-Path $llvm 'clang++.exe') @flags -c (Join-Path $PSScriptRoot 'wolf4sdl-mouse.cpp') -o $mouseObject
+    if($LASTEXITCODE -ne 0) { throw 'Mouse source adapter compilation failed' }
+    $objectPaths+=$mouseObject
+    $stubObject=Join-Path $objects 'mouse-import-stubs.o'
+    & (Join-Path $llvm 'clang.exe') --target=x86_64-sie-ps5 -fPIC -c (Join-Path $PSScriptRoot 'mouse-import-stubs.c') -o $stubObject
+    if($LASTEXITCODE -ne 0) { throw 'Mouse import symbols compilation failed' }
+    & (Join-Path $llvm 'ld.lld.exe') -shared -soname libSceMouse.so -o (Join-Path $objects 'libSceMouse.so') $stubObject
+    if($LASTEXITCODE -ne 0) { throw 'Mouse link-time provider failed' }
+    $mouseLinkFlags=@('--wrap=SDL_GetMouseState','--wrap=SDL_WarpMouseInWindow',('-L'+$objects),'-lSceMouse')
+}
 $start = Join-Path $objects 'userland-start.o'
 & (Join-Path $llvm 'clang.exe') --target=x86_64-sie-ps5 -c (Join-Path $PSScriptRoot 'wolf4sdl-start.S') -o $start
 if ($LASTEXITCODE -ne 0) { throw 'Userland entry compilation failed' }
 $elf = Join-Path $output 'wolf3d-shareware-userland.elf'
+if($EnableMouseBridge) { $elf=Join-Path $output 'wolf3d-shareware-userland-mouse.elf' }
 $linkerScript = Join-Path $root 'artifacts\external-homebrew\sdk-v0.43\ps5-payload-sdk\ldscripts\elf_x86_64.x'
 & (Join-Path $llvm 'ld.lld.exe') -m elf_x86_64 -pie --eh-frame-hdr -z max-page-size=0x4000 `
     -T $linkerScript --entry=_start -o $elf $start @objectPaths `
     ('-L' + (Join-Path $homebrew 'lib')) ('-L' + (Join-Path $target 'lib')) `
     --start-group -lSDL2_mixer -lSDL2 -liconv -lc -lc++ -lc++abi -lunwind --end-group `
-    -lkernel_web -lSceLibcInternal -lSceNet -lSceAudioOut -lScePad -lSceUserService -lSceVideoOut -lSceSystemService -lSceImeDialog -lSceKeyboard
+    -lkernel_web -lSceLibcInternal -lSceNet -lSceAudioOut -lScePad -lSceUserService -lSceVideoOut -lSceSystemService -lSceImeDialog -lSceKeyboard @mouseLinkFlags
 if ($LASTEXITCODE -ne 0) { throw 'Source build link failed; inspect unresolved dependencies' }
 $report = [ordered]@{
     Profile='Explicit emulator userland startup, not the unchanged upstream release'
+    MouseBridge=[bool]$EnableMouseBridge
     EngineCommit=(& git -C $source rev-parse HEAD)
     EngineChanges=@(& git -C $source status --porcelain)
     ControllerDbCommit=(& git -C (Join-Path $source 'SDL_GameControllerDB') rev-parse HEAD)
@@ -69,5 +84,6 @@ $report = [ordered]@{
     Elf=$elf
     GameplayVerified=$false
 }
-$report | ConvertTo-Json | Set-Content (Join-Path $output 'build-report.json') -Encoding utf8
+$reportFile=if($EnableMouseBridge) {'build-report-mouse.json'} else {'build-report.json'}
+$report | ConvertTo-Json | Set-Content (Join-Path $output $reportFile) -Encoding utf8
 Write-Output "Built PS5 source profile: $elf"

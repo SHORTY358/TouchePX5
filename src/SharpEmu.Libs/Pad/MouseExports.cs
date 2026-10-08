@@ -3,7 +3,9 @@
 
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using SharpEmu.HLE;
+using SharpEmu.HLE.Host;
 
 namespace SharpEmu.Libs.Pad;
 
@@ -16,17 +18,19 @@ public static class MouseExports
     private const int MouseErrorNotInitialized = unchecked((int)0x80020005);
     private const int MouseErrorAlreadyOpened = unchecked((int)0x80020008);
 
-    private static readonly bool[] OpenHandles = new bool[2];
-    private static bool _initialized;
+    private sealed class State { public bool Initialized; public readonly bool[] OpenHandles = new bool[2]; }
+    private static readonly ConditionalWeakTable<ICpuMemory, State> States = new();
     public static int MouseInit(CpuContext ctx)
     {
-        _initialized = true;
-        Array.Clear(OpenHandles);
+        var state = States.GetValue(ctx.Memory, _ => new State());
+        state.Initialized = true;
+        Array.Clear(state.OpenHandles);
         return SetReturn(ctx, 0);
     }
     public static int MouseOpen(CpuContext ctx)
     {
-        if (!_initialized)
+        var state = States.GetValue(ctx.Memory, _ => new State());
+        if (!state.Initialized)
         {
             return SetReturn(ctx, MouseErrorNotInitialized);
         }
@@ -39,16 +43,20 @@ public static class MouseExports
             return SetReturn(ctx, MouseErrorInvalidArgument);
         }
 
-        if (OpenHandles[index])
+        if (state.OpenHandles[index])
         {
             return SetReturn(ctx, MouseErrorAlreadyOpened);
         }
 
-        OpenHandles[index] = true;
+        state.OpenHandles[index] = true;
         return SetReturn(ctx, index);
     }
     public static int MouseRead(CpuContext ctx)
+        => MouseRead(ctx, HostPlatform.Current.Input);
+
+    internal static int MouseRead(CpuContext ctx, IHostInput input)
     {
+        var state = States.GetValue(ctx.Memory, _ => new State());
         var handle = unchecked((int)ctx[CpuRegister.Rdi]);
         var dataAddress = ctx[CpuRegister.Rsi];
         var count = unchecked((int)ctx[CpuRegister.Rdx]);
@@ -57,7 +65,7 @@ public static class MouseExports
             return SetReturn(ctx, MouseErrorInvalidArgument);
         }
 
-        if (handle is < 0 or > 1 || !OpenHandles[handle])
+        if (handle is < 0 or > 1 || !state.OpenHandles[handle])
         {
             return SetReturn(ctx, MouseErrorInvalidHandle);
         }
@@ -69,8 +77,14 @@ public static class MouseExports
             ((ulong)(ticks / Stopwatch.Frequency) * 1_000_000UL) +
             ((ulong)(ticks % Stopwatch.Frequency) * 1_000_000UL / (ulong)Stopwatch.Frequency);
         BinaryPrimitives.WriteUInt64LittleEndian(data, timestamp);
-        data[0x08] = 0; // No host mouse is exposed to the guest yet.
-        return ctx.Memory.TryWrite(dataAddress, data)
+        if (input.TryReadMouse(out var deltaX, out var deltaY, out var buttons))
+        {
+            data[0x08] = 1;
+            BinaryPrimitives.WriteUInt32LittleEndian(data[0x0C..], buttons);
+            BinaryPrimitives.WriteInt32LittleEndian(data[0x10..], deltaX);
+            BinaryPrimitives.WriteInt32LittleEndian(data[0x14..], deltaY);
+        }
+        return Kernel.KernelMemoryCompatExports.TryWriteGuestOrLibcHeap(ctx, dataAddress, data)
             ? SetReturn(ctx, 1)
             : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
     }
@@ -82,13 +96,14 @@ public static class MouseExports
         LibraryName = "libSceMouse")]
     public static int MouseClose(CpuContext ctx)
     {
+        var state = States.GetValue(ctx.Memory, _ => new State());
         var handle = unchecked((int)ctx[CpuRegister.Rdi]);
-        if (handle is < 0 or > 1 || !OpenHandles[handle])
+        if (handle is < 0 or > 1 || !state.OpenHandles[handle])
         {
             return SetReturn(ctx, MouseErrorInvalidHandle);
         }
 
-        OpenHandles[handle] = false;
+        state.OpenHandles[handle] = false;
         return SetReturn(ctx, 0);
     }
 

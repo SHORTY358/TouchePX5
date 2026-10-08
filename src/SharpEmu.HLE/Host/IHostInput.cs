@@ -41,4 +41,12 @@ public interface IHostInput
 
     /// <summary>Windows virtual-key code semantics; other backends translate.</summary>
     bool IsKeyDown(int virtualKey);
+
+    /// <summary>Consumes mouse motion in pixels; false when unavailable or unfocused.</summary>
+    bool TryReadMouse(out int deltaX, out int deltaY, out uint buttons)
+    {
+        deltaX = deltaY = 0; buttons = 0; return false;
+    }
+    /// <summary>Releases cursor ownership on focus loss or session shutdown.</summary>
+    void ReleaseMouseCapture() { }
 }

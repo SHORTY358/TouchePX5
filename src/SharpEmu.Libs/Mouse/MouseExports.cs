@@ -14,11 +14,10 @@ public static class MouseExports
         LibraryName = "libSceMouse")]
     public static int MouseInit(CpuContext ctx)
     {
-        ctx[CpuRegister.Rax] = 0;
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        return Pad.MouseExports.MouseInit(ctx);
     }
 
-    // Returns 0 read entries: no mouse is connected. This NID was previously misbound
+    // This NID was previously misbound
     // as an sceNgs2VoiceGetState alias.
     [SysAbiExport(
         Nid = "x8qnXqh-tiM",
@@ -27,8 +26,7 @@ public static class MouseExports
         LibraryName = "libSceMouse")]
     public static int MouseRead(CpuContext ctx)
     {
-        ctx[CpuRegister.Rax] = 0;
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        return Pad.MouseExports.MouseRead(ctx);
     }
 
     [SysAbiExport(
@@ -38,7 +36,6 @@ public static class MouseExports
         LibraryName = "libSceMouse")]
     public static int MouseOpen(CpuContext ctx)
     {
-        ctx[CpuRegister.Rax] = 0;
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        return Pad.MouseExports.MouseOpen(ctx);
     }
 }

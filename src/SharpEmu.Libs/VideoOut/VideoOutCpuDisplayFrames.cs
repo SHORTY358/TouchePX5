@@ -74,6 +74,7 @@ internal static class VideoOutCpuDisplayFrames
                         using (var stream = File.Create(path)) stream.Write(tiled.AsSpan(0, (int)count));
                         if (rawSnapshotMetadata is not null)
                             File.WriteAllText(Path.ChangeExtension(path, ".json"), rawSnapshotMetadata);
+                        SourceSurfaceFrameDiagnostics.Capture(ctx, path);
                     }
                     catch (IOException error) { Console.Error.WriteLine($"[LOADER][WARN] Tiled source snapshot: {error.Message}"); }
                     catch (UnauthorizedAccessException error) { Console.Error.WriteLine($"[LOADER][WARN] Tiled source snapshot: {error.Message}"); }

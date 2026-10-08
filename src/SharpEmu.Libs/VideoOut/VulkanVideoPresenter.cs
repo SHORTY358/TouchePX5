@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using Silk.NET.Core;
+using SharpEmu.HLE.Host;
 using Silk.NET.Core.Native;
 using Silk.NET.Maths;
 using System.Collections.Concurrent;
@@ -4241,6 +4242,7 @@ internal static unsafe class VulkanVideoPresenter
             "AwIjBwAAAQALAAgAEgAAAAAAAAARAAIAAQAAAAsABgABAAAAR0xTTC5zdGQuNDUwAAAAAA4AAwAAAAAAAQAAAA8ABwAEAAAABAAAAG1haW4AAAAACQAAAAwAAAAQAAMABAAAAAcAAAADAAMAAgAAAMIBAAAFAAQABAAAAG1haW4AAAAABQAFAAkAAABvdXRDb2xvcgAAAAAFAAUADAAAAGJhcnljZW50cmljAEcABAAJAAAAHgAAAAAAAABHAAQADAAAAB4AAAAAAAAAEwACAAIAAAAhAAMAAwAAAAIAAAAWAAMABgAAACAAAAAXAAQABwAAAAYAAAAEAAAAIAAEAAgAAAADAAAABwAAADsABAAIAAAACQAAAAMAAAAXAAQACgAAAAYAAAACAAAAIAAEAAsAAAABAAAACgAAADsABAALAAAADAAAAAEAAAArAAQABgAAAA4AAAAAAAAANgAFAAIAAAAEAAAAAAAAAAMAAAD4AAIABQAAAD0ABAAKAAAADQAAAAwAAABRAAUABgAAAA8AAAANAAAAAAAAAFEABQAGAAAAEAAAAA0AAAABAAAAUAAHAAcAAAARAAAADwAAABAAAAAOAAAADgAAAD4AAwAJAAAAEQAAAP0AAQA4AAEA";
 
         private readonly IWindow? _window;
+        private IInputContext? _mouseInput;
         private readonly VulkanHostSurface? _hostSurface;
         private int _lastHostResizeGeneration;
         private bool _embeddedLoopClosed;
@@ -4979,6 +4981,7 @@ internal static unsafe class VulkanVideoPresenter
             _window.Render += Render;
             _window.Closing += () =>
             {
+                HostPlatform.Current.Input.ReleaseMouseCapture();
                 Console.Error.WriteLine(
                     $"[LOADER][WARN] Vulkan VideoOut window closing; " +
                     $"requested={Volatile.Read(ref _presenterCloseRequested)} " +
@@ -5015,6 +5018,9 @@ internal static unsafe class VulkanVideoPresenter
                 return;
             }
 
+            HostPlatform.Current.Input.ReleaseMouseCapture();
+            _mouseInput?.Dispose();
+            _mouseInput = null;
             DisposeVulkan();
             _initializationState = PresenterInitializationState.Disposed;
             try
@@ -5035,6 +5041,18 @@ internal static unsafe class VulkanVideoPresenter
             if (_window is not null)
             {
                 LogGlfwPlatformInUse();
+                if (OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("SHARPEMU_MOUSE_RELATIVE") == "1")
+                {
+                    _mouseInput = _window.CreateInput();
+                    void SetMouseFocus(bool focused)
+                    {
+                        foreach (var mouse in _mouseInput.Mice)
+                            mouse.Cursor.CursorMode = focused ? CursorMode.Hidden : CursorMode.Normal;
+                        if (!focused) HostPlatform.Current.Input.ReleaseMouseCapture();
+                    }
+                    _window.FocusChanged += SetMouseFocus;
+                    SetMouseFocus(HostPlatform.Current.Input.IsHostWindowFocused());
+                }
                 if (!OperatingSystem.IsWindows())
                 {
                     try
