@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **The mouse escape report prompted a switch to GLFW relative events.** The
+  user reported the cursor still visible/escaping after the earlier confinement
+  attempt. That attempt is replaced by Raw mode (Disabled fallback), accumulating
+  window-thread deltas for guest reads without desktop warping/global clipping.
+  The latest interactive `mouse-play` log records focus=True/mode=Raw and
+  focus=False/mode=Normal. A new regression checks movement larger than screen
+  bounds, consumption, fractional motion and focus reset; all 1245 library tests
+  pass and the CLI builds without warnings/errors. Final physical confirmation
+  of this latest revision is pending. The supplied screenshot also exposed a
+  centered 640x400 image caused by `--windowed-mouse`; that argument is removed.
+  A subsequent decoded 1920x1080 frame fills its framebuffer. This verifies the
+  guest image layout, not a fresh physical desktop screenshot.
+
 - **Physical mouse turning and left-button firing are user-confirmed.** The
   explicit `Build-Wolf4SDL.ps1 -EnableMouseBridge` produces a separate mouse
   source ELF; `Invoke-Wolf4SDLUserland.ps1 -Mouse` selects it. A source-only SDL

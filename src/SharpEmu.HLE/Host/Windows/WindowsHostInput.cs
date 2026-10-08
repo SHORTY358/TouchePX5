@@ -87,85 +87,50 @@ internal sealed partial class WindowsHostInput : IHostInput
 
     private bool mousePositionValid;
     private MousePoint mousePosition;
-    private bool mouseConfined;
     private readonly object mouseGate = new();
     public void ReleaseMouseCapture()
     {
         lock (mouseGate)
         {
-            if (mouseConfined) { _ = ClipCursor(0); mouseConfined = false; }
             mousePositionValid = false;
+            HostMouseMotion.Current.ClearPending();
         }
     }
     public bool TryReadMouse(out int deltaX, out int deltaY, out uint buttons)
     {
-        lock (mouseGate) return TryReadMouseCore(out deltaX, out deltaY, out buttons);
-    }
-    private bool TryReadMouseCore(out int deltaX, out int deltaY, out uint buttons)
-    {
-        deltaX = deltaY = 0; buttons = 0;
-        if (HostSessionControl.IsShutdownRequested || !IsHostWindowFocused() || !GetCursorPos(out var current))
+        lock (mouseGate)
         {
-            ReleaseMouseCapture();
-            return false;
-        }
-        if (mousePositionValid)
-        {
-            deltaX = current.X - mousePosition.X;
-            deltaY = current.Y - mousePosition.Y;
-        }
-        var relative = Environment.GetEnvironmentVariable("SHARPEMU_MOUSE_RELATIVE") == "1";
-        if (relative)
-        {
-            var window = GetForegroundWindow();
-            if (GetClientRect(window, out var bounds))
+            deltaX = deltaY = 0; buttons = 0;
+            if (HostSessionControl.IsShutdownRequested || !IsHostWindowFocused())
             {
-                var start = new MousePoint { X = bounds.Left, Y = bounds.Top };
-                var end = new MousePoint { X = bounds.Right, Y = bounds.Bottom };
-                if (ClientToScreen(window, ref start) && ClientToScreen(window, ref end) && end.X > start.X && end.Y > start.Y)
-                {
-                    var screenBounds = new MouseRect { Left = start.X, Top = start.Y, Right = end.X, Bottom = end.Y };
-                    mouseConfined = ClipCursorRect(ref screenBounds) || mouseConfined;
-                    if (mousePosition.X < start.X || mousePosition.X >= end.X || mousePosition.Y < start.Y || mousePosition.Y >= end.Y)
-                        mousePositionValid = false;
-                }
+                ReleaseMouseCapture();
+                return false;
             }
+            if (Environment.GetEnvironmentVariable("SHARPEMU_MOUSE_RELATIVE") == "1" && HostMouseMotion.Current.IsAttached)
+            {
+                if (!HostMouseMotion.Current.TryConsume(out deltaX, out deltaY)) return false;
+            }
+            else
+            {
+                if (!GetCursorPos(out var current)) return false;
+                if (mousePositionValid)
+                {
+                    deltaX = current.X - mousePosition.X;
+                    deltaY = current.Y - mousePosition.Y;
+                }
+                mousePosition = current;
+                mousePositionValid = true;
+            }
+            buttons = (IsKeyDown(1) ? 1u : 0u) | (IsKeyDown(4) ? 2u : 0u) | (IsKeyDown(2) ? 4u : 0u);
+            return true;
         }
-        else if (mouseConfined) ReleaseMouseCapture();
-        if (relative && mousePositionValid)
-        {
-            // Opt-in source profile only. Focus/closing releases confinement.
-            // If recenter fails, track the real position instead.
-            if (!SetCursorPos(mousePosition.X, mousePosition.Y)) mousePosition = current;
-        }
-        else mousePosition = current;
-        mousePositionValid = true;
-        buttons = (IsKeyDown(1) ? 1u : 0u) | (IsKeyDown(4) ? 2u : 0u) | (IsKeyDown(2) ? 4u : 0u);
-        return true;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MousePoint { public int X; public int Y; }
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MouseRect { public int Left, Top, Right, Bottom; }
-    [LibraryImport("user32.dll", EntryPoint = "ClipCursor")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ClipCursorRect(ref MouseRect bounds);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ClipCursor(nint bounds);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetClientRect(nint window, out MouseRect bounds);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ClientToScreen(nint window, ref MousePoint point);
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetCursorPos(out MousePoint point);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool SetCursorPos(int x, int y);
 
     [LibraryImport("user32.dll")]
     private static partial short GetAsyncKeyState(int vKey);

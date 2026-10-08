@@ -4243,6 +4243,7 @@ internal static unsafe class VulkanVideoPresenter
 
         private readonly IWindow? _window;
         private IInputContext? _mouseInput;
+        private Action<bool>? _mouseFocusHandler;
         private readonly VulkanHostSurface? _hostSurface;
         private int _lastHostResizeGeneration;
         private bool _embeddedLoopClosed;
@@ -4981,7 +4982,7 @@ internal static unsafe class VulkanVideoPresenter
             _window.Render += Render;
             _window.Closing += () =>
             {
-                HostPlatform.Current.Input.ReleaseMouseCapture();
+                ReleaseRelativeMouse();
                 Console.Error.WriteLine(
                     $"[LOADER][WARN] Vulkan VideoOut window closing; " +
                     $"requested={Volatile.Read(ref _presenterCloseRequested)} " +
@@ -5018,9 +5019,7 @@ internal static unsafe class VulkanVideoPresenter
                 return;
             }
 
-            HostPlatform.Current.Input.ReleaseMouseCapture();
-            _mouseInput?.Dispose();
-            _mouseInput = null;
+            ReleaseRelativeMouse();
             DisposeVulkan();
             _initializationState = PresenterInitializationState.Disposed;
             try
@@ -5035,6 +5034,21 @@ internal static unsafe class VulkanVideoPresenter
             }
         }
 
+        private void ReleaseRelativeMouse()
+        {
+            if (_window is not null && _mouseFocusHandler is not null)
+                _window.FocusChanged -= _mouseFocusHandler;
+            _mouseFocusHandler = null;
+            HostMouseMotion.Current.Detach();
+            HostPlatform.Current.Input.ReleaseMouseCapture();
+            if (_mouseInput is not null)
+            {
+                foreach (var mouse in _mouseInput.Mice) mouse.Cursor.CursorMode = CursorMode.Normal;
+                _mouseInput.Dispose();
+                _mouseInput = null;
+            }
+        }
+
         private void Initialize()
         {
             _initializationState = PresenterInitializationState.Initializing;
@@ -5044,14 +5058,28 @@ internal static unsafe class VulkanVideoPresenter
                 if (OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("SHARPEMU_MOUSE_RELATIVE") == "1")
                 {
                     _mouseInput = _window.CreateInput();
-                    void SetMouseFocus(bool focused)
+                    var input = _mouseInput;
+                    var mouse = input.Mice.FirstOrDefault();
+                    if (mouse is not null && (mouse.Cursor.IsSupported(CursorMode.Raw) || mouse.Cursor.IsSupported(CursorMode.Disabled)))
                     {
-                        foreach (var mouse in _mouseInput.Mice)
-                            mouse.Cursor.CursorMode = focused ? CursorMode.Hidden : CursorMode.Normal;
-                        if (!focused) HostPlatform.Current.Input.ReleaseMouseCapture();
+                        var mode = mouse.Cursor.IsSupported(CursorMode.Raw) ? CursorMode.Raw : CursorMode.Disabled;
+                        HostMouseMotion.Current.Attach();
+                        mouse.MouseMove += (_, position) => HostMouseMotion.Current.Submit(position.X, position.Y);
+                        _mouseFocusHandler = focused =>
+                        {
+                            HostMouseMotion.Current.SetFocus(focused);
+                            mouse.Cursor.CursorMode = focused ? mode : CursorMode.Normal;
+                            if (!focused) HostPlatform.Current.Input.ReleaseMouseCapture();
+                            Console.Error.WriteLine($"[LOADER][INFO] Relative mouse focus={focused} mode={mouse.Cursor.CursorMode}");
+                        };
+                        _window.FocusChanged += _mouseFocusHandler;
+                        _mouseFocusHandler(HostPlatform.Current.Input.IsHostWindowFocused());
                     }
-                    _window.FocusChanged += SetMouseFocus;
-                    SetMouseFocus(HostPlatform.Current.Input.IsHostWindowFocused());
+                    else
+                    {
+                        Console.Error.WriteLine("[LOADER][WARN] Window relative mouse mode unavailable.");
+                        ReleaseRelativeMouse();
+                    }
                 }
                 if (!OperatingSystem.IsWindows())
                 {

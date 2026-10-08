@@ -13,7 +13,9 @@ $config=Join-Path $inputRoot 'mouse-play'
 New-Item -ItemType Directory -Path $config -Force | Out-Null
 $settings=@{
     SHARPEMU_SOURCE_PROFILE_ARGV='1'
-    SHARPEMU_GUEST_ARGS='--configdir /temp0 --tedlevel 0 --nowait --normal --windowed-mouse'
+    # Default fullscreen SDL surface fills the physical framebuffer. Windowed
+    # mouse mode creates a centered 640x400 surface on the PS5 SDL backend.
+    SHARPEMU_GUEST_ARGS='--configdir /temp0 --tedlevel 0 --nowait --normal'
     SHARPEMU_TEMP0_DIR=$config
     SHARPEMU_MOUSE_RELATIVE='1'
     SHARPEMU_TEST_KEYBOARD_REPLAY=$null

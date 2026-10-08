@@ -12,6 +12,29 @@ namespace SharpEmu.Libs.Tests.Mouse;
 public sealed class MouseInputTests
 {
     [Fact]
+    public void RelativeEventsAccumulateOnceBeyondScreenEdgesAndResetOnFocusChange()
+    {
+        var motion = new HostMouseMotion();
+        motion.Attach(); motion.SetFocus(true);
+        motion.Submit(100, 200); // Establish baseline after entering capture.
+        motion.Submit(5100.5, -1800.25);
+        motion.Submit(10100.75, -3800.5);
+        Assert.True(motion.TryConsume(out var x, out var y));
+        Assert.Equal(10000, x); Assert.Equal(-4000, y);
+        Assert.True(motion.TryConsume(out x, out y));
+        Assert.Equal(0, x); Assert.Equal(0, y);
+        motion.Submit(10101.25, -3801.25);
+        Assert.True(motion.TryConsume(out x, out y));
+        Assert.Equal(1, x); Assert.Equal(-1, y);
+        motion.SetFocus(false); motion.Submit(999999, 999999);
+        Assert.False(motion.TryConsume(out x, out y));
+        motion.SetFocus(true); motion.Submit(0, 0);
+        Assert.True(motion.TryConsume(out x, out y));
+        Assert.Equal(0, x); Assert.Equal(0, y);
+        motion.Detach(); Assert.False(motion.TryConsume(out x, out y));
+    }
+
+    [Fact]
     public void ExportAliasesDeliverSignedMotionButtonsAndReservedZeros()
     {
         var memory = new FakeCpuMemory(0x1000, 128);
