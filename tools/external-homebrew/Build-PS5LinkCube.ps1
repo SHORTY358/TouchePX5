@@ -1,7 +1,7 @@
 # Copyright (C) 2026 SharpEmu Emulator Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param()
+param([switch]$CorrectInitAbi)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $source=Join-Path $root 'artifacts/external-homebrew/ps5link-sdk'
@@ -18,17 +18,29 @@ foreach($stage in @('vs','ps')) {
 $sources=@('link_real','elf_object','linker','dynwriter','catalog','catalog_extra','catalog_lookup','nid','sha1') | ForEach-Object { "$source/linker/$_.c" }
 & $clang -O2 -Wno-deprecated-declarations @sources -o "$output/link_real.exe"
 if($LASTEXITCODE) { throw 'Host linker build failed' }
-& $clang --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector -I $output -c "$source/examples/gpu_cube/main.c" -o "$output/main.o"
+$cubeSource="$source/examples/gpu_cube/main.c"
+$suffix=''
+if($CorrectInitAbi) {
+    $suffix='-init-abi'
+    $text=[IO.File]::ReadAllText($cubeSource)
+    $declaration='extern int sceAgcInit(void *state, unsigned int defaultsRevision);'
+    if(-not $text.Contains($declaration) -or -not $text.Contains('sceAgcInit(&agc_state, 8)')) { throw 'Unexpected upstream init call shape' }
+    $text=$text.Replace($declaration,'extern int sceAgcInit(unsigned int version);').Replace('sceAgcInit(&agc_state, 8)','sceAgcInit(8)')
+    $cubeSource=Join-Path $output 'main-init-abi.c'
+    [IO.File]::WriteAllText($cubeSource,$text)
+}
+& $clang --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector -I $output -c $cubeSource -o "$output/main$suffix.o"
 if($LASTEXITCODE) { throw 'Unchanged cube compilation failed' }
 & $clang --target=x86_64-sie-ps5 -c "$source/linker/crt1.S" -o "$output/crt1.o"
 if($LASTEXITCODE) { throw 'Unchanged native startup compilation failed' }
-& "$output/link_real.exe" "$output/app.elf" "$output/crt1.o" "$output/main.o"
+& "$output/link_real.exe" "$output/app$suffix.elf" "$output/crt1.o" "$output/main$suffix.o"
 if($LASTEXITCODE) { throw 'Native SCE ELF link failed' }
 @{
     Repository='https://github.com/Rufidj/ps5link-sdk'; Commit=$pin
-    ElfSha256=(Get-FileHash "$output/app.elf").Hash
-    SourceModified=$false; StartupModified=$false
+    ElfSha256=(Get-FileHash "$output/app$suffix.elf").Hash
+    SourceModified=[bool]$CorrectInitAbi; StartupModified=$false
+    InitAbiCorrection=[bool]$CorrectInitAbi
     ShaderOrigin='Upstream third_party/sharpprospero; GPL-3.0; see retained LICENSE and PSSL'
     Signing='Unsigned SCE ELF for local emulator; not a console installation package'
     GameplayVerified=$false
-} | ConvertTo-Json | Set-Content -LiteralPath "$output/build-report.json" -Encoding utf8
+} | ConvertTo-Json | Set-Content -LiteralPath "$output/build-report$suffix.json" -Encoding utf8

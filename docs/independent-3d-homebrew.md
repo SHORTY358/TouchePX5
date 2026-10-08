@@ -24,16 +24,29 @@ hash algorithm:
 | `zl7hupSO0C0` | `sceKernelSendNotificationRequest` | notification size `0xC30` |
 | `kW3GLb7QfPg` | `sceAgcInit` | state pointer, defaults revision 8 |
 
-The emulator's existing `AgcExports.Init` is registered as `23LRUSvYu1M`
-and already documents a collision with the actual catalog function. The cube's
-prototype names its second argument `size`, but
-[SharpProspero AgcDevice](https://github.com/SvenGDK/SharpProspero/blob/main/src/SharpProspero/Graphics/Agc/AgcDevice.cs)
-uses the real call with defaults revision 8 and a caller-owned eight-byte state
-word. Thus the initial suspicion of incompatible arguments is not established.
-The confirmed gap is the missing NID; the existing export also merely validates
-arguments and returns success without initializing the state. Establish the
-state write and register-default selection before binding the real NID. No cube
-pixels or successful rendering are claimed yet.
+Further ABI inspection changes the first diagnosis. The cube and SharpProspero
+call `sceAgcInit(state, revision)`, but
+[OpenAGC game_compat.c](https://github.com/OpenAGC/OpenAGC/blob/main/src/game_compat.c)
+at `3c7e8072f0d7684e930454794fd5c02056946d73` explicitly distinguishes:
+
+- `kW3GLb7QfPg`: `sceAgcInit(uint32_t version)`;
+- `23LRUSvYu1M`: `sceAgcInit_0090(void *state, uint32_t version)`.
+
+The existing emulator export is the latter two-argument shape, despite its
+short working name. An alias would therefore use the wrong register. The
+upstream cube's two-argument declaration is incompatible with its linker's
+chosen NID according to that reference. This is an upstream sample ABI issue
+as well as a genuinely missing emulator export.
+
+`Build-PS5LinkCube.ps1 -CorrectInitAbi` creates a distinct `app-init-abi.elf`,
+changing only the declaration and call to `sceAgcInit(8)` in a generated copy.
+The upstream checkout and original ELF remain unchanged. Its native rerun
+confirms RDI=8 at the unresolved real NID; it still exits before rendering.
+The next emulator change must select the per-guest defaults revision through
+this one-argument entry point, with meaningful invalid-version and isolation
+checks, then repeat this corrected-input run. Neither profile has rendered
+cube pixels yet. The native initialization state and firmware behavior still
+need careful scope boundaries; references are not console validation.
 
 [AGC Gears](https://github.com/mpereiraesaa/ps5-agc-gears) at
 `1ae1f9182abd2770c131b97419034fb85173c2dc` is retained as a later independent
