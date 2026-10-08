@@ -454,16 +454,20 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
     {
         var imageName = string.IsNullOrWhiteSpace(processImageName) ? "eboot.bin" : processImageName;
         var arguments = new List<string>(3) { imageName };
+        // Explicit source-built homebrew may opt into a larger inline argv
+        // array. Preserve the ordinary title's fixed entry structure by default.
+        var extendedArguments = Environment.GetEnvironmentVariable("SHARPEMU_SOURCE_PROFILE_ARGV") == "1";
         var configuredArguments = Environment.GetEnvironmentVariable("SHARPEMU_GUEST_ARGS");
         if (!string.IsNullOrWhiteSpace(configuredArguments))
         {
-            // The PS5 entry-parameter ABI exposes three inline argv pointers.
-            // Two compatibility arguments are therefore safe without changing
-            // the fixed 0x20-byte structure expected by existing titles.
+            // The existing runtime frame has three inline argv pointers.
+            // Keep its fixed 0x20-byte layout unless the source profile opts in.
             var compatibilityArguments = configuredArguments.Split(
                 (char[]?)null,
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            arguments.AddRange(compatibilityArguments.Take(2));
+            if (extendedArguments && (configuredArguments.Length > 4096 || compatibilityArguments.Length > 31))
+                throw new ArgumentException("Source-profile arguments exceed 31 arguments or 4096 characters.");
+            arguments.AddRange(compatibilityArguments.Take(extendedArguments ? 31 : 2));
         }
 
         var cursor = context[CpuRegister.Rsp];
@@ -480,7 +484,7 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
             argumentAddresses[index] = cursor;
         }
 
-        const ulong entryParamsSize = 0x20;
+        var entryParamsSize = extendedArguments ? (ulong)Math.Max(0x20, 8 + (arguments.Count + 1) * 8) : 0x20UL;
         var entryParamsAddress = AlignDown(cursor - entryParamsSize, 16);
         if (!TryWriteUInt32(context, entryParamsAddress + 0x00, (uint)arguments.Count) ||
             !TryWriteUInt32(context, entryParamsAddress + 0x04, 0) ||
@@ -493,6 +497,15 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
                 argumentAddresses.Length > 2 ? argumentAddresses[2] : 0))
         {
             return false;
+        }
+
+        if (extendedArguments)
+        {
+            for (var index = 3; index < argumentAddresses.Length; index++)
+                if (!context.TryWriteUInt64(entryParamsAddress + 8UL + (ulong)index * 8, argumentAddresses[index]))
+                    return false;
+            if (!context.TryWriteUInt64(entryParamsAddress + 8UL + (ulong)arguments.Count * 8, 0))
+                return false;
         }
 
         if (arguments.Count > 1)

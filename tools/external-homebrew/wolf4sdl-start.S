@@ -15,16 +15,11 @@ _start:
     push %r15
     sub $32,%rsp
     mov %rdi,%rcx
-    /* The emulator process frame has argc and three inline argv pointers. */
-    mov 8(%rcx),%rax
-    mov %rax,(%rsp)
-    mov 16(%rcx),%rax
-    mov %rax,8(%rsp)
-    mov 24(%rcx),%rax
-    mov %rax,16(%rsp)
-    movq $0,24(%rsp)
+    /* Explicit source profile: argv is inline after argc/reserved.
+     * The runner opts into a bounded extended array with a NULL terminator.
+     */
     mov (%rcx),%r12d
-    mov %rsp,%r13
+    lea 8(%rcx),%r13
     lea __init_array_start(%rip),%r14
     lea __init_array_end(%rip),%r15
 .Linit_next:

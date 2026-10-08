@@ -1,8 +1,44 @@
-# Wolf4SDL PS5 boot investigation, updated 2026-10-05
+# Wolf4SDL PS5 boot investigation, updated 2026-10-08
 
-The new integration target is the unmodified third-party Wolf4SDL PS5 v1.0
-shareware ELF. **No game window or gameplay has been verified.** This replaces
-further speculative GPU-format work as the immediate compatibility target.
+The original integration target is the unmodified third-party Wolf4SDL PS5 v1.0
+shareware ELF; its bootstrap still has a separate unresolved boundary. The explicit
+source-built userland profile now reaches real gameplay, presentation, PCM audio,
+and save/load. These results do not establish unchanged-release compatibility.
+
+## Reproducible direct-level source profile (2026-10-08)
+
+`Invoke-Wolf4SDLUserland.ps1 -StartLevel 0` uses the engine's existing
+`--tedlevel 0 --nowait --normal` options, alongside `--configdir /temp0` when an
+isolated configuration folder is selected. No engine gameplay code is modified.
+`Invoke-Wolf4SDLDirectLevelSmoke.ps1` supplies bounded input and captures over time.
+
+The old dispatcher silently kept only the first two configured arguments.
+The source runner now explicitly opts into `SHARPEMU_SOURCE_PROFILE_ARGV=1`,
+which permits at most 31 extra whitespace-delimited arguments / 4096 characters
+and appends a NULL pointer. The source entry consumes the inline argv directly.
+Ordinary title startup retains the original fixed structure and two-extra-argument
+behavior. The source ELF must be rebuilt with `Build-Wolf4SDL.ps1` for this entry.
+
+Run `20261008-110227-638` shows direct level startup and a complete numeric HUD
+(frame 8). Run `20261008-110352-288` shows ammunition 7 after one replayed shot.
+These captures do not resolve the earlier intermittent numeric-HUD bug.
+
+Crucially, this source revision's `wl_play.cpp` defaults to **W/S for forward/back**,
+left/right arrows for turning, Space for use, and left Ctrl for attack.
+Earlier up-arrow approach scenarios did not exercise forward gameplay movement.
+Their failure cannot be used to claim broken door interaction in the emulator.
+Real physical input remains a separate verification step.
+
+Run `20261008-110558-134`, frame 20, shows a partially opened door after approaching
+with W and pressing Space. Passage into the next room remains unverified.
+The no-input run `20261008-110924-930` isolates a stronger numeric-HUD discrepancy:
+frame 13 / buffer 0 / flip 1376 lacks numeric fields, whereas frame 14 / buffer 1 /
+flip 1427 contains the complete HUD. These are decoded guest buffers, not just
+host swapchain screenshots. Capture spacing is now 51 flips to sample both buffers.
+The bundled ELF contains `PS5_Tilemap_Blit`; public SDL source tracks pending
+damage for each buffer. Investigate source surface, converted pixels and tilemap
+state next; neither the guest SDL nor emulator has yet been established at fault.
+Full library verification after the argument change: 1242/1242.
 
 ## Provenance
 

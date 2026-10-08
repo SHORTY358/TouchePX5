@@ -6,6 +6,25 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Direct Wolf4SDL level startup now receives its complete arguments.** The
+  explicit runner's `-StartLevel 0` passes the public `--tedlevel 0 --nowait
+  --normal` options along with an isolated configuration directory. Previously
+  the dispatcher silently kept only two configured arguments. An opt-in bounded
+  source-profile argv extension now passes all arguments and a NULL terminator;
+  ordinary title startup keeps its existing layout. The rebuilt homebrew entry
+  reads the inline array. Six argument-frame checks and the full 1242/1242 suite
+  pass; CLI build has zero warnings/errors (the upstream C++ source build still
+  emits existing pragma-pack warnings). Run `20261008-110227-638` shows direct
+  level startup with a complete HUD. The actual default forward key is **W**,
+  not Up; `20261008-110558-134` shows approach and a partially opened door in
+  frame 20. Leaving the room is still not verified. Most importantly, no-input
+  run `20261008-110924-930` reproduces the HUD discrepancy: frame 13 / buffer 0 /
+  flip 1376 lacks numbers, while frame 14 / buffer 1 / flip 1427 has the full HUD.
+  Both are decoded guest buffers; this does not establish the root cause or a
+  Vulkan presentation fix. Odd capture spacing now samples both buffers.
+  Next: identify where the SDL source/converted/tiled buffers diverge, using
+  actual memory state rather than more blind input retries.
+
 - **Native main-thread flip waits now block until an event really exists.**
   `sceKernelWaitEqueue(NULL timeout)` previously returned empty success when
   no schedulable guest-thread handle existed. Public PS5 SDL then submitted

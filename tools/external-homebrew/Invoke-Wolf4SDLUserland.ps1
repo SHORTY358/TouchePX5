@@ -4,7 +4,8 @@
 param([ValidateRange(1,120)][int]$TimeoutSeconds=20,
       [ValidateRange(1,4096)][int]$TraceImports=32,
       [string]$KeyboardReplay='',
-      [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$ConfigSubdirectory='')
+      [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$ConfigSubdirectory='',
+      [ValidateRange(0,9)][Nullable[int]]$StartLevel=$null)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 . (Join-Path $root 'tools\native-probes\RuntimeManifest.ps1')
@@ -25,6 +26,12 @@ foreach($file in $dataFiles) { Copy-Item -LiteralPath $file.FullName -Destinatio
 $output=Join-Path $inputRoot ('runs\'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $log=Join-Path $output 'runtime.log'
+$guestArguments="--configdir $guestConfig"
+if($null -ne $StartLevel) {
+    # Public engine options: bypass timed menu input without changing guest code.
+    # This runner uses episode-one shareware data, hence levels 0..9 only.
+    $guestArguments+=" --tedlevel $StartLevel --nowait --normal"
+}
 $report=[ordered]@{
     Profile='Explicit PS5 source build with emulator userland entry'
     SourceCommit=(& git -C $root rev-parse HEAD)
@@ -32,7 +39,8 @@ $report=[ordered]@{
     ElfSha256=(Get-FileHash -LiteralPath $elf).Hash
     RuntimeFiles=@(Get-ToucheRuntimeManifest -Directory (Split-Path $exe))
     DataFiles=@($dataFiles | ForEach-Object { [ordered]@{Name=$_.Name; Sha256=(Get-FileHash -LiteralPath $_.FullName).Hash} })
-    GuestArguments="--configdir $guestConfig"
+    GuestArguments=$guestArguments
+    StartLevel=$StartLevel
     ConfigHostDirectory=$configRoot
     ExplicitGeneration='ps5'
     KeyboardReplay=$KeyboardReplay
@@ -60,9 +68,11 @@ $report=[ordered]@{
 $previousArgs=[Environment]::GetEnvironmentVariable('SHARPEMU_GUEST_ARGS','Process')
 $previousReplay=[Environment]::GetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY','Process')
 $previousTemp0=[Environment]::GetEnvironmentVariable('SHARPEMU_TEMP0_DIR','Process')
+$previousArgv=[Environment]::GetEnvironmentVariable('SHARPEMU_SOURCE_PROFILE_ARGV','Process')
 $process=$null
 try {
     [Environment]::SetEnvironmentVariable('SHARPEMU_GUEST_ARGS',$report.GuestArguments,'Process')
+    [Environment]::SetEnvironmentVariable('SHARPEMU_SOURCE_PROFILE_ARGV','1','Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY',$KeyboardReplay,'Process')
     if($null -ne $configRoot) { [Environment]::SetEnvironmentVariable('SHARPEMU_TEMP0_DIR',$configRoot,'Process') }
     $process=Start-Process -FilePath $exe -ArgumentList @('--cpu-engine=native','--generation=ps5',('--trace-imports='+$TraceImports),('--log-file="'+$log+'"'),('"'+$elf+'"')) `
@@ -75,6 +85,7 @@ try {
     [Environment]::SetEnvironmentVariable('SHARPEMU_GUEST_ARGS',$previousArgs,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY',$previousReplay,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEMP0_DIR',$previousTemp0,'Process')
+    [Environment]::SetEnvironmentVariable('SHARPEMU_SOURCE_PROFILE_ARGV',$previousArgv,'Process')
     $report.FinishedUtc=[DateTime]::UtcNow.ToString('o')
     # Preserve only dumps produced by this launch, never stale files from another run.
     $frameRoot=Join-Path $root 'logs'
