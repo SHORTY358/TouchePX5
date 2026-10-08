@@ -399,3 +399,28 @@ No audible speaker or correctness-of-music claim is made from signal amplitude.
 
 The output trace had hard-coded `coreaudio` for every non-NULL host backend;
 it now carries the backend name selected at port creation, including tests.
+
+### Empty successful flip waits on the native main thread
+
+Investigation of run `20261008-052037-377` showed repeated `sceVideoOutSubmitFlip`
+failure `0x80290009` (`RESOURCE_BUSY`) at frame argument 916, followed by the
+SDL port's `strerror` error path. `PS5_UpdateWindowFramebuffer` waits for each
+completed flip with `sceKernelWaitEqueue(..., timeout=NULL)`. The HLE attempted
+to stage a cooperative guest-thread wait, but native main-thread execution has
+no guest-thread handle. When staging failed, the final fallback returned zero
+without an event. This could fill the pending presentation queue.
+
+The fallback now blocks on the queue monitor and atomically reserves an event
+under the readiness lock. Display/registered event sources pulse host waiters
+as well as waking the guest scheduler. Deletion returns the deleted error.
+Tests cover delayed ordinary events, actual display-event notification and
+queue deletion. The native tiled fixture's `-HostWait` option verifies the
+same NULL-timeout call after a 300-ms deferred presentation, then validates
+the actual event/status/pixels; both normal and injected-present-retry paths
+pass (`wolf-hostwait-native.log`, `wolf-hostwait-native-retry.log`).
+
+Fresh run `20261008-055847-737` reaches the level with no observed flip errors.
+Its incomplete HUD shows that the earlier HUD concern cannot simply be declared
+fixed by this wait change. Full library checks pass 1236/1236. Longer gameplay
+scenarios may explicitly use up to 120 seconds of replay/launch time; both remain
+bounded, and the existing short scenarios still use 60 seconds.

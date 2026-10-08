@@ -9,6 +9,7 @@ namespace SharpEmu.Libs.Keyboard;
 // Opt-in bounded native-game test input. It never sends OS keyboard events.
 internal sealed class KeyboardReplayInput : IHostInput
 {
+    internal const int MaximumReplayMilliseconds = 120000;
     private readonly (int Start, int Key, int Duration)[] steps;
     private readonly Func<long> elapsed;
 
@@ -24,8 +25,8 @@ internal sealed class KeyboardReplayInput : IHostInput
                 !int.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out var start) ||
                 !int.TryParse(values[1], NumberStyles.None, CultureInfo.InvariantCulture, out var key) ||
                 !int.TryParse(values[2], NumberStyles.None, CultureInfo.InvariantCulture, out var duration) ||
-                start > 60000 || key is < 1 or > 255 || duration is < 1 or > 5000 || start + duration > 60000)
-                throw new ArgumentException("Keyboard replay step must be start_ms:virtual_key:duration_ms, ending within 60 seconds.");
+                start > MaximumReplayMilliseconds || key is < 1 or > 255 || duration is < 1 or > 5000 || start + duration > MaximumReplayMilliseconds)
+                throw new ArgumentException("Keyboard replay step must be start_ms:virtual_key:duration_ms, ending within 120 seconds.");
             return (start, key, duration);
         }).ToArray();
         var clock = Stopwatch.StartNew();

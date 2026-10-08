@@ -6,6 +6,20 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Native main-thread flip waits now block until an event really exists.**
+  `sceKernelWaitEqueue(NULL timeout)` previously returned empty success when
+  no schedulable guest-thread handle existed. Public PS5 SDL then submitted
+  more frames without awaiting presentation; an earlier trace reached repeated
+  flip `RESOURCE_BUSY` at argument 916. The host fallback now waits on the
+  queue monitor, reserves events atomically, and wakes for display events or
+  deletion. Three host-wait regressions pass; full suite 1236/1236 (including
+  the longer bounded replay check). Native `-TiledCpu -HostWait` and
+  `-Retry present` both pass actual three-frame pixels/status/event assertions.
+  Run `20261008-055847-737` reaches the level without observed flip errors;
+  its HUD still has intermittent omissions, so that issue is not claimed fixed.
+  Gameplay replay/launch can now be explicitly bounded up to 120 seconds;
+  the existing 60-second smoke scripts keep their original deadlines.
+
 - **Wolf4SDL produces real PCM audio alongside a correct presented HUD.**
   Run `20261008-054532-611` opened the Windows `winmm` backend at 48 kHz,
   stereo s16. Its opt-in diagnostic tap contains 56.96 seconds / 2,734,080

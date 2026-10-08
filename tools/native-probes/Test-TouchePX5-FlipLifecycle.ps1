@@ -6,16 +6,19 @@ param(
     [ValidateSet('cpu','burst','direct','ordered')][string]$Mode='ordered',
     [ValidateSet('none','acquire','present')][string]$Retry='none',
     [switch]$WindowRecovery,
-    [switch]$TiledCpu
+    [switch]$TiledCpu,
+    [switch]$HostWait
 )
 $ErrorActionPreference='Stop'
 $sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if($TiledCpu -and ($Mode -ne 'cpu' -or $WindowRecovery)) { throw 'Tiled CPU fixture requires cpu mode without window recovery.' }
+if($HostWait -and ($Mode -eq 'burst' -or $WindowRecovery)) { throw 'HostWait requires a sequential mode without interactive window recovery.' }
 if($WindowRecovery -and ($Mode -eq 'burst' -or $Retry -ne 'none')) {
     throw 'Window recovery requires a sequential mode and no injected retry.'
 }
 $suffix=if($WindowRecovery) { '-window' } else { '' }
 if($TiledCpu) { $suffix+='-tiled' }
+if($HostWait) { $suffix+='-hostwait' }
 $root=Join-Path $sourceRoot "artifacts\smoke-flip-$Mode-$Retry$suffix"
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorAction SilentlyContinue
@@ -25,6 +28,7 @@ $defines=@()
 if($WindowRecovery) { $defines+='-DWINDOW_RECOVERY=1' }
 if($Mode -eq 'cpu') { $defines+='-DCPU_FLIP=1' }
 if($TiledCpu) { $defines+='-DTILED_CPU_FLIP=1' }
+if($HostWait) { $defines+='-DHOST_WAIT=1' }
 if($Mode -eq 'burst') { $defines+=@('-DCPU_FLIP=1','-DBURST_FLIP=1') }
 if($Mode -eq 'ordered') { $defines+='-DORDERED_FLIP=1' }
 & "$llvm\clang.exe" --target=x86_64-pc-linux-gnu -O1 -ffreestanding -fno-builtin -fno-stack-protector -fpie -mno-sse @defines -c (Join-Path $fixture 'flip-lifecycle.c') -o (Join-Path $root 'guest.o')
@@ -98,7 +102,7 @@ try {
     $pixelMode=if($TiledCpu) { 'tiled' } else { $Mode }
     & py -3 (Join-Path $PSScriptRoot 'verify-flip-lifecycle.py') $log $pixelMode (Join-Path $root 'verification.json')
     if($LASTEXITCODE -ne 0) { throw 'Presented pixel oracle failed.' }
-    Write-Output "PASS flip lifecycle mode=$Mode retry=$Retry windowRecovery=$WindowRecovery; status, pending, events and pixels: $log"
+    Write-Output "PASS flip lifecycle mode=$Mode retry=$Retry windowRecovery=$WindowRecovery hostWait=$HostWait; status, pending, events and pixels: $log"
 } finally {
     foreach($key in $previous.Keys) { [Environment]::SetEnvironmentVariable($key,$previous[$key],'Process') }
 }

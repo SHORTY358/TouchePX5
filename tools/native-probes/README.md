@@ -11,6 +11,12 @@ boundaries and corners. Lifecycle assertions verify pending status and flip
 events before/after delayed presentation. This covers the stated RGBA32 CPU
 display layout; it does not certify GPU-written tiled resources.
 
+Add `-HostWait` to await the actual flip using a NULL timeout on the native
+main thread, following the public PS5 SDL port's wait pattern. The guest first
+confirms that no event exists during the 300-ms diagnostic presentation delay;
+the blocking wait must then return exactly one completed flip event. It supports
+sequential CPU/direct/ordered modes and retry injection, without window recovery.
+
 Run from the source checkout:
 
 ```powershell

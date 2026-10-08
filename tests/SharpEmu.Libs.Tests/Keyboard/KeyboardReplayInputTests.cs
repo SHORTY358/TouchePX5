@@ -26,11 +26,23 @@ public sealed class KeyboardReplayInputTests
     }
     [Theory]
     [InlineData("-1:13:10")]
-    [InlineData("60000:13:10")]
+    [InlineData("120000:13:10")]
     [InlineData("1:256:10")]
     [InlineData("1:13:0")]
     [InlineData("1:13:5001")]
     [InlineData("bad")]
     public void RejectsUnboundedOrMalformedReplay(string script) =>
         Assert.Throws<ArgumentException>(() => new KeyboardReplayInput(script));
+
+    [Fact]
+    public void LongerGameScenarioStillExpiresAtTheBoundedDeadline()
+    {
+        long now = 60000;
+        var replay = new KeyboardReplayInput("60000:13:10;119990:38:10", () => now);
+        Assert.True(replay.IsKeyDown(13));
+        now = 119999;
+        Assert.True(replay.IsKeyDown(38));
+        now = KeyboardReplayInput.MaximumReplayMilliseconds;
+        Assert.False(replay.IsKeyDown(38));
+    }
 }

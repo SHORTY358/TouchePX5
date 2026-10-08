@@ -86,6 +86,11 @@ static int checked_flip(int video,int index,int mode,u64 arg) {
     wait_eq_slot(event_queue,event_words,1,&count,&timeout);
     if(count!=0) return 107;
 
+#ifdef HOST_WAIT
+    count=0;
+    // NULL timeout on the native main thread must really await presentation.
+    if(wait_eq_slot(event_queue,event_words,1,&count,(u32*)0)!=0) return 108;
+#else
 #ifdef WINDOW_RECOVERY
     const int max_retries=6000;
 #else
@@ -97,6 +102,7 @@ static int checked_flip(int video,int index,int mode,u64 arg) {
         if(count) break;
         sleep_slot(10000);
     }
+#endif
     if(count!=1 || event_words[3]!=0x1234 || (event_words[2]>>16)!=arg) return 108;
     expected_count++;
     if(status_slot(video,status_words)!=0 || status_words[0]!=expected_count ||

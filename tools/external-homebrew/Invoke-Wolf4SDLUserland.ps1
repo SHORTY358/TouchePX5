@@ -1,7 +1,7 @@
 # Copyright (C) 2026 SharpEmu Emulator Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateRange(1,60)][int]$TimeoutSeconds=20,
+param([ValidateRange(1,120)][int]$TimeoutSeconds=20,
       [ValidateRange(1,4096)][int]$TraceImports=32,
       [string]$KeyboardReplay='',
       [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$ConfigSubdirectory='')

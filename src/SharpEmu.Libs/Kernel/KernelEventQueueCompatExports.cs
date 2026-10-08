@@ -725,15 +725,36 @@ public static class KernelEventQueueCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_TIMED_OUT;
         }
 
-        if (_logEqueue)
+        // Native main-thread execution has no schedulable guest-thread handle.
+        // A NULL timeout still means an infinite wait, never empty success.
+        // Reserve under the same monitor used for readiness so another waiter
+        // cannot steal the event between checking it and reserving it.
+        KernelQueuedEvent[] hostEvents;
+        int hostCount;
+        lock (_eventQueueGate)
         {
-            TraceEventQueue(
-                ctx,
-                "wait",
-                handle,
-                $"waiter={waiterId} capacity={eventCapacity} timeout_usec={timeoutUsec}");
+            while (true)
+            {
+                if (!IsLiveEventQueueLocked(state))
+                    return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_DELETED;
+                if (TryReserveEvents(state, eventCapacity, out hostEvents, out hostCount, out _))
+                    break;
+                Monitor.Wait(_eventQueueGate);
+            }
         }
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        try
+        {
+            for (var i = 0; i < hostCount; i++)
+                if (!WriteKernelEvent(ctx, eventsAddress + (ulong)i * KernelEventSize, hostEvents[i]))
+                    return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            if (outCountAddress != 0 && !TryWriteUInt32(ctx, outCountAddress, (uint)hostCount))
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+        finally
+        {
+            ArrayPool<KernelQueuedEvent>.Shared.Return(hostEvents);
+        }
     }
 
     public static bool IsValidEqueue(ulong handle)
@@ -1327,6 +1348,9 @@ public static class KernelEventQueueCompatExports
         EventQueueState state,
         string? detail = null)
     {
+        // Display/registered sources also wake host-blocked native main threads.
+        lock (_eventQueueGate)
+            Monitor.PulseAll(_eventQueueGate);
         if (_logEqueue)
         {
             TraceEventQueueHost(
