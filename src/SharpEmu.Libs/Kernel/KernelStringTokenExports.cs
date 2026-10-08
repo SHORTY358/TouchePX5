@@ -8,6 +8,26 @@ namespace SharpEmu.Libs.Kernel;
 
 public static partial class KernelMemoryCompatExports
 {
+    [SysAbiExport(Nid = "g7zzzLDYGw0", ExportName = "strdup",
+        Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Strdup(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = 0;
+        if (!TryReadCString(ctx, ctx[CpuRegister.Rdi], 1_048_576, out var text) || text.Length == 1_048_576)
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        if (!TryAllocateLibcHeap((ulong)text.Length + 1, DefaultLibcHeapAlignment, zeroFill: false, out var address))
+            return 0;
+        var output = new byte[text.Length + 1];
+        text.CopyTo(output.AsSpan());
+        if (!TryWriteGuestOrLibcHeap(ctx, address, output))
+        {
+            FreeLibcHeap(address);
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+        ctx[CpuRegister.Rax] = address;
+        return 0;
+    }
+
     // strtok's implicit cursor belongs to the guest process, not to the host
     // thread executing this import. Weak ownership avoids retaining runtimes.
     private sealed class TokenCursor { public ulong Next; }

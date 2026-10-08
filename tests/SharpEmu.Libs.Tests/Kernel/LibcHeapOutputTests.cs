@@ -13,6 +13,27 @@ public sealed class LibcHeapOutputTests
     private const ulong GuestBase = 0x1_0000_0000;
 
     [Fact]
+    public void Strdup_ReturnsIndependentFreeableTerminatedStorage()
+    {
+        var memory = new FakeCpuMemory(GuestBase, 0x1000);
+        var ctx = new CpuContext(memory, Generation.Gen5);
+        memory.WriteCString(GuestBase, "Wolf\ntext");
+        ctx[CpuRegister.Rdi] = GuestBase;
+        Assert.Equal(0, KernelMemoryCompatExports.Strdup(ctx));
+        var heap = ctx[CpuRegister.Rax];
+        Assert.NotEqual(0UL, heap);
+        try
+        {
+            memory.WriteCString(GuestBase, "changed");
+            var output = new byte[10];
+            Assert.True(KernelMemoryCompatExports.TryReadGuestOrLibcHeap(ctx, heap, output));
+            Assert.Equal(System.Text.Encoding.ASCII.GetBytes("Wolf\ntext\0"), output);
+        }
+        finally { ctx[CpuRegister.Rdi] = heap; KernelMemoryCompatExports.Free(ctx); }
+        Assert.False(KernelMemoryCompatExports.TryReadGuestOrLibcHeap(ctx, heap, new byte[1]));
+    }
+
+    [Fact]
     public void Semaphore_UsesMallocStorageAcrossWaitPostAndDestroy()
     {
         var ctx = new CpuContext(new FakeCpuMemory(GuestBase, 0x1000), Generation.Gen5);

@@ -22,6 +22,10 @@ public static class UserServiceExports
     private const string PrimaryUserName = "SharpEmu";
     private static int _loginEventDelivered;
 
+    [SysAbiExport(Nid = "eNb53LQJmIM", ExportName = "sceUserServiceGetForegroundUser",
+        Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetForegroundUser(CpuContext ctx) => UserServiceGetInitialUser(ctx);
+
     [SysAbiExport(
         Nid = "j3YMu1MVNNo",
         ExportName = "sceUserServiceInitialize",

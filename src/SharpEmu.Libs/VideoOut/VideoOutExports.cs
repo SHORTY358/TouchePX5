@@ -32,7 +32,8 @@ public static class VideoOutExports
     private const int MaxOpenPorts = 4;
     private const int MaxDisplayBuffers = 16;
     private const int MaxDisplayBufferGroups = 4;
-    private const int MaxFrameDumps = 8;
+    private static readonly int MaxFrameDumps =
+        int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DUMP_VIDEOOUT_MAX_FRAMES"), out var maximum) && maximum is >= 1 and <= 64 ? maximum : 8;
     private const int VideoOutBufferAttributeSize = 0x28;
     private const int VideoOutBufferAttribute2Size = 0x50;
     private const int VideoOutBuffersEntrySize = 0x20;
@@ -1293,7 +1294,7 @@ public static class VideoOutExports
                     displayBuffer.Width,
                     displayBuffer.Height,
                     displayBuffer.PitchInPixel, completion);
-                if (!guestImageSubmitted && TryReadLinearDisplayFrame(ctx, displayBuffer, out var bgra))
+                if (!guestImageSubmitted && TryReadCpuDisplayFrame(ctx, displayBuffer, out var bgra))
                 {
                     GuestGpu.Current.Submit(bgra, displayBuffer.Width, displayBuffer.Height, completion);
                     guestImageSubmitted = true;
@@ -1708,6 +1709,9 @@ public static class VideoOutExports
         return true;
     }
 
+    internal static bool TryReadCpuDisplayFrame(CpuContext ctx, DisplayBufferInfo info, out byte[] bgra) =>
+        TryReadLinearDisplayFrame(ctx, info, out bgra) || VideoOutCpuDisplayFrames.TryReadTiled(ctx, info, out bgra);
+
     internal static bool TryReadLinearDisplayFrame(CpuContext ctx, DisplayBufferInfo info, out byte[] bgra)
     {
         bgra = [];
@@ -1743,6 +1747,8 @@ public static class VideoOutExports
 
     private static bool TryDumpFrame(CpuContext ctx, VideoOutPortState port, int bufferIndex, int flipMode, long flipArg)
     {
+        var flipNumber = Volatile.Read(ref _diagnosticFlipCount);
+        if (flipNumber < _dumpAfterFlip || (flipNumber - _dumpAfterFlip) % _dumpEveryFlip != 0) return false;
         if (bufferIndex < 0)
         {
             return false;
@@ -1796,7 +1802,14 @@ public static class VideoOutExports
         const ulong fnvPrime = 1099511628211UL;
         var fingerprint = fnvOffsetBasis;
         var row = new byte[rowBytes];
-        for (uint y = 0; y < attribute.Height; y++)
+        byte[]? decoded = null;
+        if (attribute.TilingMode == 0 && VideoOutCpuDisplayFrames.TryReadTiled(ctx,
+            new DisplayBufferInfo(slot.AddressLeft, attribute.PixelFormat, attribute.TilingMode,
+                attribute.Width, attribute.Height, attribute.PitchInPixel), out var tiledPixels))
+            decoded = tiledPixels;
+        if (decoded is not null)
+            fingerprint = ComputeFingerprint(decoded);
+        else for (uint y = 0; y < attribute.Height; y++)
         {
             if (!ctx.Memory.TryRead(slot.AddressLeft + ((ulong)y * (ulong)rowBytes), row))
             {
@@ -1831,6 +1844,17 @@ public static class VideoOutExports
         var rgbOffset = 0;
         for (uint y = 0; y < attribute.Height; y++)
         {
+            if (decoded is not null)
+            {
+                var start = checked((int)(y * attribute.Width * 4));
+                for (var x = 0; x < (int)attribute.Width; x++)
+                {
+                    rgb[rgbOffset++] = decoded[start + x * 4 + 2];
+                    rgb[rgbOffset++] = decoded[start + x * 4 + 1];
+                    rgb[rgbOffset++] = decoded[start + x * 4];
+                }
+                continue;
+            }
             if (!ctx.Memory.TryRead(slot.AddressLeft + ((ulong)y * (ulong)rowBytes), row))
             {
                 return false;
@@ -1843,7 +1867,8 @@ public static class VideoOutExports
         var frameIndex = Interlocked.Increment(ref _nextFrameDumpIndex);
         var basePath = GetFrameDumpBasePath(frameIndex, port.Handle, bufferIndex);
         WriteBmp(basePath + ".bmp", attribute.Width, attribute.Height, rgb);
-        WriteFrameMetadata(basePath + ".txt", slot.AddressLeft, attribute, bufferIndex, flipMode, flipArg, "bmp-linear-read", fingerprint);
+        WriteFrameMetadata(basePath + ".txt", slot.AddressLeft, attribute, bufferIndex, flipMode, flipArg,
+            decoded is null ? "bmp-linear-read" : "bmp-ps5-tiled-read", fingerprint);
         if (_traceVideoOut)
         {
             TraceVideoOut($"videoout.dump_frame path={basePath}.bmp addr=0x{slot.AddressLeft:X16} {attribute.Width}x{attribute.Height} fmt=0x{attribute.PixelFormat:X} fingerprint=0x{fingerprint:X16}");
@@ -2294,6 +2319,10 @@ public static class VideoOutExports
         Environment.GetEnvironmentVariable("SHARPEMU_DUMP_VIDEOOUT"),
         "1",
         StringComparison.Ordinal);
+    private static readonly int _dumpAfterFlip =
+        int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DUMP_VIDEOOUT_AFTER_FLIP"), out var flip) && flip is >= 0 and <= 100000 ? flip : 0;
+    private static readonly int _dumpEveryFlip =
+        int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DUMP_VIDEOOUT_EVERY_FLIP"), out var interval) && interval is >= 1 and <= 10000 ? interval : 1;
 
     private static void TraceVideoOut(string message)
     {

@@ -160,8 +160,10 @@ extracts selected build inputs inside the checked output root, and materializes
 not execute package scripts. `Build-Wolf4SDL.ps1` copies the pinned engine
 inputs, applies the shareware defines, generates controller mappings and links
 the PS5 ELF using `wolf4sdl-start.S`. The latter translates the emulator's
-inline argument frame to `main(argc, argv, NULL)`; the runtime still owns ELF
-preinit/init/fini array execution. DATADIR is `/app0/`, with guest arguments
+inline argument frame to `main(argc, argv, NULL)`. Correction from the subsequent
+startup investigation: the generic runtime skips main-module initializers; the
+explicit entry now calls its init array before main (see the 2026-10-08 section
+below). DATADIR is `/app0/`, with guest arguments
 `--configdir /app0`; the runner copies the eight official .WL1 shareware files
 next to the ELF, which is the actual `/app0` mount.
 
@@ -246,3 +248,82 @@ CLI build zero warnings/errors. Added regressions cover live malloc audio bytes
 and an allocation overrun, malloc-backed semaphore lifecycle, and XMM0 math values
 including NaN/infinity. The earlier first-frame BMP is red horizontal stripes,
 not an actual game menu; it was produced by bmp-linear-read with tiling_mode=0.
+
+## 2026-10-08: recovered native fault, constructors and real menu
+
+Disassembling the emitted exception trampoline found `lock cmpxchg [rcx],r10`
+at +0x280, although the lock address is in r9. Both branches used REX 0x4C;
+0x4D adds the missing B bit. The new regression decodes both actual generated
+instructions and executes host/recursive entry against independent lock and
+exception-record storage, verifying depth 1/2 and final unlocked state.
+This exposed the underlying native access violation at US_SetScanNames+0x8D:
+the C++ scan-name map had never been initialized. Contrary to the earlier note,
+the generic runtime skips main-module initializers. The explicit source-build
+entry now executes __init_array_start..__init_array_end before main, preserving
+the SysV callee-saved registers, argc/argv and call alignment. Generic payload
+startup is unchanged. New ELF SHA256:
+`703FA9B0B305FDEFD6799511D4296653F9D9512DC3517245CE18AB0FE55BDE6D`.
+
+The engine then requested atan, tan, float sinf and owned strdup. These exports
+now supply XMM0 values and independently freeable bounded string copies. No new
+errno/fenv math guarantees are claimed. Display submissions formerly failed for
+the CPU-written tiled framebuffer. A restricted Gen5 RGBA32 tiled fallback now
+decodes the 512x128 tile layout from the open SDL reference:
+https://github.com/ps5-payload-dev/SDL/blob/ee4c47dc0d617b3bc8f35108f9956baf228a1322/src/video/ps5/SDL_ps5tilemap.c
+The address equation is expressed as independent X/Y terms; source attribution
+and its original notice are retained in the altered C# implementation. Literal
+offset/color oracles include tile boundaries, padded pitch and unreadable tail.
+This is a CPU display-buffer path, not broad GPU tiling/shader support.
+BMP fingerprints now cover the decoded visible image, including pixels outside
+the old linear raw-memory prefix.
+
+Keyboard state follows the same pinned SDL backend's 96-byte structure, scoped
+to the guest process. Held keys keep their slots; released slots remain empty
+for a read so SDL receives release before a replacement press. Focus loss
+releases input. Supported keys include letters, digits, arrows, Enter/Esc,
+Space, navigation and modifier keys. Foreground-user lookup returns the existing
+single logged-in user. IME, mouse and physical keyboard operation remain separate.
+
+Bounded real-engine evidence:
+- `20261008-044902-949`: visually inspected readable sign-on with "Press a key";
+  VideoOut submits successfully and buffers alternate. The shared dump files
+  from that run were later overwritten; this is a historical observation.
+- `20261008-050035-072/frames`: independently viewed help page, readable command
+  reference and page 1 of 4 (preserved BMPs and flip metadata).
+- `20261008-050206-862/frames`: Options main menu, with the quit confirmation
+  overlay produced by the test sequence. No level/gameplay claim yet.
+
+Test input is opt-in `SHARPEMU_TEST_KEYBOARD_REPLAY`, also exposed by the runner's
+`-KeyboardReplay`: `start_ms:Windows_virtual_key_decimal:duration_ms;...`.
+The clock starts at keyboard initialization, steps end within 60 seconds,
+and no OS input is sent. Normal launches use focused physical host input.
+The runner records the script and copies only this launch's BMPs and metadata
+into its run directory with hashes. Diagnostic frame bounds default to eight;
+`SHARPEMU_DUMP_VIDEOOUT_AFTER_FLIP`, `SHARPEMU_DUMP_VIDEOOUT_EVERY_FLIP` and
+`SHARPEMU_DUMP_VIDEOOUT_MAX_FRAMES` allow bounded later/strided capture (maximum 64).
+
+Validation: full library suite 1225/1225 (`artifacts/wolf-menu-regressions.log`),
+zero-warning CLI builds, and native linear CPU flip lifecycle with three
+independent displayed-color oracles (`artifacts/wolf-menu-linear-flip.log`).
+Next acceptance: New Game -> episode/difficulty -> independently captured level,
+then movement and shooting. The unchanged original payload is still unsupported
+at privileged bootstrap syscall 0x289; commercial PS5 games/GTA VI are unverified.
+
+### First level and automated movement observation
+
+Run `artifacts/external-homebrew/wolf4sdl-userland/runs/20261008-050603-353`
+reaches the first shareware level. Its report preserves 28 frame hashes and
+the exact replay: initial acknowledgements, Esc to leave help, N to reject a
+quit prompt if present/select New Game, Enter for episode/difficulty, then
+Up/Right/Up. Independently inspected frame 16 (flip 600) shows the spawn door,
+weapon and HUD; frame 28 (flip 920) shows the changed view facing a blue wall.
+The game remains active until the bounded deadline, with successful alternating
+framebuffer flips up to 937. Health 100, ammo 8. This establishes a loaded level
+and response to automated movement/turn input; physical controls, shooting,
+audible audio, performance and finishing a level still require separate evidence.
+
+Run `20261008-050746-265` adds left-Ctrl test presses. Its preserved frame 1
+shows ammo 8 at the spawn door. Frame 22 shows ammo 7 and the firing pose after
+the movement/turn sequence and second Ctrl press. This visually confirms at
+least one shot consumed ammunition; it does not claim a kill or held autofire.
+All 22 captured-frame hashes and diagnostic settings are in its report.

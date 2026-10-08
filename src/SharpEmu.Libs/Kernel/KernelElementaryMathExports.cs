@@ -12,6 +12,18 @@ public static class KernelElementaryMathExports
     public static int Log(CpuContext ctx) => ReturnDouble(ctx, Math.Log);
     [SysAbiExport(Nid = "dnaeGXbjP6E", ExportName = "exp2", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
     public static int Exp2(CpuContext ctx) => ReturnDouble(ctx, value => Math.Pow(2, value));
+    [SysAbiExport(Nid = "OXmauLdQ8kY", ExportName = "atan", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Atan(CpuContext ctx) => ReturnDouble(ctx, Math.Atan);
+    [SysAbiExport(Nid = "T7uyNqP7vQA", ExportName = "tan", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Tan(CpuContext ctx) => ReturnDouble(ctx, Math.Tan);
+    [SysAbiExport(Nid = "Q4rRL34CEeE", ExportName = "sinf", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Sinf(CpuContext ctx)
+    {
+        ctx.GetXmmRegister(0, out var bits, out _);
+        var result = MathF.Sin(BitConverter.Int32BitsToSingle(unchecked((int)bits)));
+        ctx.SetXmmRegister(0, unchecked((uint)BitConverter.SingleToInt32Bits(result)), 0);
+        return 0;
+    }
 
     private static int ReturnDouble(CpuContext ctx, Func<double, double> function)
     {

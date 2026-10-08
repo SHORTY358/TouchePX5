@@ -6,6 +6,41 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **First Wolf4SDL shareware level, movement/turn and one shot are visually verified
+  with opt-in test input.** Run `20261008-050746-265/frames` shows ammo 8 in
+  frame 1, and ammo 7 plus the firing pose in frame 22 after left Ctrl. Earlier
+  run `20261008-050603-353` demonstrates the changed view after arrows.
+  These are actual captured game frames; physical keyboard and audible audio
+  still need verification. The next engineering check targets patterned tiled
+  display output and flip completion, followed by a reproducible level launcher.
+
+- **Wolf4SDL reaches a readable sign-on, help page and main menu.** The native
+  exception trampoline encoded `cmpxchg [rcx],r10` instead of its lock pointer
+  `[r9]`; both paths now set REX.B. An actual emitted-handler regression checks
+  both encodings and executes recursive entry with independent exception storage.
+  The recovered fault then identified skipped C++ constructors. The explicit
+  source-build entry now runs its init array before main; the unchanged payload
+  remains a separate unsupported target. New source ELF SHA256:
+  `703FA9B0B305FDEFD6799511D4296653F9D9512DC3517245CE18AB0FE55BDE6D`.
+  PS5 CPU display tiling is decoded using the pinned open SDL backend; the old
+  red stripes were a linear interpretation of tiled memory. Added bounded PS5
+  keyboard state, foreground-user lookup, atan/tan/sinf and owned strdup.
+  Help evidence: `artifacts/external-homebrew/wolf4sdl-userland/runs/20261008-050035-072/frames/`.
+  Menu evidence: `artifacts/external-homebrew/wolf4sdl-userland/runs/20261008-050206-862/frames/`.
+  The latter shows the Options menu with its quit confirmation over it; it is
+  not a loaded level. Replay is opt-in HLE test input and sends no Windows keys.
+  Physical keyboard, audible sound and gameplay remain unverified. Full library
+  checks passed 1225/1225 in `artifacts/wolf-sign-on-full-regressions.log`.
+  Next: select New Game, capture a level, then verify movement and shooting.
+
+- **The source profile now loads the first shareware level and responds to
+  movement/turn replay.** Run `20261008-050603-353` preserves 28 dated frames,
+  runtime/data/ELF hashes and the full input sequence. Frame 16 (flip 600) shows
+  the starting door and HUD; frame 28 (flip 920) shows a changed position/view
+  facing the blue wall after the arrow-key sequence. Health is 100 and ammo 8.
+  This is a limited automated level observation, not physical-control, audible
+  audio, completed-level or broad compatibility verification. Shooting is next.
+
 - **Wolf4SDL source profile now passes controller parsing, reads game data and starts the audio worker.**
   Added the actually requested C string/number and elementary double math exports;
   file reads, semaphore storage, pthread output and audio buffers now accept bounded
