@@ -5063,15 +5063,32 @@ internal static unsafe class VulkanVideoPresenter
                     if (mouse is not null && (mouse.Cursor.IsSupported(CursorMode.Raw) || mouse.Cursor.IsSupported(CursorMode.Disabled)))
                     {
                         var mode = mouse.Cursor.IsSupported(CursorMode.Raw) ? CursorMode.Raw : CursorMode.Disabled;
+                        var capture = new MouseCapturePolicy();
                         HostMouseMotion.Current.Attach();
                         mouse.MouseMove += (_, position) => HostMouseMotion.Current.Submit(position.X, position.Y);
+                        void ApplyCapture()
+                        {
+                            HostMouseMotion.Current.SetFocus(capture.Captured);
+                            mouse.Cursor.CursorMode = capture.Captured ? mode : CursorMode.Normal;
+                            if (!capture.Captured) HostPlatform.Current.Input.ReleaseMouseCapture();
+                            Console.Error.WriteLine($"[LOADER][INFO] Relative mouse captured={capture.Captured} mode={mouse.Cursor.CursorMode}");
+                        }
                         _mouseFocusHandler = focused =>
                         {
-                            HostMouseMotion.Current.SetFocus(focused);
-                            mouse.Cursor.CursorMode = focused ? mode : CursorMode.Normal;
-                            if (!focused) HostPlatform.Current.Input.ReleaseMouseCapture();
-                            Console.Error.WriteLine($"[LOADER][INFO] Relative mouse focus={focused} mode={mouse.Cursor.CursorMode}");
+                            capture.SetFocus(focused);
+                            ApplyCapture();
                         };
+                        mouse.MouseDown += (_, button) =>
+                        {
+                            var position = mouse.Position;
+                            if (capture.TryCapture(button == MouseButton.Left, position.X, position.Y, _window.Size.X, _window.Size.Y))
+                                ApplyCapture();
+                        };
+                        foreach (var keyboard in input.Keyboards)
+                            keyboard.KeyDown += (_, key, _) =>
+                            {
+                                if (key == Key.F8) { capture.Release(); ApplyCapture(); }
+                            };
                         _window.FocusChanged += _mouseFocusHandler;
                         _mouseFocusHandler(HostPlatform.Current.Input.IsHostWindowFocused());
                     }

@@ -3,6 +3,7 @@
 using System.Buffers.Binary;
 using SharpEmu.HLE;
 using SharpEmu.HLE.Host;
+using SharpEmu.Libs.VideoOut;
 using Xunit;
 using MouseApi = SharpEmu.Libs.Mouse.MouseExports;
 using MouseState = SharpEmu.Libs.Pad.MouseExports;
@@ -11,6 +12,24 @@ namespace SharpEmu.Libs.Tests.Mouse;
 
 public sealed class MouseInputTests
 {
+    [Fact]
+    public void WindowActivationDoesNotCaptureUntilClientClickAndReleaseDoesNotRecapture()
+    {
+        var policy = new MouseCapturePolicy();
+        policy.SetFocus(true);
+        Assert.False(policy.Captured);
+        Assert.False(policy.TryCapture(true, 40, -20, 1920, 1080)); // Title bar.
+        Assert.False(policy.TryCapture(false, 100, 100, 1920, 1080));
+        Assert.False(policy.Captured);
+        Assert.True(policy.TryCapture(true, 100, 100, 1920, 1080));
+        policy.Release(); // F8: still focused, still uncaptured.
+        policy.SetFocus(true);
+        Assert.False(policy.Captured);
+        Assert.True(policy.TryCapture(true, 100, 100, 1920, 1080));
+        policy.SetFocus(false); policy.SetFocus(true);
+        Assert.False(policy.Captured);
+    }
+
     [Fact]
     public void RelativeEventsAccumulateOnceBeyondScreenEdgesAndResetOnFocusChange()
     {

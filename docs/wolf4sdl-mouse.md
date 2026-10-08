@@ -1,9 +1,11 @@
 # Wolf4SDL mouse source profile
 
 Double-click `tools/external-homebrew/Start-Wolf4SDLMouse.cmd` to run the built
-mouse profile until the game closes. Click the game window to focus it. Mouse
+mouse profile until the game closes. Left-click inside the game to capture the mouse. Mouse
 motion turns left/right, left button fires, W/S move and Space operates doors.
-This Wolf engine has no vertical looking. Alt+Tab releases cursor ownership.
+This Wolf engine has no vertical looking. F8 or Alt+Tab releases cursor ownership.
+After release, the title bar can be dragged normally. Activation and title-bar
+interaction do not capture; another left click inside the game is required.
 The interactive profile uses its own `mouse-play` save/configuration directory.
 It keeps the engine's default fullscreen SDL surface so the game fills the host
 framebuffer. `--windowed-mouse` is deliberately omitted: the pinned PS5 backend
@@ -17,8 +19,10 @@ with GLFW Raw mode (Disabled fallback), which owns hiding and relative capture.
 Window-thread motion events accumulate in a synchronized buffer for guest reads;
 no desktop cursor warping or global ClipCursor restriction is used now.
 Focus loss restores Normal mode and resets motion; closing detaches/disposes
-the input context. The latest interactive log records Raw on focus and Normal
-on focus loss; final physical confirmation is still pending.
+the input context. The user reports the Raw revision works, but title-bar dragging
+previously captured immediately. Capture now requires a focused client-area left
+click. F8 releases without recapturing while focused. This final title-bar fix
+has passed regression checks; its physical drag/release check is pending.
 
 Rebuild with `Build-Wolf4SDL.ps1 -EnableMouseBridge`. This creates a separate
 `wolf3d-shareware-userland-mouse.elf`, source adapter and build-report-mouse.json.
@@ -30,9 +34,10 @@ must never be treated as a runtime firmware implementation.
 
 Mouse packets follow the [public mouse ABI reference](https://github.com/shadps4-emu/shadPS4/blob/main/src/core/libraries/mouse/mouse.h):
 timestamp at 0, connected at 8, buttons at 12, signed motion at 16/20, 40 bytes.
-Three regression checks cover signed motion, reserved zeros, inactive input,
+Four regression checks cover signed motion, reserved zeros, inactive input,
 per-guest handle isolation, large relative movement, one-time consumption,
-fractional remainder and focus reset. Full library tests pass 1245/1245.
+fractional remainder, focus reset and click-only capture after window activation
+or release. Full library tests pass 1246/1246; CLI build has zero warnings/errors.
 
 This remains an explicit modified homebrew source profile. It does not prove
 mouse compatibility for unchanged PS5 games. Wheel/tilt packets and non-Windows
