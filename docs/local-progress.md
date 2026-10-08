@@ -6,6 +6,23 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **The HUD omission now has captured source-byte evidence.** In run
+  `20261008-115543-460`, all twelve comparable raw-source/BMP HUD pairs match,
+  including the late frame where most numeric fields are absent. Independent
+  decoding therefore reproduces the omission from guest bytes, rather than
+  creating it in the emulator's tiled decoder. Sample 4 also has a complete
+  numeric HUD in the indexed and converted 640x400 surfaces, but omissions in
+  the 1920x1080 SDL window surface; both native display buffers match that window
+  sample. These are concurrent observations, not an atomic cross-stage snapshot.
+  Follow-up run `20261008-120025-225` records seven exact-metadata matching
+  source/BMP pairs; sample 4 also retains the numbers in the software texture
+  while the window sample omits them. The next target is SDL software scaling
+  and its blit state before display tiling. A bounded opt-in capture saves at most sixteen sources of at
+  most 16 MiB each; new captures record exact flip/buffer/geometry metadata.
+  Earlier empty keyboard replays still permitted physical keyboard input;
+  they must not be described as isolated no-input runs. Library checks remain
+  1242/1242 and the CLI builds with zero warnings/errors. The HUD bug is not fixed.
+
 - **Direct Wolf4SDL level startup now receives its complete arguments.** The
   explicit runner's `-StartLevel 0` passes the public `--tedlevel 0 --nowait
   --normal` options along with an isolated configuration directory. Previously
@@ -20,10 +37,9 @@ percentage or release-date estimate.
   frame 20. Leaving the room is still not verified. Most importantly, no-input
   run `20261008-110924-930` reproduces the HUD discrepancy: frame 13 / buffer 0 /
   flip 1376 lacks numbers, while frame 14 / buffer 1 / flip 1427 has the full HUD.
-  Both are decoded guest buffers; this does not establish the root cause or a
+  An empty replay leaves physical input enabled. Both are decoded guest buffers; this does not establish the root cause or a
   Vulkan presentation fix. Odd capture spacing now samples both buffers.
-  Next: identify where the SDL source/converted/tiled buffers diverge, using
-  actual memory state rather than more blind input retries.
+  The newer source-byte checkpoint above narrows the next investigation.
 
 - **Native main-thread flip waits now block until an event really exists.**
   `sceKernelWaitEqueue(NULL timeout)` previously returned empty success when

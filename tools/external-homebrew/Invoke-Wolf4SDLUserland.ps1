@@ -5,7 +5,9 @@ param([ValidateRange(1,120)][int]$TimeoutSeconds=20,
       [ValidateRange(1,4096)][int]$TraceImports=32,
       [string]$KeyboardReplay='',
       [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$ConfigSubdirectory='',
-      [ValidateRange(0,9)][Nullable[int]]$StartLevel=$null)
+      [ValidateRange(0,9)][Nullable[int]]$StartLevel=$null,
+      [switch]$InspectSurfaces,
+      [ValidateRange(0,105)][int]$SurfaceSampleStartSeconds=10)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 . (Join-Path $root 'tools\native-probes\RuntimeManifest.ps1')
@@ -41,6 +43,8 @@ $report=[ordered]@{
     DataFiles=@($dataFiles | ForEach-Object { [ordered]@{Name=$_.Name; Sha256=(Get-FileHash -LiteralPath $_.FullName).Hash} })
     GuestArguments=$guestArguments
     StartLevel=$StartLevel
+    InspectSurfaces=[bool]$InspectSurfaces
+    SurfaceSampleStartSeconds=$SurfaceSampleStartSeconds
     ConfigHostDirectory=$configRoot
     ExplicitGeneration='ps5'
     KeyboardReplay=$KeyboardReplay
@@ -69,16 +73,31 @@ $previousArgs=[Environment]::GetEnvironmentVariable('SHARPEMU_GUEST_ARGS','Proce
 $previousReplay=[Environment]::GetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY','Process')
 $previousTemp0=[Environment]::GetEnvironmentVariable('SHARPEMU_TEMP0_DIR','Process')
 $previousArgv=[Environment]::GetEnvironmentVariable('SHARPEMU_SOURCE_PROFILE_ARGV','Process')
+$previousRawDump=[Environment]::GetEnvironmentVariable('SHARPEMU_TILED_RAW_DUMP_DIR','Process')
 $process=$null
 try {
     [Environment]::SetEnvironmentVariable('SHARPEMU_GUEST_ARGS',$report.GuestArguments,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_SOURCE_PROFILE_ARGV','1','Process')
+    if($InspectSurfaces) { [Environment]::SetEnvironmentVariable('SHARPEMU_TILED_RAW_DUMP_DIR',$output,'Process') }
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY',$KeyboardReplay,'Process')
     if($null -ne $configRoot) { [Environment]::SetEnvironmentVariable('SHARPEMU_TEMP0_DIR',$configRoot,'Process') }
     $process=Start-Process -FilePath $exe -ArgumentList @('--cpu-engine=native','--generation=ps5',('--trace-imports='+$TraceImports),('--log-file="'+$log+'"'),('"'+$elf+'"')) `
         -WorkingDirectory $inputRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $output 'stdout.log') -RedirectStandardError (Join-Path $output 'stderr.log')
-    if(-not $process.WaitForExit($TimeoutSeconds*1000)) { $report.TerminatedAtDeadline=$true; $process.Kill(); $process.WaitForExit() }
+    if($InspectSurfaces) {
+        . (Join-Path $PSScriptRoot 'Read-Wolf4SDLSurfaces.ps1')
+        $clock=[Diagnostics.Stopwatch]::StartNew()
+        $sample=0
+        while(-not $process.HasExited -and $clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            if($sample -lt 4 -and $clock.Elapsed.TotalSeconds -ge ($SurfaceSampleStartSeconds+$sample*5)) {
+                $sample++
+                try { Save-WolfSurfaceSample -Process $process -Output $output -Elf $elf -Sample $sample }
+                catch { Write-Warning "Surface sample $sample failed: $_" }
+            }
+            [void]$process.WaitForExit(250)
+        }
+        if(-not $process.HasExited) { $report.TerminatedAtDeadline=$true; $process.Kill(); $process.WaitForExit() }
+    } elseif(-not $process.WaitForExit($TimeoutSeconds*1000)) { $report.TerminatedAtDeadline=$true; $process.Kill(); $process.WaitForExit() }
     $report.ExitCode=$process.ExitCode
 } finally {
     if($null -ne $process) { if(-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }; $process.Dispose() }
@@ -86,6 +105,7 @@ try {
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEST_KEYBOARD_REPLAY',$previousReplay,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_TEMP0_DIR',$previousTemp0,'Process')
     [Environment]::SetEnvironmentVariable('SHARPEMU_SOURCE_PROFILE_ARGV',$previousArgv,'Process')
+    [Environment]::SetEnvironmentVariable('SHARPEMU_TILED_RAW_DUMP_DIR',$previousRawDump,'Process')
     $report.FinishedUtc=[DateTime]::UtcNow.ToString('o')
     # Preserve only dumps produced by this launch, never stale files from another run.
     $frameRoot=Join-Path $root 'logs'

@@ -22,6 +22,7 @@ namespace SharpEmu.Libs.VideoOut;
 
 internal static class VideoOutCpuDisplayFrames
 {
+    private static int rawSnapshotCount;
     private static readonly uint[] Columns = Enumerable.Range(0, 512).Select(x => PixelOffset((uint)x, 0, 512)).ToArray();
     private static readonly uint[] Rows = Enumerable.Range(0, 128).Select(y => PixelOffset(0, (uint)y, 512)).ToArray();
     // Single-sample 32-bit PS5 display layout observed in the open SDL backend.
@@ -41,7 +42,7 @@ internal static class VideoOutCpuDisplayFrames
         return (x / 512) * 65536 + (y / 128) * (128 * pitch) + (xTerm ^ yTerm);
     }
 
-    internal static bool TryReadTiled(CpuContext ctx, VideoOutExports.DisplayBufferInfo info, out byte[] bgra)
+    internal static bool TryReadTiled(CpuContext ctx, VideoOutExports.DisplayBufferInfo info, out byte[] bgra, string? rawSnapshotDirectory = null, string? rawSnapshotMetadata = null)
     {
         bgra = [];
         var pitch = info.PitchInPixel == 0 ? info.Width : info.PitchInPixel;
@@ -59,6 +60,25 @@ internal static class VideoOutCpuDisplayFrames
         try
         {
             if (!ctx.Memory.TryRead(info.Address, tiled.AsSpan(0, (int)count))) return false;
+            if (!string.IsNullOrWhiteSpace(rawSnapshotDirectory))
+            {
+                var snapshot = Interlocked.Increment(ref rawSnapshotCount);
+                // Opt-in forensic capture: at most 16 ordinary (<=16 MiB)
+                // sources per process; never turn this into an unbounded dump.
+                if (snapshot <= 16 && count <= 16UL * 1024 * 1024)
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(rawSnapshotDirectory);
+                        var path = Path.Combine(rawSnapshotDirectory, $"tiled-source-{snapshot:D2}-0x{info.Address:X}.bin");
+                        using (var stream = File.Create(path)) stream.Write(tiled.AsSpan(0, (int)count));
+                        if (rawSnapshotMetadata is not null)
+                            File.WriteAllText(Path.ChangeExtension(path, ".json"), rawSnapshotMetadata);
+                    }
+                    catch (IOException error) { Console.Error.WriteLine($"[LOADER][WARN] Tiled source snapshot: {error.Message}"); }
+                    catch (UnauthorizedAccessException error) { Console.Error.WriteLine($"[LOADER][WARN] Tiled source snapshot: {error.Message}"); }
+                }
+            }
             var pixels = new byte[checked((int)(info.Width * info.Height * 4))];
             var columns = new uint[info.Width];
             for (uint x = 0; x < info.Width; x++) columns[x] = (x / 512) * 65536 + Columns[x & 511];

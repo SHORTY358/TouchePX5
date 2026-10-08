@@ -7,6 +7,39 @@ and save/load. These results do not establish unchanged-release compatibility.
 
 ## Reproducible direct-level source profile (2026-10-08)
 
+### Bounded HUD forensics
+
+`Invoke-Wolf4SDLDirectLevelSmoke.ps1 -TimeoutSeconds 55 -InspectSurfaces
+-CaptureAfterFlip 1600 -SurfaceSampleStartSeconds 35` records up to four
+read-only surface samples in the caller-owned mitigated child, plus sixteen
+raw tiled sources (each <=16 MiB). Without `-InspectSurfaces`, raw capture and
+external memory reads stay disabled. The helper's private SDL offsets and ELF
+load base are specific to this pinned source profile, not arbitrary games.
+
+`py -3 tools/external-homebrew/Analyze-WolfTiledSource.py <run-directory>`
+reconstructs HUD images from captured bytes and compares them with saved BMPs.
+New captures include JSON flip/buffer/geometry metadata. Older captures have
+explicitly labeled inferred pairings, valid only for this regular single-port
+scenario. Missing BMP pairs can result from normal fingerprint deduplication.
+The offline `tools/native-probes/tiled-capture-oracle` executable can also pass
+a captured file through the production decoder; it never executes that file.
+
+Run `20261008-114710-257` had eight matching pairs and no observed HUD omission.
+Run `20261008-115543-460` with the default movement/use/fire replay had twelve
+matching pairs, including omissions reproduced directly from source bytes.
+Its sample 4 indexed and converted surfaces still contain numeric fields;
+the window surface loses most of them, and both native tiled HUD samples hash
+identically to that window sample. The samples are concurrent and cannot prove
+an atomic first divergence. Follow-up `20261008-120025-225` has seven matching
+exact-metadata pairs and retains numeric fields in its sample-4 software texture
+as well. Software scaling/blit state before display tiling is now the next
+boundary to inspect; no decoder or HUD fix is claimed.
+
+An empty keyboard replay means physical keyboard input remains enabled.
+For bounded keyboard isolation, the existing valid replay `119999:255:1` has
+no active keys during these 55-second scenarios. This does not disable physical
+controller input. Do not infer absence of all host input from an empty replay.
+
 `Invoke-Wolf4SDLUserland.ps1 -StartLevel 0` uses the engine's existing
 `--tedlevel 0 --nowait --normal` options, alongside `--configdir /temp0` when an
 isolated configuration folder is selected. No engine gameplay code is modified.

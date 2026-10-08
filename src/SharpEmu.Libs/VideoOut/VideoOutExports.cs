@@ -1805,7 +1805,13 @@ public static class VideoOutExports
         byte[]? decoded = null;
         if (attribute.TilingMode == 0 && VideoOutCpuDisplayFrames.TryReadTiled(ctx,
             new DisplayBufferInfo(slot.AddressLeft, attribute.PixelFormat, attribute.TilingMode,
-                attribute.Width, attribute.Height, attribute.PitchInPixel), out var tiledPixels))
+                attribute.Width, attribute.Height, attribute.PitchInPixel), out var tiledPixels,
+                Environment.GetEnvironmentVariable("SHARPEMU_TILED_RAW_DUMP_DIR"),
+                System.Text.Json.JsonSerializer.Serialize(new {
+                    handle = port.Handle, buffer_index = bufferIndex, flip_arg = flipArg,
+                    diagnostic_flip = flipNumber, width = attribute.Width, height = attribute.Height,
+                    pitch_in_pixel = attribute.PitchInPixel, address = slot.AddressLeft
+                })))
             decoded = tiledPixels;
         if (decoded is not null)
             fingerprint = ComputeFingerprint(decoded);
