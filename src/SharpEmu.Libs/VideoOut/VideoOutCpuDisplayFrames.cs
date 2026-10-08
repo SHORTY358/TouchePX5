@@ -15,12 +15,15 @@
 // 2. Altered source versions must be plainly marked as such, and must not be
 // misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
+using System.Buffers;
 using SharpEmu.HLE;
 
 namespace SharpEmu.Libs.VideoOut;
 
 internal static class VideoOutCpuDisplayFrames
 {
+    private static readonly uint[] Columns = Enumerable.Range(0, 512).Select(x => PixelOffset((uint)x, 0, 512)).ToArray();
+    private static readonly uint[] Rows = Enumerable.Range(0, 128).Select(y => PixelOffset(0, (uint)y, 512)).ToArray();
     // Single-sample 32-bit PS5 display layout observed in the open SDL backend.
     // Independent axis form of SDL_ps5tilemap.c's PS5_TilePixel equation, pinned
     // at ee4c47dc0d617b3bc8f35108f9956baf228a1322 (ps5-payload-dev/SDL).
@@ -49,21 +52,34 @@ internal static class VideoOutCpuDisplayFrames
         var count = ((ulong)(info.Height - 1) / 128 * (128 * pitch) +
                      (ulong)(pitch - 1) / 512 * 65536 + 65536) * 4;
         if (count > 256UL * 1024 * 1024 || info.Address > ulong.MaxValue - count) return false;
-        var tiled = new byte[(int)count];
-        if (!ctx.Memory.TryRead(info.Address, tiled)) return false;
-        var pixels = new byte[checked((int)(info.Width * info.Height * 4))];
-        for (uint y = 0; y < info.Height; y++)
-        for (uint x = 0; x < info.Width; x++)
+        // Pool ordinary display-sized scratch storage, never retain a huge
+        // diagnostic allocation. Only the fully read span is used below.
+        var pooled = count <= 16UL * 1024 * 1024;
+        var tiled = pooled ? ArrayPool<byte>.Shared.Rent((int)count) : new byte[(int)count];
+        try
         {
-            var source = checked((int)PixelOffset(x, y, pitch) * 4);
-            var target = checked((int)(y * info.Width + x) * 4);
-            if (source > tiled.Length - 4) return false;
-            pixels[target] = tiled[source + 2];
-            pixels[target + 1] = tiled[source + 1];
-            pixels[target + 2] = tiled[source];
-            pixels[target + 3] = 255;
+            if (!ctx.Memory.TryRead(info.Address, tiled.AsSpan(0, (int)count))) return false;
+            var pixels = new byte[checked((int)(info.Width * info.Height * 4))];
+            var columns = new uint[info.Width];
+            for (uint x = 0; x < info.Width; x++) columns[x] = (x / 512) * 65536 + Columns[x & 511];
+            var target = 0;
+            for (uint y = 0; y < info.Height; y++)
+            {
+                var band = (y / 128) * (128 * pitch);
+                var row = Rows[y & 127];
+                for (uint x = 0; x < info.Width; x++)
+                {
+                    var source = checked((int)(band + (columns[x] ^ row)) * 4);
+                    if (source > (int)count - 4) return false;
+                    pixels[target++] = tiled[source + 2];
+                    pixels[target++] = tiled[source + 1];
+                    pixels[target++] = tiled[source];
+                    pixels[target++] = 255;
+                }
+            }
+            bgra = pixels;
+            return true;
         }
-        bgra = pixels;
-        return true;
+        finally { if (pooled) ArrayPool<byte>.Shared.Return(tiled); }
     }
 }

@@ -62,4 +62,22 @@ public sealed class VideoOutTiledFrameTests
         Assert.False(VideoOutExports.TryReadCpuDisplayFrame(ctx, info, out var pixels));
         Assert.Empty(pixels);
     }
+
+    [Fact]
+    public void PooledScratchReadsOnlyTheRequiredSpanAndReturnedFramesOwnTheirPixels()
+    {
+        // 640x180/640-pitch requires 851968 bytes, smaller than the pool's
+        // 1048576-byte bucket. Reading the full rental would fail this memory.
+        var memory = new FakeCpuMemory(0x10000, 851968);
+        var ctx = new CpuContext(memory, Generation.Gen5);
+        var info = new VideoOutExports.DisplayBufferInfo(0x10000, 0x8000000022000000, 0, 640, 180, 640);
+        Assert.True(memory.TryWrite(0x10000, new byte[] { 11, 22, 33, 0 }));
+        Assert.True(VideoOutExports.TryReadCpuDisplayFrame(ctx, info, out var first));
+        Assert.Equal(new byte[] { 33, 22, 11, 255 }, first[..4]);
+        Assert.True(memory.TryWrite(0x10000, new byte[] { 44, 55, 66, 0 }));
+        Assert.True(VideoOutExports.TryReadCpuDisplayFrame(ctx, info, out var second));
+        Assert.Equal(new byte[] { 66, 55, 44, 255 }, second[..4]);
+        Assert.Equal(new byte[] { 33, 22, 11, 255 }, first[..4]);
+        Assert.NotSame(first, second);
+    }
 }

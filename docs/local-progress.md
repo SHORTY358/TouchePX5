@@ -6,6 +6,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **CPU tiled decoding is faster with identical benchmark pixels.** On this
+  i5-12400F, a fixed seeded 1920x1080 frame measured 14.553 -> 8.278 ms median
+  across 12 warm samples, and 17,207,432 -> 8,302,299 allocated bytes/frame.
+  Both output hashes are `2E095BE17D7AA1CA`. Axis tables avoid repeated bit
+  calculations; scratch pooling is limited to <=16 MiB requests and only the
+  required read span is used. Returned frames retain independent pixel storage.
+  Full library checks pass 1226/1226; native tiled presentation still passes.
+  Evidence: `artifacts/wolf-tiled-performance-before.log`,
+  `artifacts/wolf-tiled-performance-after.log`, `artifacts/wolf-tiled-speed-native.log`.
+  These decoder timings are not a measured game-FPS improvement.
+
 - **Wolf4SDL's level is confirmed in an actual Vulkan swapchain readback.**
   `Invoke-Wolf4SDLLevelSmoke.ps1` provides the bounded one-command scenario.
   Run `20261008-051524-780` preserves CPU snapshots and nine actual presented
