@@ -14,6 +14,14 @@ percentage or release-date estimate.
   still need verification. The next engineering check targets patterned tiled
   display output and flip completion, followed by a reproducible level launcher.
 
+- **Tiled CPU display has an independent native presentation oracle.**
+  `Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -TiledCpu` and `-Retry present`
+  both pass. Three shifted RGB stripe frames cross x=512/y=128 boundaries;
+  48 actual swapchain pixels per frame include corners, RGB and opaque alpha.
+  Guest pending/status/event assertions retain delayed completion and retry.
+  Evidence: `artifacts/wolf-tiled-native-flip.log`,
+  `artifacts/wolf-tiled-native-retry.log` and their fixture `verification.json`.
+
 - **Wolf4SDL reaches a readable sign-on, help page and main menu.** The native
   exception trampoline encoded `cmpxchg [rcx],r10` instead of its lock pointer
   `[r9]`; both paths now set REX.B. An actual emitted-handler regression checks

@@ -1,5 +1,16 @@
 # Native GPU checks
 
+PS5 CPU-tiled display integration: run
+`Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -TiledCpu`, optionally with
+`-Retry present`. This uses SetBufferAttribute2/RegisterBuffers2 and explicit
+PS5 generation, presenting three 640x180 images with shifted RGB stripes and
+a color-row shift at y=128. A separate bit-matrix fixture writes the guest
+layout; invisible storage is poisoned magenta. Actual swapchain readbacks
+check 48 positions per frame, including both sides of the x=512/y=128 tile
+boundaries and corners. Lifecycle assertions verify pending status and flip
+events before/after delayed presentation. This covers the stated RGBA32 CPU
+display layout; it does not certify GPU-written tiled resources.
+
 Run from the source checkout:
 
 ```powershell

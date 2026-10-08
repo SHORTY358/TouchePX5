@@ -5,14 +5,17 @@
 param(
     [ValidateSet('cpu','burst','direct','ordered')][string]$Mode='ordered',
     [ValidateSet('none','acquire','present')][string]$Retry='none',
-    [switch]$WindowRecovery
+    [switch]$WindowRecovery,
+    [switch]$TiledCpu
 )
 $ErrorActionPreference='Stop'
 $sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+if($TiledCpu -and ($Mode -ne 'cpu' -or $WindowRecovery)) { throw 'Tiled CPU fixture requires cpu mode without window recovery.' }
 if($WindowRecovery -and ($Mode -eq 'burst' -or $Retry -ne 'none')) {
     throw 'Window recovery requires a sequential mode and no injected retry.'
 }
 $suffix=if($WindowRecovery) { '-window' } else { '' }
+if($TiledCpu) { $suffix+='-tiled' }
 $root=Join-Path $sourceRoot "artifacts\smoke-flip-$Mode-$Retry$suffix"
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorAction SilentlyContinue
@@ -21,6 +24,7 @@ $llvm='C:\BuildTools\VC\Tools\Llvm\x64\bin'
 $defines=@()
 if($WindowRecovery) { $defines+='-DWINDOW_RECOVERY=1' }
 if($Mode -eq 'cpu') { $defines+='-DCPU_FLIP=1' }
+if($TiledCpu) { $defines+='-DTILED_CPU_FLIP=1' }
 if($Mode -eq 'burst') { $defines+=@('-DCPU_FLIP=1','-DBURST_FLIP=1') }
 if($Mode -eq 'ordered') { $defines+='-DORDERED_FLIP=1' }
 & "$llvm\clang.exe" --target=x86_64-pc-linux-gnu -O1 -ffreestanding -fno-builtin -fno-stack-protector -fpie -mno-sse @defines -c (Join-Path $fixture 'flip-lifecycle.c') -o (Join-Path $root 'guest.o')
@@ -54,7 +58,9 @@ try {
         $previous[$key]=[Environment]::GetEnvironmentVariable($key,'Process')
         [Environment]::SetEnvironmentVariable($key,$settings[$key],'Process')
     }
-    $process=Start-Process -FilePath (Join-Path $sourceRoot 'artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe') -ArgumentList @('--cpu-engine=native','--fps-limit=60','--log-level=info',"--log-file=$log",$guest) -WindowStyle Hidden -PassThru
+    $arguments=@('--cpu-engine=native','--fps-limit=60','--log-level=info',"--log-file=$log",$guest)
+    if($TiledCpu) { $arguments=@('--generation=ps5')+$arguments }
+    $process=Start-Process -FilePath (Join-Path $sourceRoot 'artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
     try {
         $timeoutMs=if($WindowRecovery) { 120000 } else { 45000 }
         if(-not $process.WaitForExit($timeoutMs)) {
@@ -89,7 +95,8 @@ try {
             throw 'The live image overwrite did not execute between capture and presentation.'
         }
     }
-    & py -3 (Join-Path $PSScriptRoot 'verify-flip-lifecycle.py') $log $Mode (Join-Path $root 'verification.json')
+    $pixelMode=if($TiledCpu) { 'tiled' } else { $Mode }
+    & py -3 (Join-Path $PSScriptRoot 'verify-flip-lifecycle.py') $log $pixelMode (Join-Path $root 'verification.json')
     if($LASTEXITCODE -ne 0) { throw 'Presented pixel oracle failed.' }
     Write-Output "PASS flip lifecycle mode=$Mode retry=$Retry windowRecovery=$WindowRecovery; status, pending, events and pixels: $log"
 } finally {

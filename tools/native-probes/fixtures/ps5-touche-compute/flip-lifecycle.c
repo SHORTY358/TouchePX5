@@ -26,6 +26,27 @@ static u64 event_queue;
 static u64 expected_count;
 static u64 status_words[16];
 static u64 event_words[4];
+#ifdef TILED_CPU_FLIP
+extern int (*attribute2_slot)(void*,u64,u32,u32,u32,u64,u32,u64);
+extern int (*register2_slot)(int,int,int,void*,int,void*,u32,u64);
+static u64 tiled_attribute[10];
+static u64 tiled_descriptor[4];
+static u32 tiled_pixels[1024*256] __attribute__((aligned(256)));
+// Independent bit-matrix reference for the pinned open SDL PS5 address layout.
+// Tests use a 640x180 visible image across X/Y tile boundaries.
+static u32 tiled_offset(u32 x,u32 y) {
+    const u32 x_bits[9]={0,1,5,6,7,9,8,14,15};
+    const u32 y_bits[7]={2,3,4,6,7,8,9};
+    u32 within=0;
+    for(u32 bit=0;bit<9;bit++) within^=((x>>bit)&1u)<<x_bits[bit];
+    for(u32 bit=0;bit<7;bit++) within^=((y>>bit)&1u)<<y_bits[bit];
+    within^=((x>>4)&1u)<<11;
+    within^=((x>>6)&1u)<<13;
+    within^=((y>>3)&1u)<<10;
+    within^=((y>>6)&1u)<<12;
+    return (x/512)*65536+(y/128)*81920+within;
+}
+#endif
 
 static int checked_flip(int video,int index,int mode,u64 arg) {
     if(expected_count==0 && add_flip_event_slot(event_queue,video,(void*)0x1234)!=0) return 101;
@@ -102,9 +123,15 @@ int _start(void) {
 #ifdef CPU_FLIP
     int video=open_slot(0,0,0,(void*)0);
     if(video<=0) return 112;
+#ifdef TILED_CPU_FLIP
+    if(attribute2_slot(tiled_attribute,0x8000000022000000ULL,0,640,180,0,0,0)!=0) return 113;
+    tiled_descriptor[0]=(u64)tiled_pixels;
+    if(register2_slot(video,0,0,tiled_descriptor,1,tiled_attribute,0,0)<0) return 114;
+#else
     if(attribute_slot(attribute,0x80000000,1,0,320,180,320)!=0) return 113;
     addresses[0]=(u64)pixels;
     if(register_slot(video,0,addresses,1,attribute)<0) return 114;
+#endif
     const u32 colors[6]={0xffff0000,0xff00ff00,0xff0000ff,0xffffff00,0xff00ffff,0xffff00ff};
     result=0;
 #ifdef BURST_FLIP
@@ -123,7 +150,15 @@ int _start(void) {
     if(status_words[0]!=6 || status_words[0x18/8]!=5 || pending_slot(video)!=0) return 119;
 #else
     for(u32 frame=0;frame<3;frame++) {
+#ifdef TILED_CPU_FLIP
+        // Poison invisible padding: a linear read or wrong pitch cannot pass.
+        for(u32 i=0;i<1024*256;i++) tiled_pixels[i]=0xffff00ff;
+        const u32 rgba[3]={0xff0000ff,0xff00ff00,0xffff0000};
+        for(u32 y=0;y<180;y++) for(u32 x=0;x<640;x++)
+            tiled_pixels[tiled_offset(x,y)]=rgba[(x*3/640+frame+(y>=128))%3];
+#else
         for(u32 i=0;i<320*180;i++) pixels[i]=colors[frame];
+#endif
         result=checked_flip(video,0,1,frame);
         if(result) break;
     }

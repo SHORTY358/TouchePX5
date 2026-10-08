@@ -9,12 +9,12 @@ from pathlib import Path
 
 log, mode, output = sys.argv[1:]
 captures = re.findall(r"vk.swapchain_dump path=([^\r\n]+)", Path(log).read_text(encoding="utf-8-sig"))
-expected = [(255, 0, 0), (0, 255, 0), (0, 0, 255)] if mode in ("cpu", "burst") else [(32, 32, 32), (255, 0, 0), (0, 0, 255)]
+expected = [(255, 0, 0), (0, 255, 0), (0, 0, 255)] if mode in ("cpu", "burst", "tiled") else [(32, 32, 32), (255, 0, 0), (0, 0, 255)]
 if mode == "burst":
     expected += [(255,255,0), (0,255,255), (255,0,255)]
 assert len(captures) == len(expected), f"Expected {len(expected)} presented frames, found {len(captures)}"
 checks = []
-for name, rgb in zip(captures, expected):
+for frame, (name, rgb) in enumerate(zip(captures, expected)):
     match = re.search(r"-(\d+)x(\d+)-(\w+)\.bgra$", name)
     assert match, name
     w, h = map(int, match.group(1, 2))
@@ -26,11 +26,19 @@ for name, rgb in zip(captures, expected):
     positions = [(w*x//20, h*y//20) for x in range(4,7) for y in range(8,12)]
     if mode in ("cpu", "burst"):
         positions += [(0,0), (w-1,0), (0,h-1), (w-1,h-1)]
+    if mode == "tiled":
+        positions = [((2*x+1)*w//1280, (2*y+1)*h//360) for x in (0, 100, 300, 500, 511, 512, 600, 639)
+                     for y in (0, 50, 127, 128, 160, 179)]
     for x, y in positions:
+        if mode == "tiled":
+            rgb = expected[((x*3//w) + frame + (y*180//h >= 128)) % 3]
         offset = (y*w+x)*4
         pixel = tuple(data[offset:offset+3])
         observed = pixel[::-1] if match.group(3).startswith("B8") else pixel
         assert observed == rgb, (name, x, y, observed, rgb)
-    checks.append({"capture": name, "rgb": rgb, "checked_pixels": len(positions)})
+        if mode == "tiled":
+            assert data[offset+3] == 255, (name, x, y, "alpha", data[offset+3])
+    checks.append({"capture": name, "pattern": "three shifted RGB stripes; row shift at 128/180" if mode == "tiled" else None,
+                   "rgb": None if mode == "tiled" else rgb, "checked_pixels": len(positions)})
 Path(output).write_text(json.dumps({"mode": mode, "frames": checks, "passed": True}, indent=2), encoding="utf-8")
 print(f"PASS: {len(checks)} independently verified displayed colors")

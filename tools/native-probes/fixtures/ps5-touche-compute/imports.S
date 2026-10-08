@@ -48,6 +48,8 @@ IMPORT create_eq_slot, "D0OdFMjp46I#C#C", 11
 IMPORT wait_eq_slot, "fzyMKs9kim0#C#C", 12
 IMPORT delete_eq_slot, "jpFjmgAC5AE#C#C", 13
 IMPORT add_flip_event_slot, "HXzjK9yI30k#B#B", 14
+IMPORT attribute2_slot, "PjS5uASwcV8#B#B", 15
+IMPORT register2_slot, "rKBUtgRrtbk#B#B", 16
 #endif
 .section .guest_dynstr,"a"
 guest_dynstr_end:
