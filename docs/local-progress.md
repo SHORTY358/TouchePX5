@@ -6,6 +6,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Wolf4SDL produces real PCM audio alongside a correct presented HUD.**
+  Run `20261008-054532-611` opened the Windows `winmm` backend at 48 kHz,
+  stereo s16. Its opt-in diagnostic tap contains 56.96 seconds / 2,734,080
+  frames, peak 0.7366, RMS 0.0751, 4,964,978 nonzero samples and no clipped
+  samples. `av-check/20261008-054532-491/audio-stereo-s16le.analysis.json`
+  records the hash/measurements, with a WAV for later listening. This proves
+  non-silent game submissions, not audible speaker output or audio fidelity.
+  Its tenth actual Vulkan readback (`presented-level.png`) shows the complete
+  HUD, health 100 and ammo 7. An earlier intermittent HUD omission is still
+  not fully explained. The audio output trace now uses the selected backend
+  name instead of incorrectly labeling every non-NULL stream `coreaudio`.
+
 - **Wolf4SDL can write a save and load it in a fresh process.** The explicit
   source profile now supports an isolated writable `/temp0` configuration
   directory via `Invoke-Wolf4SDLUserland.ps1 -ConfigSubdirectory <name>`.

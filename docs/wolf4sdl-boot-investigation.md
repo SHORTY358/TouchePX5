@@ -377,3 +377,25 @@ slot `sol2` and ammo 7; phase-two captures and read trace must still be inspecte
 The first scenario revision missed its final confirmation near the wall-clock
 deadline and correctly failed because no save existed. Fixed-time test input
 is not a proof of physical keyboard usability or a reliable unattended game bot.
+
+### Native audio signal and a repeated presented HUD
+
+Run `20261008-054532-611` captured actual swapchain frames every 101 presents
+(odd stride samples alternating display buffers) and a raw AudioOut diagnostic
+tap. The latest readback under `av-check/20261008-054532-491` contains the
+complete level/HUD/weapon, health 100 and ammo 7. Both decoded CPU buffers also
+show the HUD. This successful repeat does not establish the root cause of the
+earlier intermittent missing HUD portions in run `20261008-052037-377`.
+
+The runtime opened the Windows `winmm` stream at 48 kHz, stereo s16, and emitted
+nonzero audio peaks. The raw tap is 10,936,320 bytes / 2,734,080 stereo frames
+(56.96 seconds), normalized peak 0.736572, RMS 0.075055, 4,964,978 nonzero
+samples out of 5,468,160, and no full-scale clipped samples. SHA256:
+`a3f6226f4534026f57e3276eca8f3abc69e84e88c14e21d5949fee3a4c605ced`.
+`Analyze-AudioPcm.py <tap.pcm> --rate 48000` writes an analysis report and
+lossless WAV without playing it. A known-sample fixture separately checks
+stereo bytes, peaks, clipping, duration and malformed-frame rejection.
+No audible speaker or correctness-of-music claim is made from signal amplitude.
+
+The output trace had hard-coded `coreaudio` for every non-NULL host backend;
+it now carries the backend name selected at port creation, including tests.
