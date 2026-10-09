@@ -53,3 +53,33 @@ need careful scope boundaries; references are not console validation.
 depth-tested scene. Its native build requires public GFX1013 LLPC and a pinned
 native foundation; those dependencies have not been built here. The simpler
 cube already exposes the first actual compatibility gap without that setup.
+
+## Initializer implemented — 9 October 2026
+
+The real one-argument `kW3GLb7QfPg` entry now consumes RDI, creates the existing
+managed register-default tables and stores initialization per guest memory.
+The two-argument entry keeps RSI as revision and is named `sceAgcInit_0090`.
+Unversioned public/internal defaults accessors return null before initialization
+and the corresponding guest allocation afterward. Invalid reinitialization
+preserves the prior state. This uses the existing supported revisions and
+existing tables; it does not establish console-accurate defaults for every
+firmware/revision, packet-mode workarounds or the complete driver setup.
+
+API distinctions were researched in OpenAGC, but no Apache-licensed source body
+was copied. New C# implementation uses local primitives. SharpEmu upstream
+`b02c06181a` was inspected separately: its initialization is now split into
+`AgcExports.Init.cs`, with compact versioned defaults. Whole-file replacement
+would conflict with local changes and requires an independent migration.
+
+CLI builds with zero warnings/errors; all 1248 library tests pass. New checks
+cover both register conventions, initialization-dependent access, guest
+isolation and rejection without losing earlier defaults. Native corrected cube
+run `runtime-initializer-fixed.log` moves from missing init at import 5 to
+missing `sceAgcLinkShaders` (`MqAdbRMdNz4`) at import 69. It passes both
+CreateShader calls and the source's resource-descriptor checks before that.
+Notifications remain unresolved; they are ignored by this sample but still
+record a dispatcher error. Host exit is still 4; no cube pixels are claimed.
+
+Next: establish shader-link output records using independent public references
+and the actual mesh shader metadata. Do not return fake success or substitute
+our synthetic shaders to declare this external renderer working.

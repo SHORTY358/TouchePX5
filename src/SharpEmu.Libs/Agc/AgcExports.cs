@@ -810,13 +810,17 @@ public static partial class AgcExports
         uint Type,
         RegisterDefaultValue[] Registers);
 
-    private sealed record RegisterDefaultsAllocation(ulong Primary, ulong Internal);
+    private sealed record RegisterDefaultsAllocation(ulong Primary, ulong Internal)
+    {
+        public uint? InitializedVersion { get; set; }
+    }
 
-    // NID captured from shipped titles; 'sceAgcInit' is a working label that collides with a real catalog symbol of a different NID. Rename pending AGC API confirmation.
+    // Public ABI distinction documented by OpenAGC game_compat.c:
+    // 23LRUSvYu1M takes (state, revision); kW3GLb7QfPg takes only revision.
     #pragma warning disable SHEM004
     [SysAbiExport(
         Nid = "23LRUSvYu1M",
-        ExportName = "sceAgcInit",
+        ExportName = "sceAgcInit_0090",
         Target = Generation.Gen5,
         LibraryName = "libSceAgc")]
     public static int Init(CpuContext ctx)
@@ -828,10 +832,48 @@ public static partial class AgcExports
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
 
-        TraceAgc($"agc.init state=0x{stateAddress:X16} version={version}");
-        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+        TraceAgc($"agc.init_0090 state=0x{stateAddress:X16} version={version}");
+        return InitializeRegisterDefaults(ctx, version);
     }
     #pragma warning restore SHEM004
+
+    [SysAbiExport(Nid = "kW3GLb7QfPg", ExportName = "sceAgcInit",
+        Target = Generation.Gen5, LibraryName = "libSceAgc")]
+    public static int InitPublic(CpuContext ctx) =>
+        InitializeRegisterDefaults(ctx, (uint)ctx[CpuRegister.Rdi]);
+
+    private static int InitializeRegisterDefaults(CpuContext ctx, uint version)
+    {
+        if (!IsSupportedRegisterDefaultsVersion(version))
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        lock (_registerDefaultsGate)
+        {
+            if (!TryGetRegisterDefaultsAllocation(ctx, out var allocation))
+                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+            allocation.InitializedVersion = version;
+        }
+        TraceAgc($"agc.init_public version={version}");
+        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+    }
+
+    [SysAbiExport(Nid = "Wi82ArQtAwg", ExportName = "sceAgcGetRegisterDefaults",
+        Target = Generation.Gen5, LibraryName = "libSceAgc")]
+    public static int GetRegisterDefaults(CpuContext ctx) => ReturnInitializedRegisterDefaults(ctx, false);
+
+    [SysAbiExport(Nid = "uIwxsqDlHRc", ExportName = "sceAgcGetRegisterDefaultsInternal",
+        Target = Generation.Gen5, LibraryName = "libSceAgc")]
+    public static int GetRegisterDefaultsInternal(CpuContext ctx) => ReturnInitializedRegisterDefaults(ctx, true);
+
+    private static int ReturnInitializedRegisterDefaults(CpuContext ctx, bool internalDefaults)
+    {
+        lock (_registerDefaultsGate)
+        {
+            if (!_registerDefaultsAllocations.TryGetValue(ctx.Memory, out var allocation) ||
+                allocation.InitializedVersion is null)
+                return ReturnPointer(ctx, 0);
+            return ReturnPointer(ctx, internalDefaults ? allocation.Internal : allocation.Primary);
+        }
+    }
 
     [SysAbiExport(
         Nid = "2JtWUUiYBXs",

@@ -6,6 +6,14 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **The independent cube passes AGC initialization and shader creation.**
+  Real one-argument init and initialization-dependent defaults accessors now
+  use the correct argument registers and guest-isolated state. CLI build has
+  zero warnings/errors; all 1248 library checks pass. Corrected-input native
+  cube execution reaches import 69, missing `sceAgcLinkShaders`, instead of
+  failing at init import 5. Notifications also remain unresolved. No pixels
+  have been drawn; the next gap is genuine shader linkage.
+
 - **Wolf basic play is user-confirmed.** The user confirms the title-bar mouse
   fix works, the first level was completed, level transitions work, the saved
   game loaded after a process restart, and audio matches the game. These are
