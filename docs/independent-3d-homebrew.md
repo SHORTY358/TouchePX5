@@ -83,3 +83,79 @@ record a dispatcher error. Host exit is still 4; no cube pixels are claimed.
 Next: establish shader-link output records using independent public references
 and the actual mesh shader metadata. Do not return fake success or substitute
 our synthetic shaders to declare this external renderer working.
+
+## Partial independent rendering — 9 October 2026
+
+`sceAgcLinkShaders` now exposes an explicitly experimental composition of the
+existing local primitive-state and interpolant-mapping routines: two CX
+primitive records followed by 32 interpolant records and three UCONFIG records.
+The caller's 34/3 buffers are direct evidence for the extent, while the
+composition is an engineering inference, not an independently verified complete
+firmware implementation. Support is restricted to type-2 geometry plus type-1
+pixel shaders, triangle primitive 4 and no hull shader. Other configurations
+are rejected. Tests use reordered semantics and check the actual export-slot
+mapping rather than always assuming identity.
+
+OpenAGC `src/game_compat.c` at the previously pinned revision was inspected for
+DRAW_INDEX_2 field order: maximum count, 64-bit base, count, initiator. No
+Apache-licensed implementation body was copied. The local draw export formerly
+accepted only initiator `0x40000000`, returning null for the cube's ordinary 0.
+It now accepts both known variants and preserves the initiator. Zero-count
+packets use maximum count 1 while keeping draw count 0. Packet-layout checks
+cover both variants and zero-count behavior.
+
+The sample's 3120-byte type-0 text notification now validates and delivers its
+message to the emulator log. This is a log backend, not host desktop banners
+or complete console notification-service emulation. Invalid, unmapped and
+unterminated requests fail explicitly.
+
+Native execution `runtime-indexed.log` reaches actual translated indexed draws.
+`capture-rotation` contains four distinct Vulkan swapchain readbacks; a decoded
+`rotation-contact-sheet.bmp` was visually inspected and shows changing cube
+faces. **It also shows trails.** The source clears its framebuffer each frame
+through direct CPU stores. Repeated CPU clearing of the GPU-owned image is not
+correctly observed, so this is not a clean-animation pass. Flip resource-busy
+messages also occur and require separate pacing/backpressure investigation.
+
+The host return trampoline formerly overwrote guest RAX with the TlsGetValue
+result; it now preserves the guest value in Win64-nonvolatile R12 until the
+host stack is restored. The normal entry wrapper now loads initial RAX from
+the guest CPU context instead of leaving the function pointer in it (which
+made the no-op `_fini` look like a nonzero return). Reproduction:
+`tools/native-probes/Test-TouchePX5-EntryExit.ps1` builds tiny native fixtures
+with the same unchanged startup and verifies explicit exit 0 and exit 7.
+Both pass; the CLI returns 0 and 4 respectively, so failure is not masked.
+All 1257 library tests pass after these changes.
+
+Final built-revision replay `runtime-final-linkage.log` completes the corrected
+cube and unchanged startup/finalizer with `ORBIS_GEN2_OK`, no LastError, and
+host exit 0. This confirms process completion, not visual correctness of the
+remaining framebuffer-clear behavior.
+
+Next: correct CPU/GPU ownership and visibility of framebuffer writes without
+discarding GPU results, then verify clean rotation, capture stability and
+presentation completion. Preserve the unchanged-input / init-ABI-corrected
+input distinction; all rendering observations above use `app-init-abi.elf`.
+
+### Sample-scoped CPU-write tracking replay
+
+The existing guest-image tracker is off by default on Windows because native
+page-fault synchronization regresses some other titles. A separate bounded
+replay with `SHARPEMU_GUEST_IMAGE_CPU_SYNC=1` completes with host exit 0 and
+produces four distinct presented readbacks. The decoded contact sheet
+`capture-cpu-sync/rotation-contact-sheet.bmp` was visually inspected: the
+background has the source's dark color and old cube positions no longer trail.
+This resolves the observed clearing problem for this sample configuration;
+it does not justify enabling the setting globally or declaring all image
+ownership/coherency behavior solved.
+
+`tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1` preserves/restores the
+calling shell's environment, selects this setting only for the owned test
+process, records the input hash and init-ABI correction, bounds execution,
+and requires completion plus at least two distinct presented captures.
+Its report explicitly does not equate different frame hashes with automatic
+visual correctness. Main/exit/finalizer all succeed in this profile.
+
+Next: repeated capture validation and GPU validation diagnostics, especially
+busy flips and synchronization while reusing the two command/resource buffers;
+then the next independent scene with depth and textures.

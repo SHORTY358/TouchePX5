@@ -6,6 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Independent cube now reaches real indexed GPU rendering.** Experimental
+  non-tessellated triangle linkage combines existing primitive-state and
+  semantic-mapping helpers. Ordinary zero-initiator indexed draws now emit
+  DRAW_INDEX_2 instead of silently returning null. Text notifications reach
+  the emulator log. Four Vulkan swapchain readbacks show changing cube faces;
+  the default Windows configuration leaves trails. A second captured run with
+  sample-scoped `SHARPEMU_GUEST_IMAGE_CPU_SYNC=1` correctly clears the background;
+  its four-frame contact sheet was visually inspected. The corrected-input
+  cube completes its 600-frame source loop and exits successfully. This is
+  independent basic-3D evidence, not commercial-game compatibility.
+  All 1257 library checks pass. Native exit probes preserve both 0 and 7;
+  exit 0 succeeds and exit 7 remains a host failure. Guest RAX is preserved
+  across the host-stack TLS lookup and initialized from the CPU context.
+  Reproduce with `tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1`; the
+  CPU-write tracking setting is not enabled globally for other games.
+
 - **The independent cube passes AGC initialization and shader creation.**
   Real one-argument init and initialization-dependent defaults accessors now
   use the correct argument registers and guest-isolated state. CLI build has

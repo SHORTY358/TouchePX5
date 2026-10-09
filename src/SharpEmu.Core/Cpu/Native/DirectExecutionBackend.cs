@@ -2449,6 +2449,12 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 		byte* code = (byte*)ptr;
 		int offset = 0;
+		// TlsGetValue returns the host-stack slot in RAX. Keep the guest's
+		// return/exit value in Win64-nonvolatile R12 until that lookup finishes;
+		// the saved host R12 is restored below after switching stacks.
+		EmitByte(code, ref offset, 0x49); // mov r12, rax
+		EmitByte(code, ref offset, 0x89);
+		EmitByte(code, ref offset, 0xC4);
 		EmitByte(code, ref offset, 0x48); // sub rsp, 0x20
 		EmitByte(code, ref offset, 0x83);
 		EmitByte(code, ref offset, 0xEC);
@@ -2469,6 +2475,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		EmitByte(code, ref offset, 0x8B);
 		EmitByte(code, ref offset, 0x20);
 		EmitHostNonvolatileXmmRestore(code, ref offset);
+		EmitByte(code, ref offset, 0x4C); // mov rax, r12
+		EmitByte(code, ref offset, 0x89);
+		EmitByte(code, ref offset, 0xE0);
 		EmitByte(code, ref offset, 0x41); EmitByte(code, ref offset, 0x5F);
 		EmitByte(code, ref offset, 0x41); EmitByte(code, ref offset, 0x5E);
 		EmitByte(code, ref offset, 0x41); EmitByte(code, ref offset, 0x5D);
@@ -6166,8 +6175,18 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			ptr2[num3++] = 184;
 			*(ulong*)(ptr2 + num3) = entryPoint;
 			num3 += 8;
-			ptr2[num3++] = byte.MaxValue;
-			ptr2[num3++] = 208;
+			// Do not expose the function address as the initial guest RAX.
+			// In particular a void/no-op _fini returns without changing RAX.
+			ptr2[num3++] = 0x49; // mov r11, rax
+			ptr2[num3++] = 0x89;
+			ptr2[num3++] = 0xC3;
+			ptr2[num3++] = 0x48; // mov rax, initial guest RAX
+			ptr2[num3++] = 0xB8;
+			*(ulong*)(ptr2 + num3) = context[CpuRegister.Rax];
+			num3 += 8;
+			ptr2[num3++] = 0x41; // call r11
+			ptr2[num3++] = 0xFF;
+			ptr2[num3++] = 0xD3;
 			int num4 = num3 + 4;
 			ptr2[num3++] = 72;
 			ptr2[num3++] = 131;

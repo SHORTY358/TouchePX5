@@ -980,6 +980,67 @@ public static partial class AgcExports
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
+    [SysAbiExport(
+        Nid = "MqAdbRMdNz4",
+        ExportName = "sceAgcLinkShaders",
+        Target = Generation.Gen5,
+        LibraryName = "libSceAgc")]
+    public static int LinkShaders(CpuContext ctx)
+    {
+        // Experimental non-tessellated path: 2 primitive CX records followed
+        // by 32 interpolant CX records, plus 3 primitive UCONFIG records.
+        // This composition follows the independent ps5link-sdk cube caller;
+        // it is not a verified implementation of every firmware variant.
+        var cx = ctx[CpuRegister.Rdi];
+        var uc = ctx[CpuRegister.Rsi];
+        var hull = ctx[CpuRegister.Rdx];
+        var geometry = ctx[CpuRegister.Rcx];
+        var pixel = ctx[CpuRegister.R8];
+        var primitive = ctx[CpuRegister.R9];
+        if (cx == 0 || uc == 0 || geometry == 0 || pixel == 0 || hull != 0 ||
+            primitive != 4 || cx > ulong.MaxValue - 272 || uc > ulong.MaxValue - 24 ||
+            geometry > ulong.MaxValue - 0x60 || pixel > ulong.MaxValue - 0x60)
+        {
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        if (!TryReadByte(ctx, geometry + ShaderTypeOffset, out var geometryType) ||
+            !TryReadByte(ctx, pixel + ShaderTypeOffset, out var pixelType) ||
+            !TryReadUInt32(ctx, pixel + ShaderNumInputSemanticsOffset, out var inputs) ||
+            !TryReadUInt16(ctx, geometry + ShaderNumOutputSemanticsOffset, out var outputs))
+        {
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+        if (geometryType != GsShaderType || pixelType != PsShaderType || inputs > 32 || outputs > 32)
+        {
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        try
+        {
+            ctx[CpuRegister.R8] = primitive;
+            var result = CreatePrimState(ctx);
+            if (result != (int)OrbisGen2Result.ORBIS_GEN2_OK)
+                return result;
+
+            ctx[CpuRegister.Rdi] = cx + 16;
+            ctx[CpuRegister.Rsi] = geometry;
+            ctx[CpuRegister.Rdx] = pixel;
+            result = CreateInterpolantMapping(ctx);
+            TraceAgc($"agc.link_shaders cx=0x{cx:X16} uc=0x{uc:X16} gs=0x{geometry:X16} ps=0x{pixel:X16} result={result}");
+            return result;
+        }
+        finally
+        {
+            ctx[CpuRegister.Rdi] = cx;
+            ctx[CpuRegister.Rsi] = uc;
+            ctx[CpuRegister.Rdx] = hull;
+            ctx[CpuRegister.Rcx] = geometry;
+            ctx[CpuRegister.R8] = pixel;
+            ctx[CpuRegister.R9] = primitive;
+        }
+    }
+
     // NID captured from shipped titles; the friendly name collides with a real catalog symbol of a different NID. Rename pending AGC API confirmation.
     #pragma warning disable SHEM004
     [SysAbiExport(
@@ -2159,7 +2220,9 @@ public static partial class AgcExports
         var indexAddress = ctx[CpuRegister.Rdx];
         var modifier = (uint)ctx[CpuRegister.Rcx];
 
-        if (commandBufferAddress == 0 || modifier != 0x4000_0000)
+        // Zero is the ordinary indexed-draw initiator used by public
+        // homebrew. Retain the previously accepted title variant as well.
+        if (commandBufferAddress == 0 || modifier is not (0 or 0x4000_0000))
         {
             return ReturnPointer(ctx, 0);
         }
@@ -2181,11 +2244,11 @@ public static partial class AgcExports
         // the submitted-command parser and the complete scene was discarded.
         if (!TryAllocateCommandDwords(ctx, commandBufferAddress, 6, out var drawCommand) ||
             !TryWriteUInt32(ctx, drawCommand, Pm4(6, ItDrawIndex2, 0)) ||
-            !TryWriteUInt32(ctx, drawCommand + 4, indexCount) ||
+            !TryWriteUInt32(ctx, drawCommand + 4, Math.Max(indexCount, 1u)) ||
             !TryWriteUInt32(ctx, drawCommand + 8, (uint)indexAddress) ||
             !TryWriteUInt32(ctx, drawCommand + 12, (uint)(indexAddress >> 32)) ||
             !TryWriteUInt32(ctx, drawCommand + 16, indexCount) ||
-            !TryWriteUInt32(ctx, drawCommand + 20, 0))
+            !TryWriteUInt32(ctx, drawCommand + 20, modifier))
         {
             return ReturnPointer(ctx, 0);
         }
