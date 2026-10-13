@@ -6,6 +6,35 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **A separate Gears initializer variant now reaches actual shader creation/linking.**
+  `Build-GearsNativeWindows.ps1 -PublicInitAbi` creates an isolated GPL-3.0 main
+  overlay using the public one-argument `sceAgcInit(revision=8)` ABI; 8 is an
+  explicitly selected supported revision, not inferred from the original size.
+  Original upstream sources, original native title and actual shader bytes are
+  unchanged. Variant SELF SHA256
+  `5173C777B38322BB7FC45C1C01EBB43B6DBF392CCF449A4D7B7E56E38619A242`.
+  First variant boot exposed missing `sceVideoOutDeleteFlipEvent` during cleanup,
+  not at the original failure. Implemented its generated NID export with port/
+  queue validation and removal of that port/queue's future notifications. The
+  regression completes a pending flip after deletion without a notification,
+  preserves another port, and restores notification delivery after re-add.
+  Full Release library suite 1277/1277 passes and CLI rebuild succeeds.
+
+  Trace boot `gears-public-init-windows/runs/20261013-112641-728` now confirms
+  initializer success, two 1920x1080 buffers, both real shader objects and shader
+  linking. Separate `-PublicInitAbi -BootDiagnostics` adds only failure-stage
+  writes to stderr, retaining all checks/cleanup and preserving the first variant.
+  Diagnostic SELF `43C3C8F04A90EF4B69196DBC1AA9198401C52E51C57578A1956BB5591292B96E`,
+  run `gears-public-init-diagnostics/runs/20261013-112749-596`, identifies the
+  actual current stop as `color_defaults`. **No submitted/rendered frame.**
+  Gears' selector requires exactly 137 FW12.02 defaults and 8-byte type/index
+  records; our retained OpenAGC reference and HLE builder use 12-byte records.
+  Next: independently compare versioned defaults/layout contracts before changing
+  either implementation. Do not fabricate counts or bypass MRT0 register checks.
+  The later shader SRD aperture check also expects a high 32-bit value of 2;
+  current shader allocation is at 0x18020000, so that address contract remains
+  a separate possible follow-up after defaults selection is resolved.
+
 - **The complete upstream Gears host gate now passes, and native bootstrap runs.**
   Isolated Cygwin 2.937 setup was checked against Cygwin's published SHA512;
   its normal signed repository/package verification stays enabled. No elevation,

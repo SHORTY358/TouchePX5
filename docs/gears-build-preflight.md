@@ -40,6 +40,34 @@ Do not promote build/metadata checks to game or renderer compatibility.
 
 ## Complete host gate and first native boot
 
+### Subsequent initializer variant and current blocker
+
+The original title remains intact. `Build-GearsNativeWindows.ps1 -PublicInitAbi`
+creates `gears-public-init-windows` with one local GPL-3.0 main overlay: an alias
+to the same public `sceAgcInit` symbol called with explicit supported revision 8.
+This corrects the call ABI without changing public HLE validation. Its real
+shader payloads are reused unchanged from the verified original build. Separate
+`-BootDiagnostics` output is under `gears-public-init-diagnostics` and adds only
+stderr failure-stage reporting, not substitutions or skipped checks.
+
+```powershell
+& tools/external-homebrew/Build-GearsNativeWindows.ps1 -PublicInitAbi
+& tools/external-homebrew/Invoke-GearsNative.ps1 -PublicInitAbi
+& tools/external-homebrew/Build-GearsNativeWindows.ps1 -PublicInitAbi -BootDiagnostics
+& tools/external-homebrew/Invoke-GearsNative.ps1 -PublicInitAbi -BootDiagnostics
+```
+
+The first variant failed in missing flip-event deletion during cleanup. That
+export is now implemented; its lifecycle regression verifies no future event
+after deletion, independent other-port delivery and re-registration. Full library
+suite 1277/1277 and Windows CLI rebuild pass. Trace run `20261013-112641-728`
+confirms initialization, two display buffers, both shader objects and linking.
+Diagnostic run `20261013-112749-596` proves the real failure is `color_defaults`.
+Gears requires 137 FW12.02 groups and an 8-byte type/index stride; current HLE
+and retained OpenAGC build 12-byte type/index records. Next compare actual
+versioned ABI/data contracts independently, retaining strict key/bank/register
+checks. No frame/rendering or game compatibility is demonstrated.
+
 `Setup-GearsCygwin.ps1` isolates the official setup/tools under artifacts, checks
 the published installer SHA512, keeps signed package checks, and avoids elevation,
 global PATH/shortcuts/installation-root registry changes. `Test-GearsCygwin.ps1`

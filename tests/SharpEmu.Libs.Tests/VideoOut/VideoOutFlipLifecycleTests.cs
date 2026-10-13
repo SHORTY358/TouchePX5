@@ -131,6 +131,27 @@ public sealed class VideoOutFlipLifecycleTests
         Assert.Equal(!presented, ticket.IsCancelled);
     }
 
+    [Fact]
+    public async Task DeletingFlipRegistrationSuppressesLateNotificationsButPreservesOtherPortsAndReAdd()
+    {
+        using var first = new Port();
+        using var second = new Port();
+        var pending = first.Begin(11);
+        Assert.NotEqual(0, first.RemoveFlipEvent(invalidQueue: true));
+        Assert.Equal(0, first.RemoveFlipEvent());
+        pending.Presented();
+        second.Begin(22).Presented();
+        await DrainNotifications();
+        Assert.Equal((1UL, 0, 11L), first.Status());
+        Assert.False(first.TakeEvent(out _));
+        Assert.True(second.TakeEvent(out _));
+        first.AddFlipEvent();
+        first.Begin(33).Presented();
+        await DrainNotifications();
+        Assert.True(first.TakeEvent(out var data));
+        Assert.Equal(33UL, data >> 16);
+    }
+
     // Enqueue a barrier behind preceding notifications without sleeps or GPU startup.
     private static async Task DrainNotifications()
     {
@@ -166,6 +187,24 @@ public sealed class VideoOutFlipLifecycleTests
         {
             Assert.Equal(0, VideoOutExports.BeginFlip(Handle, -1, arg, out var ticket));
             return Assert.IsType<GuestPresentationCompletion>(ticket);
+        }
+
+        public int RemoveFlipEvent(bool invalidQueue = false)
+        {
+            var manager = new ModuleManager();
+            manager.RegisterExports(SharpEmu.Generated.SysAbiExportRegistry.CreateExports(Generation.Gen5));
+            Assert.True(manager.TryGetExport("-Ozn0F1AFRg", out var export));
+            Assert.Equal("sceVideoOutDeleteFlipEvent", export.Name);
+            _context[CpuRegister.Rdi] = invalidQueue ? ulong.MaxValue : _equeue;
+            _context[CpuRegister.Rsi] = (ulong)Handle;
+            return (int)manager.Dispatch("-Ozn0F1AFRg", _context);
+        }
+
+        public void AddFlipEvent()
+        {
+            _context[CpuRegister.Rdi] = _equeue;
+            _context[CpuRegister.Rsi] = (ulong)Handle;
+            Assert.Equal(0, VideoOutExports.VideoOutAddFlipEvent(_context));
         }
 
         public (ulong Count, int Pending, long Arg) Status()

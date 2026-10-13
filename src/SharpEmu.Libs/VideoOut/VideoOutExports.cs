@@ -646,6 +646,27 @@ public static class VideoOutExports
     }
 
     [SysAbiExport(
+        Nid = "-Ozn0F1AFRg",
+        ExportName = "sceVideoOutDeleteFlipEvent",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceVideoOut")]
+    public static int VideoOutDeleteFlipEvent(CpuContext ctx)
+    {
+        var equeue = ctx[CpuRegister.Rdi];
+        var handle = unchecked((int)ctx[CpuRegister.Rsi]);
+        if (!TryGetPort(handle, out var port))
+            return OrbisVideoOutErrorInvalidHandle;
+        if (!KernelEventQueueCompatExports.IsValidEqueue(equeue))
+            return OrbisVideoOutErrorInvalidEventQueue;
+        lock (_stateGate)
+        {
+            port.FlipEvents.RemoveAll(registration => registration.Equeue == equeue);
+        }
+        TraceVideoOut($"videoout.delete_flip_event eq=0x{equeue:X16} handle={handle}");
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
         Nid = "Xru92wHJRmg",
         ExportName = "sceVideoOutAddVblankEvent",
         Target = Generation.Gen4 | Generation.Gen5,
