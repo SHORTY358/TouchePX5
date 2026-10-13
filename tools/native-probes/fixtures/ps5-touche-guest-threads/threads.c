@@ -8,6 +8,13 @@ extern void scePthreadExit(void *result);
 extern int sceKernelUsleep(unsigned int microseconds);
 extern unsigned long long sceKernelGetProcessTime(void);
 extern int sceKernelSendNotificationRequest(int device, void *request, int size, int flags);
+#ifdef SEMAPHORE_GATE
+extern int sceKernelCreateSema(unsigned int *, const char *, unsigned int, int, int, void *);
+extern int sceKernelWaitSema(unsigned int, int, unsigned int *);
+extern int sceKernelSignalSema(unsigned int, int);
+extern int sceKernelDeleteSema(unsigned int);
+static unsigned int gate_semaphore, waiting;
+#endif
 
 static unsigned int start_gate, finished, counter;
 static unsigned int totals[2];
@@ -19,12 +26,25 @@ static void notify(const char *message) {
 }
 static void *worker(void *argument) {
     unsigned long index=(unsigned long)argument-1;
+#ifdef SEMAPHORE_GATE
+    unsigned int timeout=5000000;
+    __atomic_fetch_add(&waiting,1,__ATOMIC_RELEASE);
+    if (sceKernelWaitSema(gate_semaphore,1,&timeout)!=0) return (void*)0xBAD;
+#else
     unsigned long long begin=sceKernelGetProcessTime();
     while (!__atomic_load_n(&start_gate,__ATOMIC_ACQUIRE)) {
         if (sceKernelGetProcessTime()-begin>5000000ULL) return (void*)0xBAD;
         sceKernelUsleep(100);
     }
+#endif
     for (unsigned int i=0; i<1000; i++) {
+#ifdef SEMAPHORE_GATE
+        if (i==500) {
+            timeout=5000000;
+            __atomic_fetch_add(&waiting,1,__ATOMIC_RELEASE);
+            if (sceKernelWaitSema(gate_semaphore,1,&timeout)!=0) return (void*)0xBAD;
+        }
+#endif
         __atomic_fetch_add(&counter,1,__ATOMIC_RELAXED);
         totals[index]++;
         if ((i&63)==0) sceKernelUsleep(100);
@@ -38,6 +58,11 @@ static void *worker(void *argument) {
 }
 int main(void) {
     void *threads[2]={0,0}, *results[2]={0,0};
+#ifdef SEMAPHORE_GATE
+    if (sceKernelCreateSema(&gate_semaphore,"guest-probe-gate",1,0,2,0)!=0) {
+        notify("guest_threads: create semaphore failed"); return 8;
+    }
+#endif
     if (scePthreadCreate(&threads[0],0,worker,(void*)1,"probe-worker-1")!=0) {
         notify("guest_threads: create 1 failed"); return 1;
     }
@@ -51,6 +76,31 @@ int main(void) {
     }
     __atomic_store_n(&start_gate,1,__ATOMIC_RELEASE);
     unsigned long long begin=sceKernelGetProcessTime();
+#ifdef SEMAPHORE_GATE
+    while (__atomic_load_n(&waiting,__ATOMIC_ACQUIRE)!=2) {
+        if (sceKernelGetProcessTime()-begin>5000000ULL) {
+            notify("guest_threads: waiters timed out"); return 9;
+        }
+        sceKernelUsleep(100);
+    }
+    sceKernelUsleep(10000);
+    if (__atomic_load_n(&finished,__ATOMIC_ACQUIRE)!=0 ||
+        sceKernelSignalSema(gate_semaphore,2)!=0) {
+        notify("guest_threads: gate release failed"); return 10;
+    }
+    while (__atomic_load_n(&waiting,__ATOMIC_ACQUIRE)!=4) {
+        if (sceKernelGetProcessTime()-begin>5000000ULL) {
+            notify("guest_threads: second waiters timed out"); return 12;
+        }
+        sceKernelUsleep(100);
+    }
+    sceKernelUsleep(10000);
+    if (__atomic_load_n(&counter,__ATOMIC_ACQUIRE)!=1000 ||
+        __atomic_load_n(&finished,__ATOMIC_ACQUIRE)!=0 ||
+        sceKernelSignalSema(gate_semaphore,2)!=0) {
+        notify("guest_threads: second gate release failed"); return 13;
+    }
+#endif
     while (__atomic_load_n(&finished,__ATOMIC_ACQUIRE)!=2) {
         if (sceKernelGetProcessTime()-begin>5000000ULL) {
             notify("guest_threads: workers timed out"); return 4;
@@ -70,6 +120,11 @@ int main(void) {
             message[23+r*17+i]=digits[((unsigned long long)results[r]>>(60-i*4))&15];
         notify(message); return 7;
     }
+#ifdef SEMAPHORE_GATE
+    if (sceKernelDeleteSema(gate_semaphore)!=0) {
+        notify("guest_threads: delete semaphore failed"); return 11;
+    }
+#endif
     notify("guest_threads: PASS workers=2 counter=2000 totals=1000,1000 returns=12345678CAFE0001,12345678CAFE0002");
     return 0;
 }

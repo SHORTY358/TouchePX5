@@ -1062,3 +1062,29 @@ workers, their shared atomic data, joins and return/exit values. It does not
 establish simultaneous GPU producers, mutex/condition behavior, TLS destructor
 coverage, tracked image writes or commercial game compatibility. Next is native
 guest producer synchronization, followed by image ownership integration.
+
+### 2026-10-13: repeated guest semaphore waits and resumed return ABI
+
+The `-SemaphoreGate` native fixture parks both workers on a zero-count semaphore,
+releases two tokens, and parks both again halfway through their 1000 increments.
+Main checks counter=1000 and finished=0 before the second release. The runner
+requires four wait-block and four wait-wake trace events, final shared/local
+totals, both full-width join results, and host exit zero.
+
+Initial failure `20261013-163138-write-watch-return-semaphore` correctly blocked,
+woke and completed both workers, but ordinary resumed returns left the last
+import's zero in the context. The continuation now patches its original return
+slot to a local full-RAX capture thunk, then jumps to the common host-return
+stub. Explicit exits and yields retain the common sentinel and existing context
+semantics. Each allocation is owned by the active continuation and freed only
+after its native call completes.
+
+Final `artifacts/native-guest-threads/native-thread-final-matrix.json` validates
+eight cases from 163438 through 163502: atomic/semaphore gates, ordinary/explicit
+second-worker exit, and write-watch/disabled tracking. All pass, preserved ELF
+hashes match, and all Core/HLE/executable hashes match across the matrix.
+Semaphore cases each have exactly four blocked/woken events. Library regressions
+remain 1264/1264 (`native-thread-resumed-return.trx`); Release CLI builds with the
+known sceAgcInit_0090 catalog warning. This is a bounded native thread/continuation
+checkpoint. Guest-authored GPU image production and general semaphore
+timeout/cancellation/deletion races remain unvalidated.

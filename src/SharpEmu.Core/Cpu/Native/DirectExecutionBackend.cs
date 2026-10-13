@@ -5828,7 +5828,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			reason = "failed to allocate executable memory for guest thread stub";
 			return GuestNativeCallExitReason.Exception;
 		}
-		void* hostRspStorage = NativeMemory.Alloc((nuint)sizeof(ulong));
+		void* hostRspStorage = NativeMemory.AllocZeroed((nuint)(3 * sizeof(ulong)));
 		if (hostRspStorage == null)
 		{
 			VirtualFree(ptr, 0u, 32768u);
@@ -5900,8 +5900,18 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			emitter.EmitMovR64Immediate(0x49, 0xBB, context[CpuRegister.R11]); // mov r11, imm64
 			emitter.EmitMovR64Immediate(0x48, 0xB8, context[CpuRegister.Rax]); // mov rax, imm64
 			emitter.Emit(0xC3); // ret through the synthetic transfer slot
+			// An ordinary return from a resumed thread bypasses the managed import
+			// context. Capture full RAX before the common host-return stub, whose
+			// managed call boundary only exposes a 32-bit process status.
+			ulong ordinaryReturnStub = (ulong)ptr + (ulong)emitter.Offset;
+			emitter.EmitMovR64Immediate(0x49, 0xBA, hostRspSlot + sizeof(ulong));
+			emitter.Emit(0x49); emitter.Emit(0x89); emitter.Emit(0x02); // mov [r10],rax
+			emitter.Emit(0x49); emitter.Emit(0xC7); emitter.Emit(0x42); emitter.Emit(0x08);
+			emitter.Emit(1u); // mov qword [r10+8],1: ordinary return captured
+			emitter.EmitMovR64Immediate(0x49, 0xBB, (ulong)_guestReturnStub);
+			emitter.Emit(0x41); emitter.Emit(0xFF); emitter.Emit(0xE3); // jmp r11
 			ActiveEntryReturnSentinelRip = (ulong)_guestReturnStub;
-			if (returnSlotAddress == 0 || !context.TryWriteUInt64(returnSlotAddress, (ulong)_guestReturnStub))
+			if (returnSlotAddress == 0 || !context.TryWriteUInt64(returnSlotAddress, ordinaryReturnStub))
 			{
 				reason = $"failed to patch guest continuation return slot at 0x{returnSlotAddress:X16}";
 				return GuestNativeCallExitReason.Exception;
@@ -5941,7 +5951,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 					reason = LastError ?? "guest thread forced exit";
 					return GuestNativeCallExitReason.ForcedExit;
 				}
-				reason = $"returned 0x{nativeReturn:X8}";
+				if (((ulong*)hostRspStorage)[2] != 0)
+					context[CpuRegister.Rax] = ((ulong*)hostRspStorage)[1];
+				reason = $"returned 0x{context[CpuRegister.Rax]:X16}";
 				return GuestNativeCallExitReason.Returned;
 			}
 			catch (AccessViolationException ex)

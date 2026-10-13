@@ -6,6 +6,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Guest semaphore waits expose and now cover the resumed-return path.**
+  Two native guest workers each block twice on a zero-count semaphore; main
+  releases two tokens per phase and checks the halfway counter is 1000 with no
+  completed workers. Four actual block/wake pairs and final counter=2000 pass
+  in ordinary-return and explicit-exit modes, both with write-watch and disabled
+  tracking. The initial probe found ordinary resumed returns incorrectly left
+  the last import's zero in context RAX. A local continuation return thunk now
+  captures the full result before the common host sentinel. This covers this
+  bounded semaphore continuation sequence, not arbitrary synchronization or
+  guest GPU producers. Next: connect guest producers to tracked image data.
+
 - **Native guest-created threads now preserve full-width return values.**
   An original unsigned SCE ELF starts two workers, verifies 2000 shared atomic
   increments and 1000 local increments each, then joins both. The first run

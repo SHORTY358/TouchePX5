@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$ExitSecondWorker)
+param([switch]$ExitSecondWorker,[switch]$SemaphoreGate)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $sdk=Join-Path $root 'artifacts/external-homebrew/ps5link-sdk'
@@ -16,6 +16,7 @@ $link=Join-Path $root 'artifacts/external-homebrew/ps5link-cube/link_real.exe'
 if(-not (Test-Path -LiteralPath $link)) { throw 'Build the SDK linker first' }
 $extra=@()
 if($ExitSecondWorker) { $extra+= '-DEXIT_SECOND_WORKER=1' }
+if($SemaphoreGate) { $extra+= '-DSEMAPHORE_GATE=1' }
 & $clang --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector @extra -c $source -o "$out/threads.o"
 if($LASTEXITCODE) { throw 'Native thread source compilation failed' }
 & $clang --target=x86_64-sie-ps5 -c "$sdk/linker/crt1.S" -o "$out/crt1.o"
@@ -27,6 +28,7 @@ if($LASTEXITCODE) { throw 'Native thread ELF link failed' }
     StartupRepository='https://github.com/Rufidj/ps5link-sdk'; StartupCommit=$pin
     StartupModified=$false; SourceSha256=(Get-FileHash $source).Hash
     ExitSecondWorker=[bool]$ExitSecondWorker
+    SemaphoreGate=[bool]$SemaphoreGate
     ElfSha256=(Get-FileHash "$out/threads.elf").Hash
     LinkerSha256=(Get-FileHash $link).Hash
 } | ConvertTo-Json | Set-Content "$out/build-report.json" -Encoding utf8
