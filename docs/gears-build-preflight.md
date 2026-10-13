@@ -129,10 +129,12 @@ real compiler path. `build-report.json` still says `BuildComplete=false` and
 `BoundedIncomplete=true`. No owned build process is left running at this
 checkpoint. Continue with the bounded command above.
 
-The following 900-second batch reached 830/2078 steps with no compilation
-failure before its owned timeout. Another bounded batch is in progress; its
-live count is not a completion percentage. Always inspect `build-report.json`
-and the retained log for the latest result.
+The following 900-second batch reached 830/2078 steps, and the next reached
+493/1248, both with no compilation failure before their owned timeouts.
+These counts are not completion percentages. The runner now preserves the
+preceding completed log/report under `build-history` before starting a new batch.
+Always inspect `active-build.json`, `build-report.json` and the retained log for
+the latest state. If an owned build is active, do not start a duplicate launcher.
 
 ## Windows native foundation and cross-compiler evidence
 

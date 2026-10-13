@@ -44,7 +44,8 @@ percentage or release-date estimate.
   corrected: Ninja now records 122 headers for the checked object. The original
   failing PDB.cpp compiles with DIA disabled. A corrected bounded batch made
   367/2446 build steps before its owned timeout; a subsequent 900-second batch
-  reached 830/2078 steps without a compilation failure. Completed objects are retained. Compiler
+  reached 830/2078 steps; the next bounded batch reached 493/1248, both without
+  a compilation failure. Completed objects are retained. Compiler
   binaries, Gears shaders/native title and a Gears emulator launch remain
   unverified. Resume bounded compiler batches via `docs/gears-build-preflight.md`;
   next gate is an actual GFX1013 PAL shader, followed by native title linking

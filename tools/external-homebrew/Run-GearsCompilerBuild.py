@@ -2,15 +2,24 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Bound one owned Windows compiler build; retain Ninja outputs for resumption."""
 import json
+import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
 seconds = int(sys.argv[2])
 if not 1 <= seconds <= 1800 or not (root / 'build-windows.cmd').is_file():
     raise SystemExit('Invalid bounded build parameters')
+# Preserve the preceding completed batch before reusing the current log paths.
+# The launcher owns a mutex, so another launcher cannot overwrite this pair.
+if (root / 'build-windows.log').exists() and (root / 'build-report.json').exists():
+    history = root / 'build-history' / datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
+    history.mkdir(parents=True)
+    for name in ('build-windows.log', 'build-report.json'):
+        shutil.copy2(root / name, history / name)
 start = time.monotonic()
 timeout = False
 with (root / 'build-windows.log').open('w', encoding='utf-8') as log:
