@@ -6,6 +6,41 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Typed vertex fetch now respects the actual GFX10 instruction format.**
+  Pinned LLVM `BUFInstructions.td` GFX10 MTBUF encoding explicitly defines
+  FORMAT in word0 bits 25:19. Added optional `TypedFormat` to buffer control,
+  populated only for decoded MTBUF; vertex binding evaluation uses it instead
+  of descriptor format. Descriptor address/stride/dst_sel remain intact, and
+  ordinary MUBUF keeps its descriptor-derived format. Invalid/reserved typed
+  formats fail binding rather than silently falling back. Four decode/evaluation
+  checks use actual Gears words `EA6B2000/80090105` (77: four float components)
+  and `EA012010/80090105` (64: two float components), plus MUBUF control and
+  reserved-format rejection. This change covers vertex bindings, not arbitrary
+  typed storage-buffer loads/stores. Full Release suite **1290/1290** passes;
+  Windows CLI build zero warnings/errors.
+
+  Same native SELF `43CF57A...` boot `20261013-132709-614` confirms actual Vulkan
+  input bindings c4/fmt14/num7 and c2/fmt11/num7, formerly c1/fmt4/num4. Actual
+  swapchain capture `captures/20261013-132709-450/frame-0001.png` was inspected:
+  still black (trace RGB nonblack=0). **No visible Gears geometry verified.**
+  Diagnostic draw capture `draw-captures/20261013-132819-017` retains four draws,
+  translated vertex/pixel SPIR-V, real vertex bytes and per-file hashes/manifests.
+  Captured first gear vertices contain implausible X/Y values (first record
+  approximately 4.99e-41, -2.15e29, 0.125, 0, 0, 1). Next graphics investigation:
+  trace actual mesh `sinf`/`cosf` calls and native float return convention against
+  a strict native numerical probe before changing shaders or forcing geometry.
+
+  Diagnostic stderr park output now uses one write to avoid interleaving with
+  graphics-worker traces; added failure-only frame-loop state/callback reporting.
+  Separate rebuilt diagnostic SELF SHA256:
+  `D672A7DD491DB60F96657544AAC774B852D6C2D7A31A4795260D56D7F41F2EB3`.
+  Boot `20261013-132938-909`: result=2, state=3, callback=-24, failed_frame=2,
+  completed=2. Original enum identifies -24 as unexpected VideoOut flip token,
+  not shader translation failure. Next ownership investigation: log expected
+  versus observed token and audit shared equeue event delivery/coalescing for
+  two in-flight buffers. Keep exact token validation and resource retention.
+  Original upstream source remains clean; every boot retains its build report.
+
 - **Actual Gears pixel shader now translates; swapchain output is still black.**
   The unsupported GFX10 VOP2 0x07 is `V_MUL_LEGACY_F32`, confirmed against the
   pinned LLVM `VOP2Instructions.td` (gfx10 opcode 0x007, e64 0x107) and LLVM

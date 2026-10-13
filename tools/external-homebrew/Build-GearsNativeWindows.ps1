@@ -52,12 +52,35 @@ if($PublicInitAbi) {
         $parkMarker="static void park(const char *reason)`n{"
         if(([regex]::Matches($content,[regex]::Escape($parkMarker))).Count -ne 1) { throw 'Review changed upstream park handler' }
         $parkDiagnostic=@'
-    (void)write(2, "GEARS_PARKED reason=", sizeof("GEARS_PARKED reason=") - 1);
+    char park_message[256] = "GEARS_PARKED reason=";
+    size_t park_length = sizeof("GEARS_PARKED reason=") - 1;
     const char *park_reason = reason ? reason : "unknown";
-    (void)write(2, park_reason, strlen(park_reason));
-    (void)write(2, "\n", 1);
+    size_t reason_length = strlen(park_reason);
+    if (reason_length > sizeof(park_message) - park_length - 1)
+        reason_length = sizeof(park_message) - park_length - 1;
+    memcpy(park_message + park_length, park_reason, reason_length);
+    park_length += reason_length;
+    park_message[park_length++] = '\n';
+    (void)write(2, park_message, park_length);
 '@
         $content=$content.Replace($parkMarker,$parkMarker+"`n"+$parkDiagnostic)
+        $loopMarker='        result = gears_frame_loop_step(&loop);'
+        if(([regex]::Matches($content,[regex]::Escape($loopMarker))).Count -ne 1) { throw 'Review changed frame loop diagnostic point' }
+        $loopDiagnostic=@'
+        if (result != 0) {
+            GearsFrameRunnerResult diagnostic_run = {0};
+            (void)gears_frame_loop_result(&loop, &diagnostic_run);
+            char loop_message[256];
+            int loop_length = snprintf(loop_message, sizeof(loop_message),
+                "GEARS_LOOP_FAILURE result=%d state=%d callback=%d failed_frame=%llu completed=%llu\n",
+                result, (int)diagnostic_run.state, diagnostic_run.callback_result,
+                (unsigned long long)diagnostic_run.failed_frame,
+                (unsigned long long)diagnostic_run.frames_completed);
+            if (loop_length > 0 && (size_t)loop_length < sizeof(loop_message))
+                (void)write(2, loop_message, (size_t)loop_length);
+        }
+'@
+        $content="#include <stdio.h>`n"+$content.Replace($loopMarker,$loopMarker+"`n"+$loopDiagnostic)
     }
     if($ShaderAperture) {
         $map='result = sceKernelMapDirectMemory(address, bytes, 0x33, 0, *offset,'

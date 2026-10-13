@@ -2315,7 +2315,8 @@ public static class Gen5ShaderTranslator
                     ((word >> 13) & 1) != 0,
                     ((word >> 12) & 1) != 0,
                     ((word >> 14) & 1) != 0,
-                    ((extra >> 22) & 1) != 0);
+                    ((extra >> 22) & 1) != 0,
+                    TypedFormat: (word >> 19) & 0x7F);
                 break;
             }
             case Gen5ShaderEncoding.Mimg:

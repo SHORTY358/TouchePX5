@@ -911,6 +911,14 @@ public static class Gen5ShaderScalarEvaluator
         var bindingOffset = unchecked((uint)control.OffsetBytes + scalarOffset);
         var bindingDataFormat = descriptor.DataFormat;
         var bindingNumberFormat = descriptor.NumberFormat;
+        // MTBUF carries its own GFX10 unified format in bits 25:19.
+        // MUBUF continues to take the format from the resource descriptor.
+        if (control.TypedFormat is { } typedFormat &&
+            (!Gfx10UnifiedFormat.TryDecode(typedFormat, out bindingDataFormat, out bindingNumberFormat) ||
+             bindingDataFormat == 0))
+        {
+            return false;
+        }
         // The opcode width is the number of destination VGPRs, not necessarily
         // the number of components stored by the descriptor.  For example,
         // BUFFER_LOAD_FORMAT_XYZW with DATA_FORMAT_32_32_32 reads only three

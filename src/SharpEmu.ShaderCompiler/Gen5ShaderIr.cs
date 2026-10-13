@@ -217,7 +217,8 @@ public sealed record Gen5BufferMemoryControl(
     bool IndexEnabled,
     bool OffsetEnabled,
     bool Glc,
-    bool Slc) : Gen5InstructionControl;
+    bool Slc,
+    uint? TypedFormat = null) : Gen5InstructionControl;
 
 public sealed record Gen5ExportControl(
     uint Target,
