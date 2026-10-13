@@ -89,9 +89,13 @@ The prior failure and batch logs/reports are preserved.
 
 `Setup-GearsPython.ps1` supplies an isolated Python environment with PyYAML 6.0.3.
 Four upstream Python source contracts and the publication audit passed there;
-the audit checked 122 allowlisted files. The native C host suite has not run,
-so this is not `make test` completion. Gears' native dependency/bootstrap scripts
-still require Linux/WSL; their Windows wrappers call WSL as well. No Linux
+the audit checked 122 allowlisted files. A later native Windows C run passed
+26/27 tests, using the upstream Makefile's source lists and LLVM-Mingw with
+`-std=c11 -O2 -Wall -Wextra -Werror -static`. `test_ps5log_host` requires POSIX
+sockets/poll/fcntl and remains unexecuted; `gears-host-windows/report.json` records
+that omission. This is not complete `make test` validation. The original native
+dependency/bootstrap scripts require Linux/WSL, but the separate Windows path
+below now builds the real foundation runtime without those scripts. No Linux
 installation, Windows feature change, system PATH or driver change was performed.
 
 Resume:
@@ -109,8 +113,9 @@ live build process tree at the boundary. Do not treat completed object counts as
 compiler, emulator or game readiness.
 
 Next: finish the compiler and verify the actual Gears GLSL pipeline produces a
-GFX1013 PAL ELF with expected notes and no relocations; then address the native
-foundation/host-test Linux path before packaging or emulator launch.
+GFX1013 PAL ELF with expected notes and no relocations; then generate actual
+metadata, compile main/shader assets and link/package the native title. Complete
+the remaining POSIX host test before claiming the upstream test gate or launch.
 
 
 The corrected build was rechecked in a fresh 180-second batch: 367/2446 build
@@ -123,3 +128,64 @@ now records 122 actual headers, including `llvm/ADT/APInt.h`
 real compiler path. `build-report.json` still says `BuildComplete=false` and
 `BoundedIncomplete=true`. No owned build process is left running at this
 checkpoint. Continue with the bounded command above.
+
+The following 900-second batch reached 830/2078 steps with no compilation
+failure before its owned timeout. Another bounded batch is in progress; its
+live count is not a completion percentage. Always inspect `build-report.json`
+and the retained log for the latest result.
+
+## Windows native foundation and cross-compiler evidence
+
+`Build-GearsFoundationWindows.ps1` builds upstream host generators directly,
+without editing their pinned GPL-3.0-or-later sources. LLVM-Mingw Clang 23.1.0
+and static zlib 1.3.2 produce two raw runtime ELFs and two signed PRX containers:
+
+- Raw ELF SHA256: `8EE6E124993E1AF26420CB455890FD002F5D6C7E78883C860CE45734E7D002BB`.
+- Signed runtime SHA256: `E6FF45D16ADF687855CC3B33B0C8A4132B6504360B221E0A34C7E99FB3BA0036`, 1,284,674 bytes.
+
+Both digests match the pinned foundation's published contract exactly.
+`runtime-windows/report.json` records generator/compiler/tool/zlib provenance.
+This proves runtime construction, not execution or Gears compatibility.
+Zlib's official fossil archive is checked against the foundation's expected
+SHA256 `BB329A0A2CD0274D05519D61C667C062E06990D72E125EE2DFA8DE64F0119D16`.
+
+The foundation's exact payload SDK v0.42 is separately cached, SHA256
+`8CFBC7CD5811E719EB4F0C47EEA668D3DC7B40BC8AB11C4A5031D40C23EC02DA`.
+`Test-GearsWindowsCrossCompile.ps1` checks all extracted files against this zip,
+then compiles 24 source units from the real native build plus two network units,
+two import stub units and the foundation startup unit. All 29 are inspected as
+x86-64 ELF relocatable objects. The two AGC import stubs also link as ELF shared
+objects with the expected SONAMEs. Both Clang 23.1.0 and the upstream baseline
+Clang 18.1.8 passed. Separate reports/logs are retained in `cross-compiler-probe`
+and `cross-compiler-clang18`; the default runner now uses Clang 18. No fake
+metadata or shader bytes are introduced;
+`native/main.c` and `native/shader_assets.S` wait for actual LLPC output.
+
+```powershell
+& tools/external-homebrew/Build-GearsFoundationWindows.ps1
+& tools/external-homebrew/Get-GearsClang18.ps1
+& tools/external-homebrew/Test-GearsWindowsCrossCompile.ps1
+```
+
+Clang 18 comes from the official LLVM-Mingw 20240619 Windows UCRT x86-64 release,
+cached only under artifacts. Its 142,797,010-byte archive has observed SHA256
+`810703594A7E3EEA03385B5329C7EA3BD65F5E496B44CF1B68C17FF436D265E7`.
+The helper verifies the archive and extracted compiler/version and records
+`clang18-release-report.json`. This is a recorded release download digest,
+not a claimed upstream signature. No global install or PATH modification occurs.
+
+## Emulator imports identified during native preparation
+
+The upstream native adapter calls two driver wait exports absent from our HLE:
+`sceAgcDriverGetWaitRenderingPacketSizeInDwords` and
+`sceAgcDriverWaitUntilSafeForRendering`. They are now implemented with NIDs
+`0MtUJ3BpGhE` and `u8BkdHb1+Po`. The size is seven dwords for our existing
+ordered flip-wait encoding, not a asserted Sony hardware packet size. The emitter
+accepts the upstream cursor-pointer ABI, reserved=0, non-negative handle/index,
+and sufficient capacity, and advances the full 64-bit cursor only after writing
+the complete packet. Size queries/emission enqueue no GPU work themselves;
+the existing command decoder queues the wait when submitted.
+
+The new eleven regression cases and full 1275-test library suite pass in Release.
+The Windows CLI also builds. This does not demonstrate driver waits in Gears,
+which still lacks compiled shaders/main and has not launched.

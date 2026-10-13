@@ -3436,6 +3436,54 @@ public static partial class AgcExports
         return ReturnPointer(ctx, commandAddress);
     }
 
+    // Driver cursor ABI used by the pinned Gears scene. This emits our existing
+    // ordered flip-wait packet; seven dwords is the HLE encoding, not a claim
+    // about the byte representation of Sony's implementation.
+    [SysAbiExport(Nid = "0MtUJ3BpGhE",
+        ExportName = "sceAgcDriverGetWaitRenderingPacketSizeInDwords",
+        Target = Generation.Gen5, LibraryName = "libSceAgcDriver")]
+    public static int DriverGetWaitRenderingPacketSizeInDwords(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = 7;
+        return 7;
+    }
+
+    [SysAbiExport(Nid = "u8BkdHb1+Po",
+        ExportName = "sceAgcDriverWaitUntilSafeForRendering",
+        Target = Generation.Gen5, LibraryName = "libSceAgcDriver")]
+    public static int DriverWaitUntilSafeForRendering(CpuContext ctx)
+    {
+        var cursorAddress = ctx[CpuRegister.Rdi];
+        var capacity = (uint)ctx[CpuRegister.Rsi];
+        var reserved = (uint)ctx[CpuRegister.Rdx];
+        var handle = (int)ctx[CpuRegister.Rcx];
+        var index = (int)ctx[CpuRegister.R8];
+        const uint bytes = 7 * sizeof(uint);
+        if (cursorAddress == 0 || cursorAddress > ulong.MaxValue - sizeof(ulong) ||
+            capacity < 7 || reserved != 0 || handle < 0 || index < 0 ||
+            !TryReadUInt64(ctx, cursorAddress, out var commandAddress) ||
+            commandAddress == 0 || (commandAddress & 3) != 0 ||
+            commandAddress > ulong.MaxValue - bytes ||
+            (cursorAddress < commandAddress + bytes && cursorAddress + sizeof(ulong) > commandAddress))
+        {
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        Span<byte> packet = stackalloc byte[(int)bytes];
+        packet.Clear();
+        WriteBlobUInt32(packet, 0, Pm4(7, ItNop, RWaitFlipDone));
+        WriteBlobUInt32(packet, 4, (uint)handle);
+        WriteBlobUInt32(packet, 8, (uint)index);
+        if (!ctx.Memory.TryWrite(commandAddress, packet) ||
+            !ctx.TryWriteUInt64(cursorAddress, commandAddress + bytes))
+        {
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        TraceAgc($"agc.driver_wait_safe cmd=0x{commandAddress:X16} handle={handle} index={index}");
+        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+    }
+
     [SysAbiExport(
         Nid = "w2rJhmD+dsE",
         ExportName = "sceAgcDriverAddEqEvent",

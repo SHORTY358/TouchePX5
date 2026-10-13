@@ -6,20 +6,49 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Gears' missing driver cursor-wait imports now resolve to implemented HLE.**
+  Added `sceAgcDriverGetWaitRenderingPacketSizeInDwords` and
+  `sceAgcDriverWaitUntilSafeForRendering` with their derived/validated NIDs.
+  The cursor ABI emits the existing ordered seven-dword flip-wait encoding;
+  it does not wait on the CPU or claim Sony's packet representation. Checked
+  arguments, pointer overflow/alignment, overlap and writable packet bounds
+  prevent malformed calls from advancing the cursor. Eleven new cases cover
+  the successful high-address cursor, packet/tail bounds and rejected calls.
+  The full Release library suite now passes 1275/1275 and the Windows CLI builds
+  without warnings/errors. This is not an in-game or new GPU validation result;
+  older captured GPU evidence retains its historical runtime hashes. Next is
+  the actual LLPC shader build, followed by native main/link and execution.
+
+- **The native foundation runtime now builds reproducibly on Windows.**
+  `Build-GearsFoundationWindows.ps1` builds the pinned upstream generator and
+  packaging tool with static zlib. Two independent raw ELF outputs and two
+  signed runtime containers match the exact upstream SHA256 contracts;
+  `runtime-windows/report.json` retains the inputs and tool hashes. Original
+  foundation sources are unchanged. This builds the library, not a title or
+  evidence that the runtime executes. The exact SDK v0.42 archive is also cached.
+  `Test-GearsWindowsCrossCompile.ps1` verifies every extracted SDK file against
+  that archive, cross-compiles 29 genuine upstream source units to x86-64 ELF,
+  and links/inspects both AGC import stubs. Both alternative Clang 23.1.0 and
+  upstream-baseline Clang 18.1.8 passed independently, with separate reports.
+  Clang 18 is the default and is isolated under artifacts. Main and shader
+  assembly deliberately remain absent until real LLPC shader outputs exist.
+  Native Windows host contracts passed 26/27; the POSIX network test remains
+  unexecuted. See `docs/gears-build-preflight.md` for exact scope and next gates.
+
 - **The pinned Gears compiler now has a real Windows build in progress.**
   Thirteen source commits are fetched/verified; a separate MSVC/Ninja wrapper
   configures LLPC/LLVM successfully with bounded memory use. Official pinned
   DXC and isolated PyYAML supply missing host dependencies. Four Gears Python
-  contracts and its 122-file publication audit pass; native C tests are not
-  claimed. A real build exposed optional DIA/PDB support missing ATL; that
+  contracts and its 122-file publication audit pass. A real build exposed optional DIA/PDB support missing ATL; that
   upstream option is disabled. The localized include-prefix problem is also
   corrected: Ninja now records 122 headers for the checked object. The original
   failing PDB.cpp compiles with DIA disabled. A corrected bounded batch made
-  367/2446 build steps before its owned timeout; completed objects are retained. Compiler
+  367/2446 build steps before its owned timeout; a subsequent 900-second batch
+  reached 830/2078 steps without a compilation failure. Completed objects are retained. Compiler
   binaries, Gears shaders/native title and a Gears emulator launch remain
   unverified. Resume bounded compiler batches via `docs/gears-build-preflight.md`;
-  next gate is an actual GFX1013 PAL shader, followed by the Linux-oriented
-  native foundation requirements.
+  next gate is an actual GFX1013 PAL shader, followed by native title linking
+  and the still-unexecuted POSIX network host test.
 
 - **Shared-page producers now evolve separate left/right palettes.**
   Left changes every 150 frames and right every 100. Both 600-frame native
