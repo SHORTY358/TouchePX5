@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
 $ErrorActionPreference='Stop'
 if($UseWriteWatch -and $DisableNativeCpuTracking) { throw 'Choose write-watch or disabled tracking' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -25,6 +25,9 @@ $inputName=switch($Profile) {
     'TextureBindingsUpdatesFenced' {'app-texture-bindings-updates-fenced.elf'}
     'TextureFrameSlots' {'app-texture-frame-slots.elf'}
     'TextureFrameSlotsReverse' {'app-texture-frame-slots-reverse.elf'}
+    'TextureGuestProducers' {'app-texture-guest-producers.elf'}
+    'TextureGuestProducersReverse' {'app-texture-guest-producers-reverse.elf'}
+    'TextureGuestProducersFrozenStatic' {'app-texture-guest-producers-frozen-static.elf'}
     'TextureCubeSlots' {'app-texture-cube-slots.elf'}
     'TextureCubeSlotsPattern' {'app-texture-cube-slots-pattern.elf'}
     'TextureCubeSlotsPatternRedZone' {'app-texture-cube-slots-pattern-red-zone.elf'}
@@ -109,6 +112,9 @@ try {
     $frames=@(Get-ChildItem -LiteralPath $capture -Filter '*.bgra')
     $hashes=@($frames | Get-FileHash | Select-Object -ExpandProperty Hash -Unique)
     $staticView=$Profile.EndsWith('Static')
+    if($buildReport.GuestTextureProducers -eq 2 -and -not $log.Contains('guest_texture_producers: PASS workers=2 jobs=300,300 returns=12345678CAFE0001,12345678CAFE0002')) {
+        throw "Guest producer completion assertions missing: $capture"
+    }
     if($frames.Count -lt 1 -or (-not $staticView -and $hashes.Count -lt 2)) { throw 'Expected presented frame captures (and varying captures for animated inputs)' }
     @{
         Profile=$Profile; FrozenView=$staticView; Input=$elf; InputSha256=$inputHash
@@ -118,6 +124,10 @@ try {
         ReversedFaceOrder=$buildReport.ReversedFaceOrder
         ReversedObjectOrder=$buildReport.ReversedObjectOrder; ObjectCount=$buildReport.ObjectCount
         TextureCpuUpdates=$buildReport.TextureCpuUpdates
+        GuestTextureProducers=$buildReport.GuestTextureProducers
+        FrozenProducerPalette=$buildReport.FrozenProducerPalette
+        JobsPerProducer=$buildReport.JobsPerProducer
+        ProducerHandoff=$buildReport.ProducerHandoff
         CpuBackgroundWrites=$buildReport.CpuBackgroundWrites
         CaptureEvery=$CaptureEvery
         PatternedBackground=$buildReport.PatternedBackground
@@ -133,6 +143,7 @@ try {
         CpuFramebufferTracking=(-not $DisableNativeCpuTracking); HostExit=$p.ExitCode
         CpuTrackingMode=if($UseWriteWatch) { "write-watch" } elseif($DisableNativeCpuTracking) { "disabled" } else { "fault" }
         RuntimeHleSha256=(Get-FileHash -LiteralPath (Join-Path (Split-Path $exe) "SharpEmu.HLE.dll")).Hash
+        RuntimeCoreSha256=(Get-FileHash -LiteralPath (Join-Path (Split-Path $exe) "SharpEmu.Core.dll")).Hash
         SourceLoopCompleted=$true; PresentedCaptureCount=$frames.Count
         DistinctCaptureCount=$hashes.Count
         VisualCorrectnessAutomaticallyVerified=$false

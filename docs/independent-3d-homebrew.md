@@ -1088,3 +1088,48 @@ remain 1264/1264 (`native-thread-resumed-return.trx`); Release CLI builds with t
 known sceAgcInit_0090 catalog warning. This is a bounded native thread/continuation
 checkpoint. Guest-authored GPU image production and general semaphore
 timeout/cancellation/deletion races remain unvalidated.
+
+### 2026-10-13: native guest texture producers in the independent GPU scene
+
+`Build-PS5LinkGuestProducerFrameSlots.ps1` adapts the existing pinned GPL-3.0
+SDK-derived frame-slot source, checking its recorded source hash before changing
+it. Two native guest workers each own one mutable 64x64 linear RGBA8 texture and
+execute 300 request/completion semaphore handoffs. Only a worker fills its slot;
+main retires the prior GPU fence before requesting a refill, waits for the CPU
+completion, then submits both objects. The first texture remains immutable.
+Final joins require distinct `12345678CAFE0001/2` results and exactly 300 jobs
+each, followed by semaphore deletion. Startup/shaders remain unchanged; generated
+source explicitly uses `-mno-red-zone`. The builder records parent/generated
+source, startup object, linker and ELF hashes.
+
+Final outputs:
+
+- `smoke-TextureGuestProducers-20261013-165558`
+- `smoke-TextureGuestProducersReverse-20261013-165720`
+- control `smoke-TextureGuestProducersFrozenStatic-20261013-165523`
+
+All three execute 600 submitted/retired frames with 598 reuses, max_pending=2,
+three real texture addresses without fallback, both full-width joins and 600
+total worker jobs. Each positive run's seven captures pass every independent
+64-cell check per object, complete from the first capture, with second palettes
+[1,1,2,2,0,1,1] and a stable first palette. All seven matched forward/reverse full
+frames have zero differing pixels. A phase-2 capture was visually inspected.
+The frozen control intentionally ignores requested phase changes: every second
+palette remains 1, all CPU jobs/frames/joins still succeed, but the independent
+update validator correctly exits 1. This avoids treating successful execution
+as proof that native texture changes reached the displayed image.
+
+`guest-producer-order-comparison.json` and
+`guest-producer-frozen-negative-control.json` preserve the checks. All three
+runs use exactly matching executable, Core, HLE and Libs hashes. Their source,
+ELF and build report snapshots were retained in each capture folder after
+verifying recorded hashes. No emulator runtime changed in this step, so this
+does not claim a new library regression run. Reproduction and limitations:
+`tools/external-homebrew/GuestTextureProducers.md`.
+
+This handoff has one outstanding CPU texture job at a time and main-only GPU
+submission. It validates this guest producer/CPU texture/Vulkan path, not
+simultaneous guest writes, concurrent AGC submission, universal image ownership
+or commercial PS5 games. Write-watch is selected but its necessity for this
+sampled-texture path is not established. Next: two outstanding producer jobs
+with disjoint slot ownership before attempting shared-resource mutation.

@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Guest-created workers now feed a real sampled-texture GPU scene.**
+  Two native workers each fill their own mutable texture slot 300 times through
+  request/completion semaphores. Main waits for CPU completion before drawing,
+  and retires each slot's GPU fence before reuse. Both full-width joins, 600
+  submitted/retired frames, 598 reuses and max_pending=2 pass. Forward/reverse
+  runs each pass seven independent 64-cell checks per object; all seven matched
+  whole-frame pairs are byte-identical. A frozen-palette control completes the
+  same jobs/frames but correctly fails the independent update checker. Source,
+  ELF and build provenance are retained with final captures. This is a scoped
+  two-owner handoff with one outstanding CPU job, not simultaneous guest writers
+  or arbitrary game compatibility. Fixture builds with `-mno-red-zone`.
+  See `tools/external-homebrew/GuestTextureProducers.md`.
+  Next: test two outstanding guest producer jobs on disjoint image ranges before
+  attempting concurrent GPU submission or shared-resource mutation.
+
 - **Guest semaphore waits expose and now cover the resumed-return path.**
   Two native guest workers each block twice on a zero-count semaphore; main
   releases two tokens per phase and checks the halfway counter is 1000 with no
