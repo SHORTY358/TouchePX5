@@ -6,19 +6,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
-- **Initial CPU render-target seeding no longer erases a preceding draw in the
-  independent-texture update probe.** The old initial upload did not retain its
-  complete CPU snapshot fingerprint, allowing a later dirty drain to upload the
-  unchanged background over earlier GPU geometry. Linear, single-layer,
-  single-mip RGBA8/R32 seeds now retain that snapshot without acknowledging a
-  write generation. Both forward and reverse updated-texture probes pass exact
-  64-center checks per object in every nonblank captured frame; the first object
-  stays stable while the second cycles palettes. Forward captures pass **1,2,0,1**
-  with both objects present from the first capture. Reverse and animated cube
-  replay can still emit an initial uniform background, so first presentation
-  timing remains unresolved. The same native inputs fail the color oracle
-  before the runtime fix. Release build passes with the pre-existing SHEM006
-  warning; library checks pass **1261/1261**.
+- **Serialized GPU retirement gives complete first frames in both updated-plane
+  submission orders.** New fenced diagnostic profiles append terminal RELEASE_MEM
+  after the ordered flip and wait for the real completion label before another
+  CPU rewrite. Forward/reverse final-runtime replays finish 600 frames and pass
+  64/64 cell centers per object in every capture, including the first. The legacy
+  probes still reuse memory after only SuspendPoint/Vblank, which is not proof
+  of GPU retirement. This is a sample ownership correction, not a global change
+  to presentation scheduling or proof for all games. The prior seed-fingerprint
+  causal claim is withdrawn: actual targets use BGRA/tile27, outside that helper's
+  guard; that unvalidated runtime change was removed. Initial-frame symptoms in
+  unfenced samples remain unresolved. Release build passes with existing SHEM006.
 
 - **Different textures remain attached to their own draws.** Two separated native
   planes share geometry/shaders but use distinct constant buffers and independent

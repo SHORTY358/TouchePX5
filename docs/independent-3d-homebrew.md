@@ -441,7 +441,7 @@ preserved; texture/shader scope remains single-mip linear RGBA8. This does not
 validate concurrent writes, tiling, general perspective precision or commercial
 titles. No emulator runtime source changed for this stage.
 
-### Independent texture updates expose initial-seed replay
+### Independent texture updates expose initial-frame corruption
 
 `Build-PS5LinkTextureBindings.ps1 -UpdateSecondTexture` preserves the first
 texture and cycles only the second allocation's palette every 150 frames.
@@ -450,20 +450,19 @@ and texture descriptors. `Check-PS5LinkIndependentTextureUpdates.py` requires
 64 correct cell centers on each object for every nonblank saved frame and an
 ordered changing second palette, rejecting corruption of the first object.
 
-Before the runtime fix, both inputs completed but failed image validation:
+Early replays completed but failed image validation:
 `smoke-TextureBindingsUpdates-20261013-141258` had only the second plane in its
 first capture; `smoke-TextureBindingsReverseUpdates-20261013-141310` had only
 the first. The later captures passed. These failed reports are retained.
 
-The initial render-target seed upload had no retained CPU snapshot fingerprint.
-A later native dirty drain could upload that unchanged CPU background again,
-overwriting GPU geometry from the earlier draw. `RememberLinearGuestImageCpuSeed`
-in `VulkanVideoPresenter` records complete seed contents for linear, one-layer,
-one-mip RGBA8/R32 images. Both initial-seed upload paths call it. It deliberately
-does not acknowledge a write generation; actual later CPU changes must still be
-detected. Other image formats/layouts retain their previous behavior.
+An attempted seed-fingerprint change was initially credited with successful
+replays. That causal claim was not established: detailed logs show actual targets
+use B8G8R8A8Unorm and tile27, while the helper only accepted linear RGBA8/R32.
+Its branch did not cover this scene. The helper and both calls were removed;
+the following successful runs are historical observations, not proof of that
+runtime fix. This correction supersedes the earlier interpretation.
 
-Post-fix native replay, with unchanged input ELFs:
+Historical native replay, with unchanged input ELFs:
 
 - `smoke-TextureBindingsUpdates-20261013-141541`: all four captures pass 64/64
   cells per object; second palette sequence 1,2,0,1. Contact sheet inspected.
@@ -490,6 +489,62 @@ py -3 ./tools/external-homebrew/Check-PS5LinkIndependentTextureUpdates.py <captu
 & ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsReverseUpdates
 ```
 
-Next independent-scene work: perspective/UV reference checks, resource lifetime,
-initial presentation timing and guest CPU depth-image ownership. Gears still
-requires its separate pinned LLPC/native foundation. GTA VI has not been run.
+### Serialized frame ownership diagnostic
+
+Detailed logs show the guest can queue many frames before Vulkan starts drawing.
+The original samples call SuspendPoint and Vblank, neither of which proves GPU
+completion. Both command slots and the updated texture can therefore be reused
+while earlier queued work still needs their memory. The RGBA seed-helper guard
+also excludes the scene's actual BGRA/tile27 render targets, disproving attribution
+of the old success to that helper. The helper was removed as described above.
+
+`Build-PS5LinkTextureBindings.ps1 -UpdateSecondTexture -FenceFrames` adds a
+separate serialized diagnostic: initialize an aligned 64-bit label, append
+standard RELEASE_MEM after SetFlip, then poll the real terminal zero before
+another frame can rewrite memory. The poll yields with sceKernelUsleep(1000)
+and uses sceKernelGetProcessTime for a five-second deadline. Counting calls to
+SuspendPoint as milliseconds was rejected after an initial timeout, because
+that call can return immediately under native execution. The terminal packet
+contract follows the reviewed public `ps5-agc-gears/src/ps5_present.c`, pin
+`1ae1f9182abd2770c131b97419034fb85173c2dc`; that project is not built or claimed
+to run. The source generator preserves the upstream checkout/startup and emits
+32 bound native imports with zero unpatched relocations.
+
+Final-runtime runs, after removal of the unvalidated seed helper:
+
+- `smoke-TextureBindingsUpdatesFenced-20261013-142325`: 600 frames; four captures,
+  all 64/64 cells per object; complete first frame, palettes 1,1,2,0.
+- `smoke-TextureBindingsReverseUpdatesFenced-20261013-142343`: 600 frames; five
+  captures, all 64/64 cells per object; complete first frame, palettes 1,1,2,0,1.
+
+Use `--require-complete-first-frame` to reject an initial uniform background
+rather than silently skipping it. Repeated captured palettes are allowed because
+the first capture and presentation 150 can both occur before the first change;
+palette changes must still advance cyclically and include the changed colors.
+Old partial-frame and static captures remain negative controls. This demonstrates
+correct image cells in a serialized adapted scene, not a general presentation
+fix or production throughput. Both objects, changing palettes and first-frame
+content are checked from actual readbacks. All 1261 library checks pass on the
+final runtime; Release build succeeds with existing SHEM006.
+After adding the packet-capacity guard, forward replay
+`smoke-TextureBindingsUpdatesFenced-20261013-142540` also passes all five captures
+and the strict first-frame requirement (palettes 1,1,2,0,1). Its decoded first
+image was inspected: both checker planes are present. Background bytes and
+whole-image equivalence to a console are not certified by the 128-center check.
+The old unfenced reverse replay `smoke-TextureBindingsReverseUpdates-20261013-141555`
+is rejected when the complete-first-frame requirement is enabled.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkTextureBindings.ps1 -UpdateSecondTexture -FenceFrames
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsUpdatesFenced
+py -3 ./tools/external-homebrew/Check-PS5LinkIndependentTextureUpdates.py <capture-folder> --require-complete-first-frame
+# Repeat with -ReverseObjects / TextureBindingsReverseUpdatesFenced.
+```
+
+Next: retire two independent frame slots with their own fences before reuse,
+including per-slot mutable texture storage. Keep immutable flip snapshots ahead
+of their terminal fences; do not mutate shared texture bytes while another slot
+can still sample them. Then compare perspective/UV reference images and investigate
+guest CPU depth-image ownership. Legacy unfenced probes remain diagnostic only;
+their initial-frame behavior has not been fixed globally. Gears still needs its
+pinned LLPC/native foundation. GTA VI has not been run.

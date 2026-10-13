@@ -16,6 +16,7 @@ spec.loader.exec_module(bindings)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('capture_folder', type=Path)
+    parser.add_argument('--require-complete-first-frame', action='store_true')
     args = parser.parse_args()
     results = []
     for path in sorted(args.capture_folder.glob('present-*.bgra')):
@@ -32,10 +33,16 @@ def main():
         results.append({'Input': str(path.resolve()), 'MatchesBySecondPalette': counts,
                         'SecondPalette': phase, 'InitialUniformBackground': blank})
     sequence = [r['SecondPalette'] for r in results if r['SecondPalette'] is not None]
-    ordered = all(b == (a + 1) % 3 for a, b in zip(sequence, sequence[1:]))
+    # Capture 1 and presentation 150 can both precede the first palette change.
+    # Allow repeated palettes, but require cyclic order whenever it changes.
+    ordered = all(b == a or b == (a + 1) % 3 for a, b in zip(sequence, sequence[1:]))
     passed = {0, 2}.issubset(sequence) and ordered and all(
         r['SecondPalette'] is not None or r['InitialUniformBackground'] for r in results)
+    first_complete = bool(results) and results[0]['SecondPalette'] is not None
+    passed = passed and (first_complete or not args.require_complete_first_frame)
     report = {'Captures': results, 'SecondPaletteSequence': sequence,
+              'FirstFrameComplete': first_complete,
+              'CompleteFirstFrameRequired': args.require_complete_first_frame,
               'FirstTextureStableAndSecondUpdated': passed,
               'Scope': '64 cell centers per object per nonblank captured frame',
               'VisualCorrectnessAutomaticallyVerified': False}

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$ReverseObjects,[switch]$SharedTextureControl,[switch]$UpdateSecondTexture)
+param([switch]$ReverseObjects,[switch]$SharedTextureControl,[switch]$UpdateSecondTexture,[switch]$FenceFrames)
 $ErrorActionPreference='Stop'
 if($UpdateSecondTexture -and $SharedTextureControl) { throw 'Updates require independent texture binding' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -39,6 +39,46 @@ int slot = frame & 1;
         }
 '@
 }
+if($FenceFrames) {
+    Replace-Checked 'extern int sceAgcSuspendPoint(void);' @'
+extern int sceAgcSuspendPoint(void);
+extern int sceKernelUsleep(unsigned int micros);
+extern unsigned long long sceKernelGetProcessTime(void);
+'@
+    Replace-Checked 'const int FRAMES = 600;' @'
+DirectMem frame_fence;
+    ALLOC_OR_FAIL(frame_fence, 8, DIRECT_MEM_MIN_ALIGN, "frame-fence");
+    volatile unsigned long long *completion = frame_fence.ptr;
+    const int FRAMES = 600;
+'@
+    Replace-Checked 'struct { void *words; unsigned int wordCount; unsigned char flag; } submit;' @'
+/* Terminal RELEASE_MEM follows SetFlip, so retirement includes its image copy.
+         * This diagnostic serializes frames; Vblank/SuspendPoint alone do not
+         * permit the CPU to overwrite buffers still referenced by GPU work. */
+        *completion = 1;
+        if (dcb->down_cursor - dcb->up_cursor < 8) {
+            notify("mesh_test: no space for terminal fence"); return 5;
+        }
+        unsigned long long fence_address = (unsigned long long)(unsigned long)frame_fence.ptr;
+        unsigned int *release = dcb->up_cursor;
+        release[0] = 0xc0064900u; release[1] = 0x06000528u; release[2] = 0x42010000u;
+        release[3] = (unsigned int)fence_address;
+        release[4] = (unsigned int)(fence_address >> 32);
+        release[5] = 0; release[6] = 0; release[7] = 0;
+        dcb->up_cursor += 8;
+        struct { void *words; unsigned int wordCount; unsigned char flag; } submit;
+'@
+    Replace-Checked 'sceVideoOutWaitVblank(vhandle);' @'
+unsigned long long wait_start = sceKernelGetProcessTime();
+        while (*completion != 0) {
+            if (sceKernelGetProcessTime() - wait_start >= 5000000ULL) {
+                notify("mesh_test: terminal GPU fence timeout"); return 4;
+            }
+            sceKernelUsleep(1000);
+        }
+        sceVideoOutWaitVblank(vhandle);
+'@
+}
 $a='cb_words'; $b='second_cb'; $ta='texture_words'; $tb='second_texture_words'
 if($SharedTextureControl) { $tb='texture_words' }
 if($ReverseObjects) { $a='second_cb'; $b='cb_words'; $ta='second_texture_words'; $tb='texture_words' }
@@ -55,6 +95,7 @@ $suffix='texture-bindings'
 if($SharedTextureControl) { $suffix+='-shared' }
 if($ReverseObjects) { $suffix+='-reverse' }
 if($UpdateSecondTexture) { $suffix+='-updates' } else { $suffix+='-static' }
+if($FenceFrames) { $suffix+='-fenced' }
 [IO.File]::WriteAllText("$out/main-$suffix.c",$text)
 & 'C:/BuildTools/VC/Tools/Llvm/x64/bin/clang.exe' --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector -I $out -I "$root/artifacts/external-homebrew/ps5link-texture-shaders" -c "$out/main-$suffix.c" -o "$out/main-$suffix.o"
 if($LASTEXITCODE) { throw 'Texture bindings compilation failed' }
@@ -65,6 +106,8 @@ $report | Add-Member ObjectCount 2
 $report | Add-Member DistinctObjectTextures (-not $SharedTextureControl)
 $report | Add-Member ReversedObjectOrder ([bool]$ReverseObjects)
 $report | Add-Member TextureCpuUpdates ([bool]$UpdateSecondTexture)
+$report | Add-Member TerminalGpuFence ([bool]$FenceFrames)
+$report | Add-Member FrameOwnership $(if($FenceFrames) { 'serialized GPU retirement after ordered flip' } else { 'legacy vblank/suspend only; reuse not proven safe' })
 $report | Add-Member UpdatedObjectIndex $(if($UpdateSecondTexture) { 1 } else { $null })
 $report.FrozenView=-not $UpdateSecondTexture
 $report | Add-Member GeneratedSourceSha256 ((Get-FileHash "$out/main-$suffix.c").Hash)

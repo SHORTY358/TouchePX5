@@ -15546,7 +15546,6 @@ internal static unsafe class VulkanVideoPresenter
                             targets[index].Height))
                 {
                     UploadGuestImageInitialData(targets[index], initialData);
-                    RememberLinearGuestImageCpuSeed(targets[index], initialData);
                 }
             }
 
@@ -16305,7 +16304,6 @@ internal static unsafe class VulkanVideoPresenter
                         (ulong)image.Width * image.Height * 4)
                 {
                     UploadGuestImageInitialData(image, initialData);
-                    RememberLinearGuestImageCpuSeed(image, initialData);
                 }
 
                 var toTransferDst = new ImageMemoryBarrier
@@ -16611,24 +16609,6 @@ internal static unsafe class VulkanVideoPresenter
             {
                 _vk.UnmapMemory(_device, memory);
             }
-        }
-
-        private static void RememberLinearGuestImageCpuSeed(GuestImageResource target, byte[] pixels)
-        {
-            // A later dirty drain must not replay the same CPU background over
-            // GPU draws recorded after this initial upload. Do not acknowledge
-            // a write generation here: CPU writes after the snapshot still need
-            // to be compared/uploaded, even while this first submission is queued.
-            if (target.TileMode != 0 || target.Depth != 1 || target.MipLevels != 1 ||
-                target.Format is not (Format.R8G8B8A8Unorm or Format.R32Uint or Format.R32Sint) ||
-                (ulong)pixels.Length != (ulong)target.Width * target.Height * 4)
-            {
-                return;
-            }
-
-            target.IsCpuBacked = true;
-            target.HasCompleteCpuSnapshot = true;
-            target.CpuContentFingerprint = ComputeTextureContentFingerprint(pixels);
         }
 
         private void UploadGuestImageInitialData(GuestImageResource target, byte[] pixels, uint firstRow = 0, uint rowCount = 0, uint firstColumn = 0, uint columnCount = 0)

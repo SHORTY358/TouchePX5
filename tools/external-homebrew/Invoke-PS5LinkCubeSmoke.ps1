@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -21,6 +21,8 @@ $inputName=switch($Profile) {
     'TextureUpdates' {'app-texture-updates.elf'}
     'TextureBindingsStatic' {'app-texture-bindings-static.elf'}
     'TextureBindingsUpdates' {'app-texture-bindings-updates.elf'}
+    'TextureBindingsUpdatesFenced' {'app-texture-bindings-updates-fenced.elf'}
+    'TextureBindingsReverseUpdatesFenced' {'app-texture-bindings-reverse-updates-fenced.elf'}
     'TextureBindingsReverseUpdates' {'app-texture-bindings-reverse-updates.elf'}
     'TextureBindingsReverseStatic' {'app-texture-bindings-reverse-static.elf'}
     'TextureBindingsSharedStatic' {'app-texture-bindings-shared-static.elf'}
@@ -89,6 +91,7 @@ try {
         TextureCpuUpdates=$buildReport.TextureCpuUpdates
         DistinctObjectTextures=$buildReport.DistinctObjectTextures
         BoundTextureAddresses=$textureAddresses
+        TerminalGpuFence=$buildReport.TerminalGpuFence; FrameOwnership=$buildReport.FrameOwnership
         StrictShaderDescriptors=$Profile.StartsWith('Texture')
         InputHasInitAbiCorrection=$true; StartupModified=$false
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode
