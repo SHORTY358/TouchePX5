@@ -579,7 +579,7 @@ public static partial class AgcExports
     private static readonly bool _honorSingleChannelCompSwap =
         Environment.GetEnvironmentVariable("SHARPEMU_HONOR_SINGLE_CHANNEL_COMP_SWAP") == "1";
 
-    private readonly record struct RenderTargetDescriptor(
+    internal readonly record struct RenderTargetDescriptor(
         uint Slot,
         ulong Address,
         uint Width,
@@ -8106,7 +8106,7 @@ public static partial class AgcExports
         // draw a multi-render-target G-buffer (up to eight slots) in one pass.
         // Fall back to slot 0 if we cannot match any export to a bound target.
         var pixelColorExportMasks = pixelState.Program.PixelColorExportMasks;
-        var allBoundTargets = GetRenderTargets(state.CxRegisters);
+        var allBoundTargets = GetRasterizationRenderTargets(state.CxRegisters);
         // At most 8 slots; a manual filter avoids the per-draw LINQ iterator/
         // closure allocations. Slots are distinct, so sorting by slot is stable.
         var selectedTargets = new List<RenderTargetDescriptor>(allBoundTargets.Count);
@@ -9285,6 +9285,26 @@ public static partial class AgcExports
             source.Format == destination.Format;
     }
 
+    internal static IReadOnlyList<RenderTargetDescriptor> GetRasterizationRenderTargets(
+        IReadOnlyDictionary<uint, uint> registers)
+    {
+        var targets = GetRenderTargets(registers);
+        if (targets.Count != 0 || DecodeDepthTarget(registers) is null)
+        {
+            return targets;
+        }
+
+        var depth = DecodeDepthState(registers);
+        // A pixel shader can remain bound during a depth/stencil pass with all
+        // CB channels masked. Keep its attachment dimensions and real pipeline
+        // state; DecodeBlendState still enforces the zero color write masks.
+        // Do not replace the pixel shader (it may discard or export depth).
+        return depth.TestEnable || depth.WriteEnable || depth.ClearEnable ||
+            depth.StencilTestEnable || depth.StencilClearEnable
+            ? GetRenderTargets(registers, includeMaskedTargets: true)
+            : targets;
+    }
+
     private static IReadOnlyList<RenderTargetDescriptor> GetRenderTargets(
         IReadOnlyDictionary<uint, uint> registers,
         bool includeMaskedTargets = false)
@@ -9361,7 +9381,7 @@ public static partial class AgcExports
             DecodeBlendConstant(registers));
     }
 
-    private static GuestRenderState CreateRenderState(
+    internal static GuestRenderState CreateRenderState(
         IReadOnlyDictionary<uint, uint> registers,
         IReadOnlyList<RenderTargetDescriptor> targets,
         uint pixelColorExportMasks)

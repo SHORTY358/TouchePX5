@@ -1,10 +1,27 @@
-# Local engineering checkpoint — 2026-10-08
+# Local engineering checkpoint — 2026-10-13
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **Adapted independent cube now exercises persistent D32 depth.** A masked
+  color pass with a pixel shader formerly lost its attachment and fell back
+  to default raster/depth state. Translation now retains the bound attachment
+  when valid depth/stencil work is active, preserves the pixel shader, and
+  keeps color writes masked. A real fullscreen triangle resets depth to 1
+  before each cube draw; no unconditional emulator clear was added.
+  The animated scene finishes its 600-frame source loop with host exit 0;
+  decoded readbacks show complete rotating geometry. In a frozen-view control,
+  reversing all six face submissions changes **0 pixels with depth enabled**
+  and **365718 pixels with depth disabled**. Both cases disable back-face
+  culling. The input is explicitly source-adapted, not unchanged upstream or
+  a built Gears game. CPU depth-memory clearing remains unresolved. All 1261
+  library tests pass, including four masked-target regressions. The final
+  incremental CLI build succeeds without warnings; a full dependency rebuild
+  still reports the existing `sceAgcInit_0090` catalog warning. Base cube replay
+  also completes. See `independent-3d-homebrew.md` for reproduction and limits.
 
 - **Independent cube now reaches real indexed GPU rendering.** Experimental
   non-tessellated triangle linkage combines existing primitive-state and

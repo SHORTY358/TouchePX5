@@ -159,3 +159,71 @@ visual correctness. Main/exit/finalizer all succeed in this profile.
 Next: repeated capture validation and GPU validation diagnostics, especially
 busy flips and synchronization while reusing the two command/resource buffers;
 then the next independent scene with depth and textures.
+
+## Adapted D32 depth scene — 13 October 2026
+
+`Build-PS5LinkCubeDepth.ps1` generates a separate source adaptation from the
+same pinned cube, leaving the upstream checkout and native startup unchanged.
+The D32/no-HTILE register contract is cross-checked against public Gears commit
+`1ae1f9182abd2770c131b97419034fb85173c2dc`. The existing mesh shaders are reused;
+this does not build Gears or validate its LLPC toolchain. Back-face culling is
+disabled so depth testing, rather than culling, determines visibility.
+
+An initial CPU-depth-clear version completed but showed disappearing geometry
+when animated. Static controls retained geometry, isolating repeated clearing
+as a problem. CPU writes to a reused Vulkan depth attachment are not currently
+uploaded by the color-image write tracker. This remains an explicit gap.
+
+The default adapted scene instead submits a real fullscreen triangle at depth
+1 with identity transforms, ALWAYS comparison, depth writes enabled and color
+writes masked. It then restores cube resources, LESS_OR_EQUAL comparison and
+color writes. This exposed a separate emulator bug: with a pixel shader bound
+and all color channels masked, target filtering discarded the attachment and
+`CreateRenderState` returned defaults, losing viewport and depth state.
+The translator now keeps valid bound masked targets for active depth/stencil
+work. The existing pixel shader still runs and the color masks remain zero;
+shader discards or depth exports are not bypassed. Ordinary targetless draws
+without valid depth work keep their prior behavior.
+
+Verification:
+
+- `smoke-Depth-20261013-111508`: host exit 0, 600-frame source-loop completion,
+  three distinct readbacks. The decoded contact sheet was visually inspected:
+  complete rotating cube geometry, without the earlier missing fragments.
+- Frozen forward/reverse face-order runs with depth enabled have identical
+  final 1920x1061 BGRA captures: **0 differing pixels**. The corresponding
+  disabled-depth controls differ in **365718 pixels**. Enabled versus disabled
+  forward-order controls differ in **221216 pixels**. This verifies a specific
+  order/occlusion relationship, not all depth/stencil correctness.
+- All 1261 library tests pass; the four new regressions cover masked depth
+  state, preserved viewport/color mask, invalid depth surfaces, inactive depth
+  and ordinary color targets. The base cube smoke also completes with four
+  distinct captures after the runtime change.
+
+Reproduce each generated input and retain the capture folders printed by smoke:
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkCubeDepth.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile Depth
+& ./tools/external-homebrew/Build-PS5LinkCubeDepth.ps1 -FreezeView
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile DepthStatic
+& ./tools/external-homebrew/Build-PS5LinkCubeDepth.ps1 -FreezeView -ReverseFaces
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile DepthReverseStatic
+& ./tools/external-homebrew/Build-PS5LinkCubeDepth.ps1 -FreezeView -DisableDepth
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile DepthDisabledStatic
+& ./tools/external-homebrew/Build-PS5LinkCubeDepth.ps1 -FreezeView -DisableDepth -ReverseFaces
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile DepthDisabledReverseStatic
+```
+
+Pass the four static capture folders, in the order shown above, to
+`py -3 tools/external-homebrew/Compare-PS5LinkCubeDepth.py <enabled> <enabled_reverse> <disabled> <disabled_reverse> --output <report.json>`.
+Keep the window dimensions fixed. The comparison validates complete BGRA file
+sizes and matching dimensions before comparing pixels. Build reports mark
+source adaptations and the clear method; smoke verifies each ELF hash against
+its build provenance. CPU-clear diagnosis remains selectable separately with
+`-CpuDepthClear` and smoke profile `DepthCpuClear` (animated); its process pass
+must not be mistaken for a correct image.
+
+Remaining: CPU depth uploads/ownership, nonuniform depth contents, stencil,
+textures, independent multi-object scenes and Gears compiler setup. These
+results do not establish commercial PS5-game or GTA VI compatibility.

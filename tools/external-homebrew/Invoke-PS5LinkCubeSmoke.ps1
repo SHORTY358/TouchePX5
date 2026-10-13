@@ -1,15 +1,29 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param()
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
-$capture=Join-Path $out "smoke-$stamp"
+$capture=Join-Path $out "smoke-$Profile-$stamp"
 $exe=Join-Path $root 'artifacts/bin/Release/net10.0/win-x64/TouchePx5.exe'
-$elf=Join-Path $out 'app-init-abi.elf'
-if(-not (Test-Path -LiteralPath $elf)) { throw 'Build-PS5LinkCube.ps1 -CorrectInitAbi must run first' }
+$inputName=switch($Profile) {
+    'Depth' {'app-depth.elf'}
+    'DepthDisabled' {'app-depth-disabled.elf'}
+    'DepthStatic' {'app-depth-static.elf'}
+    'DepthDisabledStatic' {'app-depth-disabled-static.elf'}
+    'DepthCpuClear' {'app-depth-cpu-clear.elf'}
+    'DepthReverseStatic' {'app-depth-reverse-static.elf'}
+    'DepthDisabledReverseStatic' {'app-depth-disabled-reverse-static.elf'}
+    default {'app-init-abi.elf'}
+}
+$elf=Join-Path $out $inputName
+if(-not (Test-Path -LiteralPath $elf)) { throw "Build the selected cube profile first: $inputName" }
+$buildReportPath=Join-Path $out ($inputName.Replace('app','build-report').Replace('.elf','.json'))
+$buildReport=Get-Content -LiteralPath $buildReportPath -Raw | ConvertFrom-Json
+$inputHash=(Get-FileHash -LiteralPath $elf).Hash
+if($buildReport.ElfSha256 -ne $inputHash) { throw 'Input ELF does not match its build provenance' }
 New-Item -ItemType Directory -Path $capture -Force | Out-Null
 # This profile needs direct CPU framebuffer-write tracking. Windows leaves
 # it off by default because it can regress other titles; do not set globally.
@@ -35,9 +49,12 @@ try {
     if(-not $log.Contains('Guest notification: mesh_test: fin')) { throw 'Cube did not finish its 600-frame source loop' }
     $frames=@(Get-ChildItem -LiteralPath $capture -Filter '*.bgra')
     $hashes=@($frames | Get-FileHash | Select-Object -ExpandProperty Hash -Unique)
-    if($hashes.Count -lt 2) { throw 'Expected at least two distinct presented frame captures' }
+    $staticView=$Profile.EndsWith('Static')
+    if($frames.Count -lt 1 -or (-not $staticView -and $hashes.Count -lt 2)) { throw 'Expected presented frame captures (and varying captures for animated inputs)' }
     @{
-        Input=$elf; InputSha256=(Get-FileHash -LiteralPath $elf).Hash
+        Profile=$Profile; FrozenView=$staticView; Input=$elf; InputSha256=$inputHash
+        SourceModified=$buildReport.SourceModified; DepthClearMethod=$buildReport.DepthClearMethod
+        ReversedFaceOrder=$buildReport.ReversedFaceOrder
         InputHasInitAbiCorrection=$true; StartupModified=$false
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode
         SourceLoopCompleted=$true; PresentedCaptureCount=$frames.Count
