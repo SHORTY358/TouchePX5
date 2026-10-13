@@ -10,6 +10,18 @@ the failed intermediate steps as provenance, not current blockers.
 
 ## Latest completed build
 
+The isolated `-ShaderAperture` variant now honors the descriptor's 0x2xxxxxxxx
+address requirement using a real fixed direct-memory mapping at 0x200000000.
+Use all four switches explicitly:
+`Build-GearsNativeWindows.ps1 -PublicInitAbi -BootDiagnostics -LegacyDefaultsAbi -ShaderAperture`,
+then the same switches on `Invoke-GearsNative.ps1`. No upstream checks are removed.
+Diagnostic SELF `43CF57A473912F462C00C58A44EB6E532B86632C6EE3EB46D9B852F7D1A15575`
+reaches a real 165-dword DCB submission in boot `20261013-123501-123` after fixing
+the SH range and auto-draw writer sizes. Actual shader translation fails at
+pixel shader `unknown-vop2 op=0x07`; frame-loop parks afterwards. This is the
+next graphics investigation, not a verified rendered Gears scene.
+Full library checks: 1284/1284. Previous variants/logs remain retained.
+
 The final LLPC/llvm-readelf/llvm-objcopy build completes with exit 0 in 224.5 s.
 The remaining Windows configuration issues were LLPC's flat `vulkan.h` include,
 PAL's C++ standard macro check and POSIX `strcasecmp`. The wrapper adds the

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # The native outputs/assembly overlay retain the upstream GPL-3.0 license.
 [CmdletBinding()]
-param([switch]$PublicInitAbi,[switch]$BootDiagnostics,[switch]$LegacyDefaultsAbi)
+param([switch]$PublicInitAbi,[switch]$BootDiagnostics,[switch]$LegacyDefaultsAbi,[switch]$ShaderAperture)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $deps=Join-Path $root 'artifacts/external-homebrew/gears-toolchain'
@@ -11,7 +11,8 @@ $foundation=Join-Path $deps 'native-foundation'
 $shaderRoot=Join-Path $deps 'gears-native-windows'
 if($BootDiagnostics -and -not $PublicInitAbi) { throw 'Boot diagnostics belong to the separate public-init variant' }
 if($LegacyDefaultsAbi -and (-not $PublicInitAbi -or -not $BootDiagnostics)) { throw 'Legacy defaults experiment requires explicit public-init and diagnostics' }
-$out=if($LegacyDefaultsAbi) { Join-Path $deps 'gears-legacy-defaults-windows' } elseif($BootDiagnostics) { Join-Path $deps 'gears-public-init-diagnostics' } elseif($PublicInitAbi) { Join-Path $deps 'gears-public-init-windows' } else { $shaderRoot }
+if($ShaderAperture -and -not $LegacyDefaultsAbi) { throw 'Shader aperture experiment requires the legacy consumer variant' }
+$out=if($ShaderAperture) { Join-Path $deps 'gears-shader-aperture-windows' } elseif($LegacyDefaultsAbi) { Join-Path $deps 'gears-legacy-defaults-windows' } elseif($BootDiagnostics) { Join-Path $deps 'gears-public-init-diagnostics' } elseif($PublicInitAbi) { Join-Path $deps 'gears-public-init-windows' } else { $shaderRoot }
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 $shaderReport=Get-Content "$shaderRoot/shader-report.json" -Raw | ConvertFrom-Json
 if(-not $shaderReport.ShadersBuilt -or $shaderReport.MetadataHeaderSha256 -ne (Get-FileHash "$shaderRoot/generated/gears_shader_metadata.h").Hash -or $shaderReport.ManifestSha256 -ne (Get-FileHash "$shaderRoot/shaders/gears_lit.manifest.json").Hash) { throw 'Verified real Gears shader outputs required' }
@@ -48,6 +49,30 @@ if($PublicInitAbi) {
 '@
         # Diagnostic output only; all failure checks and cleanup remain intact.
         $content=$content.Replace($marker,$marker+"`n"+$diagnostic)
+        $parkMarker="static void park(const char *reason)`n{"
+        if(([regex]::Matches($content,[regex]::Escape($parkMarker))).Count -ne 1) { throw 'Review changed upstream park handler' }
+        $parkDiagnostic=@'
+    (void)write(2, "GEARS_PARKED reason=", sizeof("GEARS_PARKED reason=") - 1);
+    const char *park_reason = reason ? reason : "unknown";
+    (void)write(2, park_reason, strlen(park_reason));
+    (void)write(2, "\n", 1);
+'@
+        $content=$content.Replace($parkMarker,$parkMarker+"`n"+$parkDiagnostic)
+    }
+    if($ShaderAperture) {
+        $map='result = sceKernelMapDirectMemory(address, bytes, 0x33, 0, *offset,'
+        if(([regex]::Matches($content,[regex]::Escape($map))).Count -ne 1) { throw 'Review changed direct mapping call' }
+        $fixed=@'
+const int shader_mapping = address == &resources.shader;
+    if (shader_mapping)
+        *address = (void *)(uintptr_t)UINT64_C(0x200000000);
+    result = sceKernelMapDirectMemory(address, bytes, 0x33,
+                                      shader_mapping ? 0x10 : 0, *offset,
+'@
+        $content=$content.Replace($map,$fixed)
+        $check='return result != 0 || !*address ? (result != 0 ? result : -1) : 0;'
+        if(([regex]::Matches($content,[regex]::Escape($check))).Count -ne 1) { throw 'Review changed mapping result check' }
+        $content=$content.Replace($check,'if (result == 0 && shader_mapping && (uintptr_t)*address != UINT64_C(0x200000000)) return -1;'+"`n    "+$check)
     }
     $main="$out/main.c"
     [IO.File]::WriteAllText($main,$content)
@@ -90,7 +115,7 @@ if($LegacyDefaultsAbi) {
     $colorObject="$out/color-legacy.o"
     & "$bin/clang.exe" @flags -std=c11 -c "$out/src/ps5_color_target.c" -o $colorObject > "$out/color-build.log" 2>&1
     if($LASTEXITCODE) { throw 'Legacy consumer ABI compilation failed' }
-    & "$PSScriptRoot/Test-GearsLegacyDefaults.ps1"
+    & "$PSScriptRoot/Test-GearsLegacyDefaults.ps1" -OutputDirectory $out
 }
 foreach($source in $sources) {
     if($source -eq 'native/main.c') { $objects+="$out/main.o" }
@@ -116,7 +141,7 @@ if(Test-Path "$gears/dev.conf") { Copy-Item -LiteralPath "$gears/dev.conf" -Dest
     ShaderManifestSha256=$shaderReport.ManifestSha256; MetadataHeaderSha256=$shaderReport.MetadataHeaderSha256;
     OriginalAssemblySha256=(Get-FileHash "$gears/native/shader_assets.S").Hash; AssemblyOverlaySha256=(Get-FileHash "$out/shader_assets.S").Hash;
     ConverterSha256=$converterReport.ConverterSha256; PosixHostNetworkTestCompleted=$false;
-    PublicInitAbi=[bool]$PublicInitAbi; BootDiagnostics=[bool]$BootDiagnostics; LegacyDefaultsAbi=[bool]$LegacyDefaultsAbi; OriginalMainSha256=(Get-FileHash "$gears/native/main.c").Hash; BuiltMainSha256=(Get-FileHash $main).Hash;
+    PublicInitAbi=[bool]$PublicInitAbi; BootDiagnostics=[bool]$BootDiagnostics; LegacyDefaultsAbi=[bool]$LegacyDefaultsAbi; ShaderAperture=[bool]$ShaderAperture; OriginalMainSha256=(Get-FileHash "$gears/native/main.c").Hash; BuiltMainSha256=(Get-FileHash $main).Hash;
     Scope='native pinned Gears title built using actual LLPC stages; no emulator execution or full upstream host test claim'
 } | ConvertTo-Json -Depth 4 | Set-Content "$out/native-report.json" -Encoding utf8
 if($LegacyDefaultsAbi) {

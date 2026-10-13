@@ -247,7 +247,6 @@ public static partial class AgcExports
     private const uint VgtShaderStagesGsW32EnBit = 1u << 22;
     private const ulong ShaderSpecialVgtGsOutPrimTypeOffset = 0x20;
     private const ulong ShaderSpecialGeUserVgprEnOffset = 0x28;
-    private const uint CbSetShRegisterRangeMarker = 0x6875000D;
     private static readonly object _submitTraceGate = new();
     private static readonly HashSet<uint> _tracedDcbSizes = new();
     private static readonly HashSet<(ulong Es, ulong Ps, GuestDrawKind Kind)> _tracedShaderTranslations = new();
@@ -1946,10 +1945,10 @@ public static partial class AgcExports
             return ReturnPointer(ctx, 0);
         }
 
-        if (!TryAllocateCommandDwords(ctx, commandBufferAddress, 2, out var markerAddress) ||
-            !TryWriteUInt32(ctx, markerAddress, Pm4(2, ItNop, RZero)) ||
-            !TryWriteUInt32(ctx, markerAddress + 4, CbSetShRegisterRangeMarker) ||
-            !TryAllocateCommandDwords(ctx, commandBufferAddress, valueCount + 2, out var commandAddress) ||
+        // A contiguous range emits only SET_SH_REG (two header dwords plus
+        // values). A separate NOP marker changes the caller's exact cursor
+        // contract and is not consumed anywhere in the command interpreter.
+        if (!TryAllocateCommandDwords(ctx, commandBufferAddress, valueCount + 2, out var commandAddress) ||
             !TryWriteUInt32(ctx, commandAddress, Pm4(valueCount + 2, ItSetShReg, 0)) ||
             !TryWriteUInt32(ctx, commandAddress + 4, offset))
         {
@@ -2297,19 +2296,18 @@ public static partial class AgcExports
         var commandBufferAddress = ctx[CpuRegister.Rdi];
         var indexCount = (uint)ctx[CpuRegister.Rsi];
         var modifier = ctx[CpuRegister.Rdx];
-        if (commandBufferAddress == 0 || modifier != 0x4000_0000)
+        if (commandBufferAddress == 0)
         {
             return ReturnPointer(ctx, 0);
         }
 
-        if (!TryAllocateCommandDwords(ctx, commandBufferAddress, 7, out var commandAddress) ||
-            !TryWriteUInt32(ctx, commandAddress, Pm4(7, ItNop, RDrawIndexAuto)) ||
+        var initiator = (modifier & (1UL << 32)) != 0
+            ? 2u
+            : (((uint)modifier >> 3) & 0x20u) | 2u;
+        if (!TryAllocateCommandDwords(ctx, commandBufferAddress, 3, out var commandAddress) ||
+            !TryWriteUInt32(ctx, commandAddress, Pm4(3, ItDrawIndexAuto, 0)) ||
             !TryWriteUInt32(ctx, commandAddress + 4, indexCount) ||
-            !TryWriteUInt32(ctx, commandAddress + 8, 0) ||
-            !TryWriteUInt32(ctx, commandAddress + 12, 0) ||
-            !TryWriteUInt32(ctx, commandAddress + 16, 0) ||
-            !TryWriteUInt32(ctx, commandAddress + 20, 0) ||
-            !TryWriteUInt32(ctx, commandAddress + 24, 0))
+            !TryWriteUInt32(ctx, commandAddress + 8, initiator))
         {
             return ReturnPointer(ctx, 0);
         }

@@ -1,12 +1,13 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param()
+param([string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $deps=Join-Path $repo 'artifacts/external-homebrew/gears-toolchain'
 $gears=Join-Path $repo 'artifacts/external-homebrew/ps5-agc-gears'
-$out=Join-Path $deps 'gears-legacy-defaults-windows'
+$out=if($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $deps 'gears-legacy-defaults-windows' }
+if(-not $out.StartsWith($deps+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'Selector outputs must remain under the isolated toolchain' }
 $compiler=Join-Path $deps 'clang18/llvm-mingw-20240619-ucrt-x86_64/bin/clang.exe'
 $source=[IO.File]::ReadAllText("$gears/tests/test_ps5_color_target.c")
 $source=$source.Replace('../src/ps5_color_target.h',"$out/src/ps5_color_target.h".Replace('\','/')).Replace('PS5_FW_1202_DEFAULT_COUNT','PS5_HLE_LEGACY_DEFAULT_COUNT').Replace('PS5_FW_1202_CX_DEFAULT_COUNT','PS5_HLE_LEGACY_CX_DEFAULT_COUNT')

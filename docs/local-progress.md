@@ -6,6 +6,42 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Gears advances from the shader aperture gate to real command submission.**
+  Separate `-ShaderAperture` native variant requests fixed direct-memory mapping
+  at 0x200000000 (guest flag 0x10), and rejects a different returned address.
+  The original shader descriptor aperture assertions remain enforced; upstream
+  sources and previous native variants are preserved. Trace confirms shader
+  headers/code now reside at 0x200000000/0x200001000, not truncated pointers.
+  Diagnostic-only stderr park reasons now expose the actual frame-loop failure;
+  unresolved `pause` NID `EDyhWelj7UY` occurs afterwards in the retained-resource
+  park loop and must not be mistaken for the initial rendering failure.
+
+  Found two runtime writer incompatibilities against strict original Gears
+  cursor checks and pinned OpenAGC reference `3c7e8072f0d7684e930454794fd5c02056946d73`:
+  `sceAgcCbSetShRegisterRangeDirect` added an unused two-dword NOP before its
+  range; it now emits exactly count+2 words. `sceAgcDcbDrawIndexAuto` used a
+  seven-word NOP wrapper and rejected other modifiers; it now emits the real
+  three-word DRAW_INDEX_AUTO packet with modifier-derived initiator. Existing
+  interpreter support for that opcode is retained. Seven new generated-dispatch
+  checks cover exact capacity, payload/cursor/tail, rejected insufficient space,
+  and modifier bit 32/bit 8/count zero. Full Release library suite **1284/1284**
+  passes; Windows CLI build has zero warnings/errors (test compilation retains
+  existing SHEM006 catalog warning for `sceAgcInit_0090`).
+
+  Paired identical diagnostic SELF boots: `20261013-122938-616` (old runtime)
+  parks after the first SH range, `20261013-123317-843` (range fix only) still
+  parks before a draw, and `20261013-123501-123` (both fixes) emits all four draws,
+  flip token 0x420000000001 and submits actual 165-dword DCB. SELF SHA256:
+  `43CF57A473912F462C00C58A44EB6E532B86632C6EE3EB46D9B852F7D1A15575`.
+  Evidence: `gears-toolchain/gears-shader-aperture-windows/runs/` and
+  `command-writer-comparison.json`; each boot retains runtime/input hashes.
+  **No Gears rendered frame is verified.** The first draw reaches shader
+  translation and reports `unknown-vop2 op=0x07` in the actual pixel shader.
+  Next: identify this GFX1013 instruction from the compiled shader/disassembly,
+  add meaningful decoding/translation coverage, and retry the same scene.
+  Separately inspect the frame retirement failure; do not bypass ownership,
+  fences, pixel checks or the title's exact 120-word compose check.
+
 - **Strict legacy defaults consumer advances Gears to the shader address gate.**
   Independent source inspection confirms current HLE has 127 primary groups,
   78 CX slots and 12-byte type/index records; the retained OpenAGC builder also
