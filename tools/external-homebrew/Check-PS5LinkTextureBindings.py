@@ -13,12 +13,14 @@ reader = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader)
 
 
-def cell_matches(dimensions, pixels):
+def cell_matches(dimensions, pixels, second_phase=1):
     width, height = dimensions
-    palettes = [
+    phases = [
         [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)],
         [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 0, 255)],
+        [(0, 255, 0), (0, 0, 255), (255, 0, 0), (0, 255, 255)],
     ]
+    palettes = [phases[0], phases[second_phase]]
     matches = [0, 0]
     for plane in range(2):
         for cy in range(8):

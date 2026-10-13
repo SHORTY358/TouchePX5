@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$ReverseObjects,[switch]$SharedTextureControl)
+param([switch]$ReverseObjects,[switch]$SharedTextureControl,[switch]$UpdateSecondTexture)
 $ErrorActionPreference='Stop'
+if($UpdateSecondTexture -and $SharedTextureControl) { throw 'Updates require independent texture binding' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 & "$PSScriptRoot/Build-PS5LinkTexturePlane.ps1"
@@ -27,6 +28,17 @@ float *second = cons_second[slot].ptr;
 
         /* Clear this frame
 '@
+if($UpdateSecondTexture) {
+    Replace-Checked 'int slot = frame & 1;' @'
+int slot = frame & 1;
+        /* Only the second texture changes. First allocation remains untouched. */
+        unsigned int phase = (1u + (unsigned int)(frame / 150)) % 3;
+        for (unsigned int i = 0; i < 64 * 64 * 4; i += 4) {
+            for (unsigned int c = 0; c < 3; c++) second_pixels[i+c] = pixels[i+(c+phase)%3];
+            second_pixels[i+3] = 255;
+        }
+'@
+}
 $a='cb_words'; $b='second_cb'; $ta='texture_words'; $tb='second_texture_words'
 if($SharedTextureControl) { $tb='texture_words' }
 if($ReverseObjects) { $a='second_cb'; $b='cb_words'; $ta='second_texture_words'; $tb='texture_words' }
@@ -42,7 +54,7 @@ sceAgcCbSetShRegisterRangeDirect(dcb, GS_USER_DATA_BASE + (unsigned int)cb_dwo, 
 $suffix='texture-bindings'
 if($SharedTextureControl) { $suffix+='-shared' }
 if($ReverseObjects) { $suffix+='-reverse' }
-$suffix+='-static'
+if($UpdateSecondTexture) { $suffix+='-updates' } else { $suffix+='-static' }
 [IO.File]::WriteAllText("$out/main-$suffix.c",$text)
 & 'C:/BuildTools/VC/Tools/Llvm/x64/bin/clang.exe' --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector -I $out -I "$root/artifacts/external-homebrew/ps5link-texture-shaders" -c "$out/main-$suffix.c" -o "$out/main-$suffix.o"
 if($LASTEXITCODE) { throw 'Texture bindings compilation failed' }
@@ -52,6 +64,9 @@ $report=Get-Content "$out/build-report-texture-static.json" -Raw | ConvertFrom-J
 $report | Add-Member ObjectCount 2
 $report | Add-Member DistinctObjectTextures (-not $SharedTextureControl)
 $report | Add-Member ReversedObjectOrder ([bool]$ReverseObjects)
+$report | Add-Member TextureCpuUpdates ([bool]$UpdateSecondTexture)
+$report | Add-Member UpdatedObjectIndex $(if($UpdateSecondTexture) { 1 } else { $null })
+$report.FrozenView=-not $UpdateSecondTexture
 $report | Add-Member GeneratedSourceSha256 ((Get-FileHash "$out/main-$suffix.c").Hash)
 $report.ElfSha256=(Get-FileHash "$out/app-$suffix.elf").Hash
 $report | ConvertTo-Json | Set-Content "$out/build-report-$suffix.json" -Encoding utf8

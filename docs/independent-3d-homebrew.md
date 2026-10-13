@@ -441,6 +441,55 @@ preserved; texture/shader scope remains single-mip linear RGBA8. This does not
 validate concurrent writes, tiling, general perspective precision or commercial
 titles. No emulator runtime source changed for this stage.
 
+### Independent texture updates expose initial-seed replay
+
+`Build-PS5LinkTextureBindings.ps1 -UpdateSecondTexture` preserves the first
+texture and cycles only the second allocation's palette every 150 frames.
+Both normal and `-ReverseObjects` variants retain separate constant buffers
+and texture descriptors. `Check-PS5LinkIndependentTextureUpdates.py` requires
+64 correct cell centers on each object for every nonblank saved frame and an
+ordered changing second palette, rejecting corruption of the first object.
+
+Before the runtime fix, both inputs completed but failed image validation:
+`smoke-TextureBindingsUpdates-20261013-141258` had only the second plane in its
+first capture; `smoke-TextureBindingsReverseUpdates-20261013-141310` had only
+the first. The later captures passed. These failed reports are retained.
+
+The initial render-target seed upload had no retained CPU snapshot fingerprint.
+A later native dirty drain could upload that unchanged CPU background again,
+overwriting GPU geometry from the earlier draw. `RememberLinearGuestImageCpuSeed`
+in `VulkanVideoPresenter` records complete seed contents for linear, one-layer,
+one-mip RGBA8/R32 images. Both initial-seed upload paths call it. It deliberately
+does not acknowledge a write generation; actual later CPU changes must still be
+detected. Other image formats/layouts retain their previous behavior.
+
+Post-fix native replay, with unchanged input ELFs:
+
+- `smoke-TextureBindingsUpdates-20261013-141541`: all four captures pass 64/64
+  cells per object; second palette sequence 1,2,0,1. Contact sheet inspected.
+- `smoke-TextureBindingsReverseUpdates-20261013-141555`: initial uniform
+  background, then all three captures pass both objects, palettes 2,0,1.
+- `smoke-TexturePairOverlap-20261013-141608`: 600 frames, four distinct captures;
+  first is uniform background, later show complete textured objects. Contact
+  sheet inspected. This does not resolve initial presentation timing.
+
+Release CLI build succeeds with the existing SHEM006 catalog warning.
+All 1261 library tests pass. No full commercial-game compatibility is inferred.
+Base native replay `smoke-Base-20261013-141628` finishes 600 frames with four
+distinct captures. The single-texture update replay
+`smoke-TextureUpdates-20261013-141641` passes all 64 centers in each nonblank
+capture (palettes 1,2,0 after an initial uniform background). The independent
+update oracle rejects the original static two-plane capture as a negative
+control because it never changes the second palette.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkTextureBindings.ps1 -UpdateSecondTexture
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsUpdates
+py -3 ./tools/external-homebrew/Check-PS5LinkIndependentTextureUpdates.py <capture-folder>
+& ./tools/external-homebrew/Build-PS5LinkTextureBindings.ps1 -UpdateSecondTexture -ReverseObjects
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsReverseUpdates
+```
+
 Next independent-scene work: perspective/UV reference checks, resource lifetime,
-independent texture updates and guest CPU depth-image ownership. Gears still
+initial presentation timing and guest CPU depth-image ownership. Gears still
 requires its separate pinned LLPC/native foundation. GTA VI has not been run.
