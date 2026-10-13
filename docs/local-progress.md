@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Windows red-zone corruption is now isolated outside the emulator.** A
+  six-case native probe uses a handler containing no managed calls and snapshots
+  guest-style stack markers before its first native call or push. Two fresh
+  processes reproduce two damaged qwords already at handler entry; offsets vary.
+  No-fault, reserved-frame and guarded-store controls preserve all 16 markers.
+  This confirms a Windows exception-path / guest stack-contract incompatibility,
+  not a graphics shader or detiler error. A source-adapted cube with one guarded
+  register-addressed store completes 600 frames and passes all 210 background
+  samples in each of seven captures, cycling 0,0,1,1,2,0,0 with correct CPU probes.
+  That inline assembly also changes compiler vectorization and removes the
+  original fill function's red-zone spills, so cube success alone is not a
+  controlled proof of general red-zone protection. Runtime code is unchanged;
+  arbitrary guest executable instrumentation remains unimplemented. Details in
+  `tools/native-probes/red-zone-fault/README.md` and `independent-3d-homebrew.md`.
+
 - **Patterned tiled CPU backgrounds now pass initial seeding and subsequent
   updates in the owned cube fixture.** A native direct bit-matrix writer fills
   tile27 BGRA8 with a logical color grid; the capture checker calculates expected

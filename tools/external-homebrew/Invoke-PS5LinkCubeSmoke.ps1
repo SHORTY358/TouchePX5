@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[ValidateRange(1,600)][int]$CaptureEvery=150)
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[ValidateRange(1,600)][int]$CaptureEvery=150)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -27,6 +27,7 @@ $inputName=switch($Profile) {
     'TextureCubeSlots' {'app-texture-cube-slots.elf'}
     'TextureCubeSlotsPattern' {'app-texture-cube-slots-pattern.elf'}
     'TextureCubeSlotsPatternRedZone' {'app-texture-cube-slots-pattern-red-zone.elf'}
+    'TextureCubeSlotsPatternRedZoneGuarded' {'app-texture-cube-slots-pattern-red-zone-guarded.elf'}
     'TextureCubeSlotsPatternStatic' {'app-texture-cube-slots-pattern-static.elf'}
     'TextureCubeSlotsReversePatternStatic' {'app-texture-cube-slots-reverse-pattern-static.elf'}
     'TextureCubeSlotsNoBackgroundStatic' {'app-texture-cube-slots-no-background-static.elf'}
@@ -119,6 +120,7 @@ try {
         CaptureEvery=$CaptureEvery
         PatternedBackground=$buildReport.PatternedBackground
         RedZoneEnabled=$buildReport.RedZoneEnabled
+        GuardedPatternStores=$buildReport.GuardedPatternStores
         DistinctObjectTextures=$buildReport.DistinctObjectTextures
         BoundTextureAddresses=$textureAddresses
         TerminalGpuFence=$buildReport.TerminalGpuFence; FrameOwnership=$buildReport.FrameOwnership

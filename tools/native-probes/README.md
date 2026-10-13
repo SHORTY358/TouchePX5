@@ -1,5 +1,9 @@
 # Native GPU checks
 
+For the isolated Windows CPU exception/red-zone reproduction, see
+[`red-zone-fault/README.md`](red-zone-fault/README.md). Its exit 0 confirms the
+incompatibility and its controls, not emulator readiness or a runtime fix.
+
 PS5 CPU-tiled display integration: run
 `Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -TiledCpu`, optionally with
 `-Retry present`. This uses SetBufferAttribute2/RegisterBuffers2 and explicit

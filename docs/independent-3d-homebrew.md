@@ -851,3 +851,53 @@ py -3 ./tools/external-homebrew/Check-PS5LinkPatternedBackground.py <capture-fol
 Next: investigate the fault-path red-zone clobber with a minimal native regression
 and separately cover CPU-authored initial depth data. Broader shader/resource
 support and commercial compatibility remain unverified. GTA VI has not been run.
+
+## Windows red-zone fault isolation — 2026-10-13
+
+The next CPU fault investigation now has a minimal six-case native reproduction:
+`tools/native-probes/red-zone-fault`. The .NET host only allocates/registers code;
+there is no emulator or managed callback on the native fault-handling path.
+The first native handler snapshots 16 qwords before its first push/call.
+
+Two final fresh-process reports:
+- `artifacts/external-homebrew/ps5link-cube/windows-red-zone-native-veh-final.json`
+- `artifacts/external-homebrew/ps5link-cube/windows-red-zone-native-veh-repeat.json`
+
+Both report corruption already present at handler entry, exactly one write fault
+in each protected case, and completed stores. The ordinary red-zone mode loses
+2/16 markers (-64/-72 then -16/-24); all other five cases preserve 16/16. Controls
+are no fault, reserved frame, and a temporary -128 RSP bias only around the store.
+The offsets vary, so this is not a repairable fixed-slot overwrite contract.
+Microsoft's primary Windows x64 stack contract explicitly treats memory below
+RSP as volatile: https://learn.microsoft.com/en-us/cpp/build/stack-usage.
+This isolates the incompatibility before our handler calls; it does not identify
+an individual Windows dispatcher instruction or guarantee Linux compatibility.
+
+`Build-PS5LinkCubeFrameSlots.ps1 -PatternedBackground -UseRedZoneControl
+-GuardPatternStores` builds an explicitly adapted diagnostic source with one
+inline register-addressed MOV between flag-preserving LEA stack biases. It keeps
+red-zone compilation enabled. `TextureCubeSlotsPatternRedZoneGuarded` smoke
+with seeding on and capture interval 100 passes:
+- folder `smoke-TextureCubeSlotsPatternRedZoneGuarded-20261013-153030`;
+- 600 submitted / 600 retired / 598 reuses / max_pending=2;
+- 7 captures, phases 0,0,1,1,2,0,0;
+- all 210 background samples per capture and all 5 native CPU source probes;
+- `pattern-guarded-store-cycle.json` stores the independent checker evidence.
+
+Important confounder: inspecting the generated assembly shows that the inline
+assembly makes fill_pattern scalar and its locals remain in registers; its
+original AVX red-zone spills disappear. Thus this cube outcome is a useful
+integration example but cannot independently establish that the stack bias fixed
+those exact spills. The isolated native six-case probe is the controlled evidence
+for the bias mechanism. No runtime source changed, no arbitrary ELF rewriting
+was implemented, and no whole-emulator/game readiness follows from these cases.
+
+Next implementation decision: choose a method that avoids destructive host
+faults or instruments guest writes before faults. Guarding arbitrary instructions
+requires decoded RSP-relative operand adjustment, fault-context translation,
+register/flag preservation, and tests for other store forms and threads. Merely
+moving calls inside the existing VEH cannot restore data lost before handler
+entry. Windows native CPU image tracking remains opt-in; this stage does not
+turn it on globally. Initial CPU depth upload remains a subsequent independent
+image-coherence task. Library tests were not rerun because runtime code is
+unchanged; the preceding verified runtime checkpoint remains 1262 passing tests.

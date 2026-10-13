@@ -1,9 +1,10 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$FreezeView,[switch]$ReverseObjects,[switch]$DisableDepth,[switch]$SkipBackgroundWrites,[switch]$PatternedBackground,[switch]$UseRedZoneControl)
+param([switch]$FreezeView,[switch]$ReverseObjects,[switch]$DisableDepth,[switch]$SkipBackgroundWrites,[switch]$PatternedBackground,[switch]$UseRedZoneControl,[switch]$GuardPatternStores)
 $ErrorActionPreference='Stop'
 if($PatternedBackground -and $SkipBackgroundWrites) { throw 'Patterned background requires CPU writes' }
+if($GuardPatternStores -and (-not $PatternedBackground -or -not $UseRedZoneControl)) { throw 'Guarded-store experiment requires patterned red-zone control' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 & "$PSScriptRoot/Build-PS5LinkOverlappingCubes.ps1" -DistinctTextures -FreezeView:$FreezeView -ReverseObjects:$ReverseObjects -DisableDepth:$DisableDepth
@@ -66,6 +67,16 @@ int main(void) {
                           "x32y32", probe[768], "x96y32", probe[4608], "phase", $backgroundPhase);
           }
 "@
+}
+if($GuardPatternStores) {
+    # One source-adapted register-addressed store only. The compiler must load
+    # both operands before this block; no RSP-relative operand is evaluated
+    # while RSP is biased. This does not instrument arbitrary executable code.
+    Replace-Checked 'pixels[offset>>2]=0xff000000u|(r<<16)|(g<<8)|b;' @'
+        unsigned int color=0xff000000u|(r<<16)|(g<<8)|b;
+        __asm__ volatile("lea -128(%%rsp), %%rsp\n\tmovl %1, (%0)\n\tlea 128(%%rsp), %%rsp"
+                         : : "r"(pixels+(offset>>2)), "r"(color) : "memory");
+'@
 }
 Replace-Checked 'extern int sceAgcSuspendPoint(void);' @'
 extern int sceAgcSuspendPoint(void);
@@ -150,6 +161,7 @@ if($ReverseObjects) { $suffix+='-reverse' }
 if($SkipBackgroundWrites) { $suffix+='-no-background' }
 if($PatternedBackground) { $suffix+='-pattern' }
 if($UseRedZoneControl) { $suffix+='-red-zone' }
+if($GuardPatternStores) { $suffix+='-guarded' }
 if($FreezeView) { $suffix+='-static' }
 [IO.File]::WriteAllText("$out/main-$suffix.c",$text)
 [string[]]$stackOptions=@()
@@ -167,6 +179,7 @@ $report | Add-Member TextureCpuUpdates (-not $FreezeView)
 $report | Add-Member CpuBackgroundWrites (-not $SkipBackgroundWrites)
 $report | Add-Member PatternedBackground ([bool]$PatternedBackground)
 $report | Add-Member RedZoneEnabled ([bool]$UseRedZoneControl)
+$report | Add-Member GuardedPatternStores ([bool]$GuardPatternStores)
 $report.GeneratedSourceSha256=(Get-FileHash "$out/main-$suffix.c").Hash
 $report.ElfSha256=(Get-FileHash "$out/app-$suffix.elf").Hash
 $report | ConvertTo-Json | Set-Content "$out/build-report-$suffix.json" -Encoding utf8
