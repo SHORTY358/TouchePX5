@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Compile real upstream translation units only; no substitute shader metadata.
 [CmdletBinding()]
-param([switch]$AlternativeClang23)
+param([switch]$AlternativeClang23, [switch]$VerifySdkOnly)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $gears=Join-Path $root 'artifacts/external-homebrew/ps5-agc-gears'
@@ -35,6 +35,10 @@ try {
         $verifiedSdkFiles++
     }
 } finally { $zip.Dispose() }
+if($VerifySdkOnly) {
+    Write-Output "PASS: $verifiedSdkFiles extracted SDK files match the pinned archive"
+    return
+}
 $bin=Join-Path $deps 'clang18/llvm-mingw-20240619-ucrt-x86_64/bin'
 if($AlternativeClang23) { $bin='C:/Dev/tools/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin' }
 else { & "$PSScriptRoot/Get-GearsClang18.ps1" }

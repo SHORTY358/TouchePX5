@@ -39,3 +39,22 @@ foreach($dependency in $lock) {
     if($LASTEXITCODE) { throw "Dependency checkout failed: $path" }
     if((& git -C $path rev-parse HEAD) -ne $dependency.Pin) { throw 'Dependency pin mismatch' }
 }
+$changes=Join-Path $destination 'spvgen/CHANGES'
+if(Test-Path $changes) {
+    $text=[IO.File]::ReadAllText($changes)
+    $modules=@{
+        'glslang'='third_party/glslang'
+        'SPIRV-tools'='third_party/SPIRV-tools'
+        'SPIRV-headers'='third_party/SPIRV-tools/external/SPIRV-Headers'
+        'SPIRV-cross'='third_party/SPIRV-cross'
+    }
+    foreach($module in $modules.Keys) {
+        $pattern='(?i)\['+[regex]::Escape($module)+'\]\s+Commit:\s*([0-9a-f]+)'
+        $match=[regex]::Match($text,$pattern)
+        $dependency=$lock | Where-Object Name -EQ $modules[$module]
+        if(-not $match.Success -or -not $dependency.Pin.StartsWith($match.Groups[1].Value,[StringComparison]::OrdinalIgnoreCase)) {
+            throw "Dependency lock differs from pinned spvgen CHANGES: $module"
+        }
+    }
+    Write-Output 'Verified: GLSL/SPIRV dependency pins match pinned spvgen CHANGES'
+}

@@ -61,8 +61,18 @@ recorded in `tools/external-homebrew/GearsToolchainDependencies.json` and verifi
 by `Get-GearsToolchainSources.ps1`; original checkouts remain clean. Supplemental
 PAL/SPVGEN/MetroHash/CWPack/Vulkan-header commits are candidate versions selected
 before the LLPC parent date, not a claimed upstream validated dependency set.
-The GLSL/SPIRV dependencies come from AMDVLK manifest commit
-`12d06a9802d75fd043fb4002a1854cc5d5d121f8`; llvm-dialects uses LLPC's exact gitlink.
+The GLSL/SPIRV dependencies now come from the pinned spvgen's own `CHANGES`:
+glslang `1b65bd602b23d401d1c4c86dfa90a36a52c66294`, SPIRV-tools
+`ce37fd67f83cd1e8793b988d2e4126bbf72b19dd`, SPIRV-headers
+`e7294a8ebed84f8c5bd3686c68dbe12a4e65b644`, and SPIRV-cross
+`6173e24b31f09a0c3217103a130e74c4ddec14a6`. Short upstream pins were resolved
+through each official commit API. The fetch helper checks the lock against
+`CHANGES`; llvm-dialects still uses LLPC's exact gitlink. The earlier AMDVLK
+tools manifest supplied 2022 dependencies incompatible with the 2025 spvgen:
+the real build failed on missing EXT mesh resource fields and stage enums.
+Those clean old checkouts are preserved under `dependency-history/amdvlk-2022`;
+the failed batch/report remains available. Compiler sources are not patched
+to remove supported stages.
 Available root license hashes are retained in `source-license-report.json`.
 LLPC is MIT, LLVM carries its own license, and the native foundation is GPL-3.0;
 retain all notices and subordinate dependency licenses.
@@ -191,3 +201,25 @@ the existing command decoder queues the wait when submitted.
 The new eleven regression cases and full 1275-test library suite pass in Release.
 The Windows CLI also builds. This does not demonstrate driver waits in Gears,
 which still lacks compiled shaders/main and has not launched.
+
+## Complete native foundation example on Windows
+
+`Build-GearsFoundationDemoWindows.ps1` compiles the four original example/CRT
+units, links the SDK imports, converts the native executable and packs an app
+folder with the verified runtime. It also exposed a real converter assumption:
+LLD omits unused `.data.rel.ro`, but the converter required that section even
+when `.got` is the actual start of RELRO. An isolated GPL-3.0-or-later converter
+overlay now selects the stored section at the already-computed RELRO start.
+The existing start-equality and mapped LOAD congruence checks remain intact;
+upstream checkout/linker script are unchanged, and no artificial section is added.
+
+The original converter still reproduces the missing-section failure on the
+same real PIE input. The repaired converter produces identical native ELF and
+SELF outputs in two conversions; both container integrity inspections pass.
+`foundation-demo-windows/report.json` records inputs/overlay/tool/output hashes
+and the app path. The example has been built and packaged, **not executed**.
+This repairs a native build prerequisite; it is not a Gears or GPU result.
+
+```powershell
+& tools/external-homebrew/Build-GearsFoundationDemoWindows.ps1
+```

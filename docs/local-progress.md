@@ -6,6 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **A complete upstream foundation example now builds/packages on Windows.**
+  Four original source/CRT units link against the pinned SDK. The actual native
+  converter failed because it required unused `.data.rel.ro`; a separate local
+  GPL-3.0-or-later overlay selects the real stored RELRO start, retaining the
+  existing layout checks. The original failure is reproduced on the same PIE;
+  two repaired conversions give identical ELF/SELF hashes and valid container
+  integrity. Original foundation sources/linker script remain clean. The app
+  folder is built, not executed. See `Build-GearsFoundationDemoWindows.ps1`.
+  Meanwhile the compiler encountered a real spvgen/glslang mismatch: the earlier
+  AMDVLK tools manifest pinned 2022 dependencies for 2025 code. These have been
+  replaced by spvgen's own four `CHANGES` pins, with old sources preserved;
+  the source helper now rejects a lock inconsistent with that upstream file.
+  Reconfiguration succeeds; the previously failing spvgen object now compiles
+  in the real MSVC/Ninja path (`build-spvgen-regression.log`, 19/19 steps).
+  This repairs that concrete failure, not the complete compiler build.
+
 - **Gears' missing driver cursor-wait imports now resolve to implemented HLE.**
   Added `sceAgcDriverGetWaitRenderingPacketSizeInDwords` and
   `sceAgcDriverWaitUntilSafeForRendering` with their derived/validated NIDs.

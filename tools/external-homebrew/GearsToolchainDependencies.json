@@ -49,27 +49,27 @@
   },
   {
     "Repo": "KhronosGroup/glslang",
-    "Pin": "6624e1367309630b2f6df3cf93a5f864e89973f9",
+    "Pin": "1b65bd602b23d401d1c4c86dfa90a36a52c66294",
     "Name": "third_party/glslang",
-    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+    "Selection": "pinned spvgen CHANGES glslang 1b65bd602b2; full SHA resolved through upstream commit API"
   },
   {
     "Repo": "KhronosGroup/SPIRV-Tools",
-    "Pin": "8a40f6de57d7b78bc431678d90aa8a570d1631f2",
+    "Pin": "ce37fd67f83cd1e8793b988d2e4126bbf72b19dd",
     "Name": "third_party/SPIRV-tools",
-    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+    "Selection": "pinned spvgen CHANGES SPIRV-tools ce37fd67f83; full SHA resolved through upstream commit API"
   },
   {
     "Repo": "KhronosGroup/SPIRV-Headers",
-    "Pin": "b8047fbe45f426f5918fadc67e8408f5b108c3c9",
+    "Pin": "e7294a8ebed84f8c5bd3686c68dbe12a4e65b644",
     "Name": "third_party/SPIRV-tools/external/SPIRV-Headers",
-    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+    "Selection": "pinned spvgen CHANGES SPIRV-headers e7294a8ebed; full SHA resolved through upstream commit API"
   },
   {
     "Repo": "KhronosGroup/SPIRV-Cross",
-    "Pin": "a1bb29ccbb285618028a24efb3fe4f6718cee0b5",
+    "Pin": "6173e24b31f09a0c3217103a130e74c4ddec14a6",
     "Name": "third_party/SPIRV-cross",
-    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+    "Selection": "pinned spvgen CHANGES SPIRV-cross 6173e24b; full SHA resolved through upstream commit API"
   },
   {
     "Repo": "GPUOpen-Drivers/llvm-dialects",
