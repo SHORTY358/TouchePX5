@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -24,6 +24,11 @@ $inputName=switch($Profile) {
     'TextureBindingsUpdatesFenced' {'app-texture-bindings-updates-fenced.elf'}
     'TextureFrameSlots' {'app-texture-frame-slots.elf'}
     'TextureFrameSlotsReverse' {'app-texture-frame-slots-reverse.elf'}
+    'TextureCubeSlots' {'app-texture-cube-slots.elf'}
+    'TextureCubeSlotsStatic' {'app-texture-cube-slots-static.elf'}
+    'TextureCubeSlotsReverseStatic' {'app-texture-cube-slots-reverse-static.elf'}
+    'TextureCubeSlotsDisabledStatic' {'app-texture-cube-slots-disabled-static.elf'}
+    'TextureCubeSlotsDisabledReverseStatic' {'app-texture-cube-slots-disabled-reverse-static.elf'}
     'TextureBindingsReverseUpdatesFenced' {'app-texture-bindings-reverse-updates-fenced.elf'}
     'TextureBindingsReverseUpdates' {'app-texture-bindings-reverse-updates.elf'}
     'TextureBindingsReverseStatic' {'app-texture-bindings-reverse-static.elf'}

@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Two rotating textured cubes now use two owned frame slots with real GPU
+  retirement.** All five new profiles finish 600 submissions / 600 retirements /
+  598 reuses with measured max_pending=2 and three real texture addresses.
+  Frozen depth-enabled forward/reverse captures differ by **0 pixels**; disabling
+  depth produces **163077** order-dependent pixels and **351638** differences
+  from the enabled forward result. A separate CPU triangle/projection reference
+  checks **176 first-object + 71 second-object interior samples**, with **zero
+  mismatches in all five forward and two reversed captures**, including the first.
+  Disabled-depth controls fail 199/172 samples; deliberately affine UVs fail 129,
+  and a shared-texture reference fails all 71 second-object samples. Animated
+  first/later images were inspected and show both cubes. The first background
+  remains black instead of the later dark fill; this does not claim complete
+  first-frame correctness. Runtime source is unchanged. Detailed commands,
+  evidence and the limited reference scope are in `independent-3d-homebrew.md`.
+
 - **Two frame slots now own their mutable resources until real GPU retirement.**
   `Build-PS5LinkFrameSlots.ps1` generates an adapted native two-plane scene with
   separate terminal labels and mutable texture allocations per slot, alongside

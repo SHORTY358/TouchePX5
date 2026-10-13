@@ -599,3 +599,74 @@ perspective/UV reference images and investigate guest CPU depth-image ownership.
 Legacy unfenced probes remain diagnostic only; their initial-frame behavior has
 not been fixed globally. Gears still needs its pinned LLPC/native foundation.
 GTA VI has not been run.
+
+## Owned rotating cube slots and independent projection reference (2026-10-13)
+
+`Build-PS5LinkCubeFrameSlots.ps1` extends the distinct-texture overlapping cube
+adapter. Each of two slots owns its depth target, command buffers, object
+matrices, mutable second texture and terminal completion label. CPU reuse waits
+for that slot's real RELEASE_MEM signal after the ordered flip. Both outstanding
+slots are drained before exit. The immutable first texture is shared; only the
+second palette changes every 150 frames in the animated input. Frozen variants
+hold angle 0.75 and palette 1. All native links resolve 33 imports with zero
+unpatched relocations. Public startup and upstream source remain unchanged;
+these are adapted test executables, not unchanged console applications.
+
+Verified smoke folders under `artifacts/external-homebrew/ps5link-cube`:
+
+- Animated: `smoke-TextureCubeSlots-20261013-143708`, five distinct captures.
+- Frozen: `smoke-TextureCubeSlotsStatic-20261013-143730`, five captures.
+- Reversed: `smoke-TextureCubeSlotsReverseStatic-20261013-143747`, two captures.
+- No depth: `smoke-TextureCubeSlotsDisabledStatic-20261013-143802`, five captures.
+- No depth reversed: `smoke-TextureCubeSlotsDisabledReverseStatic-20261013-143819`,
+  five captures.
+
+All five finish with host exit 0, 600 submitted / 600 retired / 598 slot reuses,
+measured max_pending=2, and exactly three real 64x64 texture addresses without
+fallback. This measures submitted pending labels, not simultaneous hardware
+execution or a speed increase. The static last-capture comparisons in
+`cube-frame-slots-depth-comparison.json` record 0 depth-enabled order differences,
+163077 depth-disabled order differences, and 351638 enabled-versus-disabled
+forward differences. Animated and frozen contact sheets were visually inspected.
+Both objects are visible in the first capture, but its background is black;
+later captures have the CPU-authored dark fill. Initial background upload and
+console-equivalent full-image correctness remain unresolved.
+
+`Check-PS5LinkCubeProjection.py` provides a separate CPU reference: project the
+fixture's triangles using its declared row-vector X/Y rotations, approximate
+guest sine/cosine, translation, 60-degree perspective and viewport; select the
+nearest triangle and interpolate UV with reciprocal depth. It checks a fixed
+23-pixel grid, excluding triangle barycentrics below 0.04 and checker-cell
+coordinates within 0.2 of a boundary before examining image data. This avoids
+edge rules/filter transitions and guest float rounding. It does not infer
+expected colors from a captured image or use the emulator's shader code.
+Only interior texture colors are covered, not background, all pixels, clipping,
+arbitrary scenes or console accuracy. Captures map the 1920x1080 source viewport
+to the measured presentation dimensions.
+
+Forward `cube-slots-projection.json` and reversed
+`cube-slots-reverse-projection.json` pass **176 + 71 samples per capture**, with
+zero mismatches on every saved capture, including the first. Negative controls
+reject disabled-depth images (199 forward / 172 reversed mismatches per capture),
+affine UV interpolation (129/240 mismatches per capture), and one shared palette
+(all 71 second-object samples fail). The affine control selects its own points
+using the same pre-image boundary rules. Failed-control reports are deliberately
+retained; they are not passing runtime profiles.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkCubeFrameSlots.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlots
+& ./tools/external-homebrew/Build-PS5LinkCubeFrameSlots.ps1 -FreezeView
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlotsStatic
+# Add -ReverseObjects, -DisableDepth, or both for the corresponding static controls.
+py -3 ./tools/external-homebrew/Check-PS5LinkCubeProjection.py <static-capture-folder> --output <report.json>
+# Negative references intentionally return exit 1:
+py -3 ./tools/external-homebrew/Check-PS5LinkCubeProjection.py <static-capture-folder> --affine-uv-control --output <control.json>
+py -3 ./tools/external-homebrew/Check-PS5LinkCubeProjection.py <static-capture-folder> --shared-texture-control --output <control.json>
+```
+
+No runtime source changed, so the established 1261-test baseline was not rerun.
+Next: investigate first-frame CPU background ownership and guest CPU depth-image
+updates with independent controls, then broaden the actual shader/resource
+subset. Gears remains blocked on its pinned LLPC/native foundation; GTA VI has
+not been run.
