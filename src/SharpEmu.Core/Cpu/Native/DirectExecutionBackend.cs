@@ -5586,7 +5586,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			reason = "failed to allocate executable memory for guest thread stub";
 			return GuestNativeCallExitReason.Exception;
 		}
-		void* hostRspStorage = NativeMemory.Alloc((nuint)sizeof(ulong));
+		// The managed native-call boundary returns an int (process status).
+		// A pthread entry returns a full-width pointer, so capture RAX in the
+		// generated thunk before crossing that boundary, beside the saved RSP.
+		void* hostRspStorage = NativeMemory.AllocZeroed((nuint)(3 * sizeof(ulong)));
 		if (hostRspStorage == null)
 		{
 			VirtualFree(ptr, 0u, 32768u);
@@ -5692,6 +5695,21 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			ptr2[offset++] = 131;
 			ptr2[offset++] = 196;
 			ptr2[offset++] = 8;
+			ptr2[offset++] = 0x49; // mov r10, return-value storage
+			ptr2[offset++] = 0xBA;
+			*(ulong*)(ptr2 + offset) = hostRspSlot + sizeof(ulong);
+			offset += 8;
+			ptr2[offset++] = 0x49; // mov [r10], rax
+			ptr2[offset++] = 0x89;
+			ptr2[offset++] = 0x02;
+			// Mark only the ordinary native return path. scePthreadExit returns
+			// through the common host sentinel and already sets the full context RAX.
+			ptr2[offset++] = 0x49; // mov qword [r10+8], 1
+			ptr2[offset++] = 0xC7;
+			ptr2[offset++] = 0x42;
+			ptr2[offset++] = 0x08;
+			*(uint*)(ptr2 + offset) = 1;
+			offset += sizeof(uint);
 			ptr2[offset++] = 73;
 			ptr2[offset++] = 186;
 			*(ulong*)(ptr2 + offset) = hostRspSlot;
@@ -5735,10 +5753,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				// TBB execute-AV recover needs native-worker TLS (eligible/done).
 				// Other guests stay on CallNativeEntry — full native-worker migration
 				// increased splash hangs / UnmanagedCallersOnly (tLTN/tLTO).
-				int nativeReturn;
 				if (name == "tbb_thead")
 				{
-					nativeReturn = RunGuestEntryStub(ptr, hostRspSlot, requireNativeWorker: true);
+					_ = RunGuestEntryStub(ptr, hostRspSlot, requireNativeWorker: true);
 				}
 				else
 				{
@@ -5747,9 +5764,8 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 						reason = "failed to bind host-RSP storage for guest thread stub";
 						return GuestNativeCallExitReason.Exception;
 					}
-					nativeReturn = CallNativeEntry(ptr);
+					_ = CallNativeEntry(ptr);
 				}
-				context[CpuRegister.Rax] = unchecked((ulong)(long)nativeReturn);
 				if (ActiveGuestThreadYieldRequested)
 				{
 					reason = ActiveGuestThreadYieldReason ?? "guest thread blocked";
@@ -5760,7 +5776,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 					reason = LastError ?? "guest thread forced exit";
 					return GuestNativeCallExitReason.ForcedExit;
 				}
-				reason = $"returned 0x{nativeReturn:X8}";
+				if (((ulong*)hostRspStorage)[2] != 0)
+					context[CpuRegister.Rax] = ((ulong*)hostRspStorage)[1];
+				reason = $"returned 0x{context[CpuRegister.Rax]:X16}";
 				return GuestNativeCallExitReason.Returned;
 			}
 			catch (AccessViolationException ex)

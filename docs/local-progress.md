@@ -6,6 +6,20 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Native guest-created threads now preserve full-width return values.**
+  An original unsigned SCE ELF starts two workers, verifies 2000 shared atomic
+  increments and 1000 local increments each, then joins both. The first run
+  exposed sign extension/truncation at the managed int native-call boundary.
+  The native thread entry thunk now captures full RAX before that boundary,
+  distinguishing ordinary returns from explicit `scePthreadExit` results already
+  stored in the CPU context. Both full-width returns (`12345678CAFE0001/2`) pass
+  with ordinary and explicit-exit variants, in fresh write-watch and disabled
+  processes. CLI builds and 1264 library checks pass. This is guest create/join
+  validation, not GPU producer concurrency or complete thread synchronization.
+  Reproduction: `tools/native-probes/fixtures/ps5-touche-guest-threads/README.md`.
+  Next: cover guest producer synchronization and then tracked image writes from
+  guest workers before combining them with a GPU scene.
+
 - **Concurrent native writes and dirty-range resizing now have scoped checks.**
   Four Windows workers issue 25,600 native leaf writes while two workers poll
   the real HLE tracker. Each final run preserves 409,600 red-zone markers and

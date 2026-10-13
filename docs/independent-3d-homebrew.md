@@ -1032,3 +1032,33 @@ library tests: 1264 passed / 0 failed / 0 skipped, saved as
 Next: validate actual guest thread scheduling with native producers, and
 investigate initial CPU depth-image ownership. Windows write watch stays opt-in;
 no commercial PS5 game or GTA VI compatibility follows from these tests.
+
+### 2026-10-13: native guest thread create/join return ABI
+
+Original `tools/native-probes/fixtures/ps5-touche-guest-threads/threads.c` starts
+two workers using actual native `scePthreadCreate` imports. Each executes 1000
+atomic increments, verifies its local total, and returns a distinct 64-bit value;
+main waits with a deadline and joins both. A build variant explicitly calls
+`scePthreadExit` in the second worker instead of returning. SDK startup remains
+unchanged at the builder's pinned commit, with no proprietary inputs.
+
+Initial log `artifacts/native-guest-threads/20261013-162345-write-watch/stderr.log`
+exposed `FFFFFFFFCAFE0001/2` instead of `00000000CAFE0001/2`. The native entry
+path converted a managed int result to a signed 64-bit value. Runtime correction
+captures the native RAX into writable transition storage, with a separate flag
+so explicit exits retain their already supplied context result. Upgraded values
+`12345678CAFE0001/2` verify preservation of upper bits as well as avoiding sign
+extension. Final fresh-process reports and retained ELF/build provenance:
+
+- `20261013-162928-write-watch-explicit-exit`
+- `20261013-162930-disabled-explicit-exit`
+- `20261013-162933-write-watch-return`
+- `20261013-162935-disabled-return`
+
+All four guest assertions and host exits pass; the counter is 2000 and each
+worker total is 1000. Release CLI builds and the library suite passes 1264 tests
+(`native-thread-return-final.trx`). This fixture validates two guest-created
+workers, their shared atomic data, joins and return/exit values. It does not
+establish simultaneous GPU producers, mutex/condition behavior, TLS destructor
+coverage, tracked image writes or commercial game compatibility. Next is native
+guest producer synchronization, followed by image ownership integration.
