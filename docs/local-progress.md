@@ -6,6 +6,20 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Concurrent native writes and dirty-range resizing now have scoped checks.**
+  Four Windows workers issue 25,600 native leaf writes while two workers poll
+  the real HLE tracker. Each final run preserves 409,600 red-zone markers and
+  passes 600 owner checks over 200 rounds; measured polling windows overlap
+  actual write completions. A separate poll/free check forgets all released
+  owners after writers join. A new reproduction exposed a lost dirty flag when
+  Track replaced a resized range; the runtime now carries the unconsumed flag
+  and forces full-range synchronization. Both growing/shrinking regressions
+  pass; final library suite is 1264/1264. This covers the bounded Windows worker
+  pattern, not the PS5 guest thread scheduler or all concurrent memory races.
+  The final write-watch GPU scene independently samples two textures: all 14
+  captures pass 64 cell checks per object, with one immutable and one cycling
+  palette. All seven matched forward/reverse whole frames are byte-identical.
+
 - **An opt-in Windows write-watch runtime avoids this fixture's red-zone
   corruption without changing its executable.** Host reservations enable OS
   write watch before commit; polling resets page state while distributing

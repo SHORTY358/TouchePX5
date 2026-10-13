@@ -6,8 +6,10 @@ using System.Runtime.InteropServices;
 unsafe class Program
 {
     static void Check(bool value,string message) { if(!value) throw new Exception(message); }
-    static int Main()
+    static int Main(string[] args)
     {
+        if(args.Length>0 && args[0]=="--concurrent")
+            return ConcurrentProbe.Run(args.Length==2?args[1]:null);
         Check(WindowsWriteWatch.Requested,"Run a fresh process with SHARPEMU_GUEST_IMAGE_CPU_SYNC=write-watch");
         ulong address=(ulong)HostMemory.Alloc(null,65536,0x3000,4);
         Check(address!=0,"Allocation failed");
@@ -39,6 +41,10 @@ unsafe class Program
             GuestImageWriteTracker.Track(address+256,64);
             Check(!GuestImageWriteTracker.ConsumeDirty(address+256),"New alias inherited pre-registration writes");
             Check(GuestImageWriteTracker.ConsumeDirty(address) && GuestImageWriteTracker.ConsumeDirty(address+64),"New registration hid an existing owner's write");
+            *(uint*)(address+4096)=17;
+            GuestImageWriteTracker.Track(address,12288);
+            Check(GuestImageWriteTracker.ConsumeDirty(address,out var resizedSpans,out _),"Resizing discarded an unconsumed native write");
+            Check(resizedSpans is null,"Resized dirty range must synchronize its full new extent");
             Check(HostMemory.Query((void*)address,out info)!=0 && info.Protect==4,"Pages became protected");
             Check(!HostMemory.Free((void*)(address+4096),0,0x8000),"Invalid release unexpectedly succeeded");
             Check(GuestImageWriteTracker.TryGetWriteGeneration(address,out _),"Failed release discarded live tracking");

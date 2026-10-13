@@ -362,6 +362,7 @@ public static unsafe class GuestImageWriteTracker
                 // a fresh immutable range, carrying the write generation so
                 // resizes do not hide guest CPU rewrites from cache owners.
                 var writeGeneration = Volatile.Read(ref range.WriteGeneration);
+                var pendingDirty = Volatile.Read(ref range.Dirty);
                 var keepProtect = range.Protect || protect;
                 DisarmLocked(range, "replace-range");
                 _rangesByAddress.Remove(address);
@@ -373,6 +374,10 @@ public static unsafe class GuestImageWriteTracker
                     End = start + length,
                     Protect = keepProtect,
                     WriteGeneration = writeGeneration,
+                    Dirty = pendingDirty,
+                    // Old byte spans refer to the prior extent. Keep the
+                    // outstanding invalidation and force a full-range refresh.
+                    ManagedWritesOverflow = pendingDirty != 0,
                 };
                 _rangesByAddress[address] = range;
                 RebuildSnapshotLocked();

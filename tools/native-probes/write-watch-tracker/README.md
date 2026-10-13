@@ -25,6 +25,31 @@ try {
 It verifies baseline cleanliness, writable protection, 100 same-value stores
 with increasing generations, dirty fanout across shared pages, an unaffected
 disjoint page, registration ownership and successful/failed release cleanup.
+It also verifies that resizing a dirty range keeps its outstanding invalidation
+and requests a full upload rather than stale byte spans.
+
+For concurrent native stores and tracker polling, use the same fresh-process
+environment setup and add:
+
+```powershell
+C:\Dev\dotnet10\dotnet.exe run --project tools/native-probes/write-watch-tracker/WriteWatchTracker.csproj -c Release -- --concurrent artifacts/external-homebrew/ps5link-cube/write-watch-concurrent-resize-fix.json
+```
+
+Four dedicated Windows workers execute native leaf stores to distinct words on
+two shared pages; two polling workers concurrently read epochs, peek dirty flags
+and query generations. A coordinator checks three owners in each of 200 rounds.
+Every native call preserves 16 SysV-style red-zone markers. The probe requires
+observed native write completions during polling windows, not merely multiple
+threads existing. Writers join before a separate poll/free race, so it never
+intentionally writes released memory. A 45-second cancellation budget and join
+guard prevent freeing pages while a writer could still be running. JSON records
+HLE/native-leaf hashes, observed overlap windows and counts.
+
+This validates 25,600 stores, 409,600 marker checks and 600 owner checks in a
+bounded pattern. Dirty events coalesce within rounds: the expected generation
+is 200, not one generation per individual store. It exercises Windows host
+workers and the actual HLE tracker, not the PS5 guest thread scheduler. Timing
+is diagnostic only and is not a benchmark.
 The isolated OS-only probe is separate:
 
 ```powershell
@@ -51,7 +76,7 @@ Limitations: Windows x64 / 4-KiB pages only were tested; individual queries are
 bounded to 128 MiB. Ordinary CRT/mapped/external memory is not automatically
 covered. Tracking is page-granular and conservatively dirties overlapping byte
 ranges; it is not precise per store or a GPU/CPU synchronization primitive.
-Concurrent writers, other exception sources, additional image ownership paths,
+Other concurrent patterns, actual guest thread scheduling, other exception sources, additional image ownership paths,
 allocation overhead and throughput need independent validation. In particular,
 avoiding tracked-image write faults does not make the SysV red zone universally
 safe on Windows. Default/native-fault modes are retained for explicit controls.

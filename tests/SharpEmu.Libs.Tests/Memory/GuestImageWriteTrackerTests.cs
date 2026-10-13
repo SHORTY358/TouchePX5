@@ -16,6 +16,30 @@ namespace SharpEmu.Libs.Tests.Memory;
 /// </summary>
 public sealed unsafe class GuestImageWriteTrackerTests
 {
+    [Theory]
+    [InlineData(2048UL)]
+    [InlineData(8192UL)]
+    public void ResizePreservesUnconsumedWriteAndRequiresFullRangeSync(ulong resizedBytes)
+    {
+        var address = AllocateTrackedPages(out var allocation);
+        try
+        {
+            GuestImageWriteTracker.Track(address, 4096, protect: false);
+            GuestImageWriteTracker.NotifyManagedWrite(address + 128, 16);
+            Assert.True(GuestImageWriteTracker.TryGetWriteGeneration(address, out var before));
+            GuestImageWriteTracker.Track(address, resizedBytes, protect: false);
+            Assert.True(GuestImageWriteTracker.ConsumeDirty(address, out var writes, out var after));
+            Assert.Null(writes);
+            Assert.Equal(before, after);
+            Assert.False(GuestImageWriteTracker.ConsumeDirty(address));
+        }
+        finally
+        {
+            GuestImageWriteTracker.Untrack(address);
+            FreeTrackedPages(allocation);
+        }
+    }
+
     [Fact]
     public void ManagedWriteSpansMergeChunksButPreserveUntouchedGaps()
     {

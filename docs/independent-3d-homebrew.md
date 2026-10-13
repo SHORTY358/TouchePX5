@@ -970,3 +970,65 @@ Other allocation types need separate coverage; no-fault polling/dirty ownership
 must be checked with sampled-texture aliases and multiple native guest threads
 before broadening use. Initial CPU depth-image seeding remains an independent
 following task.
+
+## Concurrent write watch, resize invalidation and sampled textures — 2026-10-13
+
+A dedicated host-thread probe now invokes the real HLE tracker while four
+Windows workers execute native leaf stores to distinct words on two shared
+pages. Two non-consuming pollers concurrently query DirtyEpoch, generation and
+PeekDirty. In each of 200 bounded rounds the coordinator consumes three owners
+only after writers have parked, requiring dirty state and increasing generation
+for all three. Dirty events coalesce: generation 200 does not mean one event
+per store. Native leaves retain 16 SysV-style red-zone markers across every store.
+No guest-thread scheduler or graphics execution is implied by this harness.
+
+Two measured fresh-process runs before the resize fix:
+write-watch-concurrent-final.json and write-watch-concurrent-repeat.json.
+Each passes 25,600 native stores / 409,600 marker checks / 600 owner checks.
+Observed native-write completions during polling windows: [379,368] and
+[396,401], respectively. Writers join before an independent poll/free overlap;
+no raw store intentionally targets released memory. The probe cancels after
+45 seconds and avoids freeing buffers while a writer could still be active.
+
+An added resize scenario reproduced an actual tracker bug: a native write was
+noticed during Track, but replacing the differently-sized range carried only
+its generation and discarded its still-unconsumed dirty flag. The fresh-process
+regression failed with 'Resizing discarded an unconsumed native write'. The
+runtime now carries pending Dirty across replacement and drops precise old
+managed spans in favor of a full-range refresh. This is a sequential replacement
+fix; arbitrary races with the legacy signal-handler snapshot remain unproven.
+Two library regressions cover both growth and shrinkage after managed writes,
+checking retained dirty state, unchanged generation and full-sync semantics.
+The fresh-process native resize regression now passes as well.
+
+Final post-fix concurrent report: write-watch-concurrent-resize-fix.json, HLE
+SHA256 F0306E6BAAF9ACC002EC5C4E349E5B594321EBA80410F2668A48497837F0FD9D.
+It passes the same 25,600 / 409,600 / 600 checks with overlap windows [371,349],
+three final generations 200, and 186 poll/release checks. Report time is a local
+diagnostic, not a throughput benchmark or proof for all native guest threads.
+
+Separate real-GPU sampled-texture validation on the final runtime:
+- smoke-TextureFrameSlots-20261013-161306;
+- smoke-TextureFrameSlotsReverse-20261013-161325.
+Both use the existing adapted, fenced, two-slot plane executable and write-watch
+mode (no new source modifications). Each retires 600 submissions, reuses 598
+slots, measures max_pending=2, binds three real textures without fallback, and
+saves seven captures. Every capture passes the independent 64 cell centers per
+object, including strict complete-first-frame requirements. The first texture
+remains stable; the second has palettes [1,1,2,2,0,1,1]. All seven paired whole
+frames have zero pixel differences when draw order is reversed. Final evidence:
+write-watch-frame-slots-final-forward-check.json,
+write-watch-frame-slots-final-reverse-check.json,
+write-watch-frame-slots-final-order-comparison.json. A phase-0 screenshot was
+visually inspected. The order comparison also checks the exact final HLE hash
+matches the concurrent runtime report. Sparse object checks and byte equality
+between this fixture's two orders do not certify all textures or all shading.
+Earlier pre-fix plane runs (160836/160858) passed too, but final runs supersede
+them for the runtime checkpoint.
+
+Release CLI builds; existing sceAgcInit_0090 catalog warning remains. Final
+library tests: 1264 passed / 0 failed / 0 skipped, saved as
+ tests/SharpEmu.Libs.Tests/TestResults/write-watch-concurrent-resize.trx.
+Next: validate actual guest thread scheduling with native producers, and
+investigate initial CPU depth-image ownership. Windows write watch stays opt-in;
+no commercial PS5 game or GTA VI compatibility follows from these tests.
