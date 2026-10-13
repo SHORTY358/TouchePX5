@@ -1,12 +1,16 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$FreezeView,[switch]$ReverseObjects,[switch]$DisableDepth)
+param([switch]$FreezeView,[switch]$ReverseObjects,[switch]$DisableDepth,[switch]$DistinctTextures)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 if(-not (Test-Path "$out/main-texture-depth.c")) { & "$PSScriptRoot/Build-PS5LinkTextureCube.ps1" }
 $text=[IO.File]::ReadAllText("$out/main-texture-depth.c")
+if($DistinctTextures) {
+    . "$PSScriptRoot/PS5LinkTexturePair.ps1"
+    $text=Add-PS5LinkTexturePair $text
+}
 function Replace-Checked([string]$needle,[string]$replacement) {
     if(-not $script:text.Contains($needle)) { throw "Generated source contract changed: $needle" }
     $script:text=$script:text.Replace($needle,$replacement)
@@ -42,11 +46,23 @@ Replace-Checked '/* Clear this frame' @'
         /* Clear this frame
 '@
 $first='cb_words'; $last='second_cb'
-if($ReverseObjects) { $first='second_cb'; $last='cb_words' }
+$firstTexture='texture_words'; $lastTexture='texture_words'
+if($DistinctTextures) { $lastTexture='second_texture_words' }
+if($ReverseObjects) {
+    $first='second_cb'; $last='cb_words'
+    if($DistinctTextures) { $firstTexture='second_texture_words'; $lastTexture='texture_words' }
+}
+$firstTextureBind=''; $lastTextureBind=''
+if($DistinctTextures) {
+    $firstTextureBind="sceAgcCbSetShRegisterRangeDirect(dcb, PS_USER_DATA_BASE + (unsigned int)tex_dwo, $firstTexture, 8);"
+    $lastTextureBind="sceAgcCbSetShRegisterRangeDirect(dcb, PS_USER_DATA_BASE + (unsigned int)tex_dwo, $lastTexture, 8);"
+}
 Replace-Checked 'sceAgcDcbDrawIndex(dcb, CUBE_INDICES, ibuf.ptr, 0);' @"
 sceAgcCbSetShRegisterRangeDirect(dcb, GS_USER_DATA_BASE + (unsigned int)cb_dwo, $first, 4);
+        $firstTextureBind
         sceAgcDcbDrawIndex(dcb, CUBE_INDICES, ibuf.ptr, 0);
         sceAgcCbSetShRegisterRangeDirect(dcb, GS_USER_DATA_BASE + (unsigned int)cb_dwo, $last, 4);
+        $lastTextureBind
         sceAgcDcbDrawIndex(dcb, CUBE_INDICES, ibuf.ptr, 0);
 "@
 if($DisableDepth) {
@@ -54,6 +70,7 @@ if($DisableDepth) {
     Replace-Checked '(0xB6ULL << 32)' '(0x0ULL << 32)'
 }
 $suffix='texture-overlap'
+if($DistinctTextures) { $suffix+='-pair' }
 if($DisableDepth) { $suffix+='-disabled' }
 if($ReverseObjects) { $suffix+='-reverse' }
 if($FreezeView) { $suffix+='-static' }
@@ -64,6 +81,7 @@ if($LASTEXITCODE) { throw 'Overlapping cubes compilation failed' }
 if($LASTEXITCODE) { throw 'Overlapping cubes link failed' }
 $report=Get-Content "$out/build-report-texture-depth.json" -Raw | ConvertFrom-Json
 $report | Add-Member ObjectCount 2
+$report | Add-Member DistinctObjectTextures ([bool]$DistinctTextures)
 $report | Add-Member ReversedObjectOrder ([bool]$ReverseObjects)
 $report | Add-Member GeneratedSourceSha256 ((Get-FileHash "$out/main-$suffix.c").Hash)
 $report.FrozenView=[bool]$FreezeView

@@ -6,6 +6,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Different textures remain attached to their own draws.** Two separated native
+  planes share geometry/shaders but use distinct constant buffers and independent
+  64x64 texture allocations. Both normal and reversed submission match **64/64
+  cell centers per object**, with **0 differing pixels** between orders. A
+  shared-texture control matches the left object but fails all 64 expected right
+  cells, changing **652032 pixels**. Real draw traces contain both texture
+  addresses without fallback. The same bindings also run on the overlapping,
+  rotating D32 cubes: both frozen submission orders are identical; the animated
+  scene finishes 600 frames with four distinct captures. Decoded images were
+  inspected. The first animated readback is partial; later images show both
+  textured cubes. This is source-adapted probe coverage, not full game support.
+
 - **Two overlapping textured objects preserve depth across separate draws.**
   The adapted native scene owns separate constant buffers for both objects and
   both frame slots, shares geometry/texture, and resets depth only once per frame.

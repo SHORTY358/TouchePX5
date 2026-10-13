@@ -385,6 +385,62 @@ captures fail. This is a sampled color check, not whole-image certification.
 py -3 ./tools/external-homebrew/Check-PS5LinkTextureUpdates.py <capture-folder>
 ```
 
-Next independent-scene work: perspective/UV reference checks, different textures
-per draw, resource lifetime and guest CPU depth-image ownership. Gears still
+### Independent texture bindings per draw
+
+`Build-PS5LinkTextureBindings.ps1` generates two separated planes with independent
+constant buffers in each frame slot and two texture allocations. The geometry
+and shader programs are shared. The first plane uses the original checker
+palette; the second texture rotates RGB channels once. Each draw explicitly
+binds its own constant-buffer and texture descriptor, while sharing the sampler.
+`PS5LinkTexturePair.ps1` provides the same source-generation helper for these
+planes and `Build-PS5LinkOverlappingCubes.ps1 -DistinctTextures`.
+
+Verified on 2026-10-13:
+
+- `smoke-TextureBindingsStatic-20261013-140754`: 64/64 cells on each object.
+- `smoke-TextureBindingsReverseStatic-20261013-140807`: 64/64 on each object,
+  exactly 0 whole-frame pixel differences from forward submission.
+- `smoke-TextureBindingsSharedStatic-20261013-140819`: intentional shared binding
+  matches 64/64 left cells and 0/64 right cells, with 652032 whole-frame pixel
+  differences. This ensures the oracle detects the wrong texture.
+
+`Check-PS5LinkTextureBindings.py` reads actual saved BGRA images, validates their
+dimensions/byte counts, samples fixed cell centers on both transformed planes,
+requires order-invariant images and checks the shared-binding negative control.
+The forward/reverse traces use both real addresses `0x11418000` and `0x1141C000`.
+The decoded contact sheet was inspected and shows distinct palettes on both
+planes, identical under reversed order, and the wrong right palette in the
+control. The report is `texture-bindings-comparison.json` under the cube output.
+
+The cube pair uses real addresses `0x12824000` and `0x12828000`:
+`smoke-TexturePairOverlapStatic-20261013-140919` and
+`smoke-TexturePairOverlapReverseStatic-20261013-140931` have identical final
+captures, recorded in `texture-pair-overlap-comparison.json`.
+`smoke-TexturePairOverlap-20261013-140943` completes 600 frames with host exit 0
+and four distinct captures. Its decoded contact sheet was inspected: the first
+readback contains partial geometry, while later readbacks show both complete
+textured rotating objects. Initial capture completeness is not established.
+All six probes finish their native source loops with host exit 0, strict
+descriptor validation and no fallback. Smoke validation now additionally
+requires at least two real texture addresses for distinct-texture profiles.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkTextureBindings.ps1
+& ./tools/external-homebrew/Build-PS5LinkTextureBindings.ps1 -ReverseObjects
+& ./tools/external-homebrew/Build-PS5LinkTextureBindings.ps1 -SharedTextureControl
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsStatic
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsReverseStatic
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureBindingsSharedStatic
+py -3 ./tools/external-homebrew/Check-PS5LinkTextureBindings.py <forward-folder> <reverse-folder> <shared-control-folder> --output <report-path>
+& ./tools/external-homebrew/Build-PS5LinkOverlappingCubes.ps1 -DistinctTextures
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TexturePairOverlap
+```
+
+These remain locally adapted unsigned native inputs. Upstream source/startup are
+preserved; texture/shader scope remains single-mip linear RGBA8. This does not
+validate concurrent writes, tiling, general perspective precision or commercial
+titles. No emulator runtime source changed for this stage.
+
+Next independent-scene work: perspective/UV reference checks, resource lifetime,
+independent texture updates and guest CPU depth-image ownership. Gears still
 requires its separate pinned LLPC/native foundation. GTA VI has not been run.

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -19,6 +19,12 @@ $inputName=switch($Profile) {
     'TextureStatic' {'app-texture-static.elf'}
     'TextureDepth' {'app-texture-depth.elf'}
     'TextureUpdates' {'app-texture-updates.elf'}
+    'TextureBindingsStatic' {'app-texture-bindings-static.elf'}
+    'TextureBindingsReverseStatic' {'app-texture-bindings-reverse-static.elf'}
+    'TextureBindingsSharedStatic' {'app-texture-bindings-shared-static.elf'}
+    'TexturePairOverlap' {'app-texture-overlap-pair.elf'}
+    'TexturePairOverlapStatic' {'app-texture-overlap-pair-static.elf'}
+    'TexturePairOverlapReverseStatic' {'app-texture-overlap-pair-reverse-static.elf'}
     'TextureOverlap' {'app-texture-overlap.elf'}
     'TextureOverlapStatic' {'app-texture-overlap-static.elf'}
     'TextureOverlapReverseStatic' {'app-texture-overlap-reverse-static.elf'}
@@ -64,6 +70,11 @@ try {
         $log -notmatch 'textures=0x[0-9A-Fa-f]+:64x64:f10/n0/t9/dFAC')) {
         throw 'Expected a real 64x64 RGBA8 texture binding without fallback; inspect the draw trace'
     }
+    $textureAddresses=@([regex]::Matches($log,'textures=(0x[0-9A-Fa-f]+):64x64:f10/n0/t9/dFAC') |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    if($buildReport.DistinctObjectTextures -and $textureAddresses.Count -lt 2) {
+        throw 'Expected two different real per-draw texture addresses'
+    }
     $frames=@(Get-ChildItem -LiteralPath $capture -Filter '*.bgra')
     $hashes=@($frames | Get-FileHash | Select-Object -ExpandProperty Hash -Unique)
     $staticView=$Profile.EndsWith('Static')
@@ -74,6 +85,8 @@ try {
         ReversedFaceOrder=$buildReport.ReversedFaceOrder
         ReversedObjectOrder=$buildReport.ReversedObjectOrder; ObjectCount=$buildReport.ObjectCount
         TextureCpuUpdates=$buildReport.TextureCpuUpdates
+        DistinctObjectTextures=$buildReport.DistinctObjectTextures
+        BoundTextureAddresses=$textureAddresses
         StrictShaderDescriptors=$Profile.StartsWith('Texture')
         InputHasInitAbiCorrection=$true; StartupModified=$false
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode
