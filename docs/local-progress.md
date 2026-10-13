@@ -6,6 +6,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Patterned tiled CPU backgrounds now pass initial seeding and subsequent
+  updates in the owned cube fixture.** A native direct bit-matrix writer fills
+  tile27 BGRA8 with a logical color grid; the capture checker calculates expected
+  colors without the emulator's detiler. Frozen forward/reverse captures pass
+  **210 background + 247 object samples each** and all nine saved images are
+  byte-identical. Animated output passes **210/210 background samples on all seven
+  captures**, with phase sequence **0,0,1,1,2,0,0** and native CPU source probes
+  correct at frames 0/149/299/449/599. Each run retires 600 submissions with 598
+  reuses and max_pending=2. A discovered Windows native-fault/red-zone interaction
+  corrupts the default red-zone writer after its initial frame; this source
+  adapter now builds with `-mno-red-zone`. The explicit red-zone control still
+  fails, whereas disabling fault tracking preserves its CPU values but prevents
+  background updates. This is a fixture compilation adaptation, not a general
+  red-zone fix for arbitrary games. Runtime source and default seed setting did
+  not change in this stage. See `independent-3d-homebrew.md` for controls/scope.
+
 - **Initial CPU background seeding now passes a controlled Vulkan opt-in.**
   Registration-only display buffers are distinguished from published GPU work;
   a bounded first-draw snapshot detiles the supported tile27 RGBA8/BGRA8 surface.

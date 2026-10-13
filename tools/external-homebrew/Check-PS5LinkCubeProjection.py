@@ -108,7 +108,8 @@ def main():
     smoke = json.loads((args.folder/'report.json').read_text(encoding='utf-8-sig'))
     profiles = {'TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic',
                 'TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic',
-                'TextureCubeSlotsNoBackgroundStatic'}
+                'TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsPatternStatic',
+                'TextureCubeSlotsReversePatternStatic'}
     if (smoke.get('Profile') not in profiles or not smoke.get('FrozenView') or
             smoke.get('ObjectCount') != 2 or not smoke.get('MutableTexturePerSlot')):
         raise ValueError('Reference is only for the frozen two-cube fixture')

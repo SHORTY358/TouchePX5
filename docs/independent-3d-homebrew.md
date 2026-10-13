@@ -760,3 +760,94 @@ Next: use an independently laid-out patterned CPU surface to validate the full
 initial tiled snapshot and ordering, then cover initial depth-image data and
 broaden actual shader/resource support. General commercial compatibility and
 GTA VI playability remain unverified.
+
+## Patterned tile27 background and native fault/stack control (2026-10-13)
+
+`Build-PS5LinkCubeFrameSlots.ps1 -PatternedBackground` writes a logical grid into
+1920x1080 tile27 BGRA8 storage before each frame's draws. The source writer
+directly evaluates address-bit parity and 128x128/64KiB block placement, without
+calling the runtime decoder. The equation contract is AMD GFX10 RB+ 16-pipe,
+8-packer R_X at 4 bytes per element (nibbles 39/307/381), documented in AMD's
+[GFX10 swizzle pattern tables](https://github.com/GPUOpen-Drivers/pal/blob/dev/src/core/imported/addrlib/src/gfx10/gfx10SwizzlePattern.h)
+and the existing `GnmTiling` implementation. It is an independent writer/consumer
+implementation of the same declared equation, not an independent validation of
+the console's topology or a claim to emulate arbitrary swizzle modes.
+
+Logical BGRA colors are B=32+24*((x/64)%8), G=24+24*((y/64)%8),
+R=40+24*((x/128+3*(y/128))%8), A=255. Animated inputs rotate B/G/R every 150
+source frames, with phases 0/1/2/0. Frozen inputs hold phase 0. Five native
+notifications sample actual volatile CPU words at logical (32,32)/(96,32),
+independently addressed as word offsets 768/4608, at frames 0/149/299/449/599.
+
+`Check-PS5LinkPatternedBackground.py` checks 210 fixed logical 64x64 cell-center
+samples across exterior strips. The swept cube region and filtering boundaries
+are excluded before reading pixels. Expected colors come from logical X/Y/phase,
+not the tiling implementation or captured image. Every saved capture must match
+an entire palette; animated runs must complete the compressed phase cycle
+0/1/2/0. Native CPU probe frames, phase and actual bytes must also match. This
+checks spatial placement/channel order at those samples, not every background
+pixel or texture boundary. Frozen cube projection remains a separate 247-point
+check.
+
+The first animated attempt found a new issue rather than a tiling upload fix:
+the initial image/source words matched, but later native CPU words were already
+wrong before draw submission. The compiler emitted `fill_pattern` vector spills
+at RSP-40/-72/-88 without reserving a stack frame: SysV red-zone storage. With
+Windows native write-fault tracking enabled the red-zone variant corrupts these
+computed CPU colors; with tracking disabled its CPU probes remain correct.
+Building the same source with `-mno-red-zone` makes both CPU probes and uploaded
+background colors pass while write tracking stays enabled. This isolates a
+red-zone/fault-path interaction; the exact Windows exception/trampoline stack
+clobber location is not instrumented yet. This does not establish a general
+runtime fix for guest executables that depend on a red zone.
+
+The adapted cube-slot builder now defaults to `-mno-red-zone` and records
+`RedZoneEnabled=false`. `-UseRedZoneControl` preserves the original compilation
+as an explicitly failing diagnostic. Public upstream source/startup remain
+unchanged. The smoke harness records red-zone/fault-tracking flags and supports
+`-DisableNativeCpuTracking` only for diagnostics, plus `-CaptureEvery` to sample
+the full color cycle without requiring every submitted flip to be displayed.
+Default tracking stays enabled in normal probes; the initial seed remains opt-in.
+
+Final evidence under the cube artifact folder:
+
+- `smoke-TextureCubeSlotsPatternStatic-20261013-151814`: five captures.
+- `smoke-TextureCubeSlotsReversePatternStatic-20261013-151831`: four captures.
+- Both pass 210 background + 176/71 object points per capture, including first;
+  all nine whole images are identical (`pattern-frozen-order-comparison.json`).
+- `smoke-TextureCubeSlotsPattern-20261013-151953`: seven captures at interval100,
+  210/210 background matches each, phases **0,0,1,1,2,0,0**. Five source probe
+  notifications are correct; first/middle/last decoded images were inspected.
+- Earlier interval150 run `smoke-TextureCubeSlotsPattern-20261013-151716`
+  saved only phases 0,0,1,2. It showed correct samples but is insufficient to
+  certify the return to phase0; the interval100 replay supplies that evidence.
+- Red-zone + faults: `smoke-TextureCubeSlotsPatternRedZone-20261013-151848`.
+  Initial source/capture matches, later source words fail and no later complete
+  background palette matches. `pattern-red-zone-fault-control.json` rejects it.
+- Same red-zone input + native tracking off:
+  `smoke-TextureCubeSlotsPatternRedZone-20261013-151906`. All CPU probes match,
+  but all captures retain phase0, so the update-cycle oracle rejects it. Turning
+  off tracking is not a fix for CPU-to-GPU updates.
+- No initial seeding: `smoke-TextureCubeSlotsPatternStatic-20261013-151922`.
+  CPU probes match; initial background fails all 210 points, later captures pass.
+  `pattern-final-seed-off-control.json` rejects the incomplete first image.
+
+All these source loops finish 600 submissions/retirements, 598 reuses and
+max_pending=2, without shader texture fallback. Runtime sources are unchanged
+from the previous 1262-test checkpoint, so those library tests were not rerun
+as though this added new runtime coverage. Native source/report hashes are
+retained for each compilation and probe.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkCubeFrameSlots.ps1 -PatternedBackground
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlotsPattern -SeedRegisteredDisplayBuffers -CaptureEvery 100
+py -3 ./tools/external-homebrew/Check-PS5LinkPatternedBackground.py <capture-folder> --output <report.json>
+& ./tools/external-homebrew/Build-PS5LinkCubeFrameSlots.ps1 -PatternedBackground -UseRedZoneControl
+# Both diagnostics below must fail the complete background-cycle oracle:
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlotsPatternRedZone -SeedRegisteredDisplayBuffers
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlotsPatternRedZone -SeedRegisteredDisplayBuffers -DisableNativeCpuTracking
+```
+
+Next: investigate the fault-path red-zone clobber with a minimal native regression
+and separately cover CPU-authored initial depth data. Broader shader/resource
+support and commercial compatibility remain unverified. GTA VI has not been run.
