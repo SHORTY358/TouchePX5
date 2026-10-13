@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -17,6 +17,7 @@ $inputName=switch($Profile) {
     'DepthReverseStatic' {'app-depth-reverse-static.elf'}
     'DepthDisabledReverseStatic' {'app-depth-disabled-reverse-static.elf'}
     'TextureStatic' {'app-texture-static.elf'}
+    'TextureDepth' {'app-texture-depth.elf'}
     default {'app-init-abi.elf'}
 }
 $elf=Join-Path $out $inputName
@@ -34,7 +35,7 @@ $settings=@{
     SHARPEMU_GUEST_IMAGE_DUMP_DIR=$capture
     SHARPEMU_SWAPCHAIN_DUMP_EVERY='150'
 }
-if($Profile -eq 'TextureStatic') {
+if($Profile.StartsWith('Texture')) {
     $settings.SHARPEMU_STRICT_SHADER_DESCRIPTORS='1'
     $settings.SHARPEMU_TRACE_DRAWS='1'
 }
@@ -52,7 +53,7 @@ try {
     if($p.ExitCode -ne 0) { throw "Cube host exit $($p.ExitCode); see $capture/stderr.log" }
     $log=[IO.File]::ReadAllText("$capture/stderr.log")
     if(-not $log.Contains('Guest notification: mesh_test: fin')) { throw 'Cube did not finish its 600-frame source loop' }
-    if($Profile -eq 'TextureStatic' -and
+    if($Profile.StartsWith('Texture') -and
        ($log.Contains(':FALLBACK') -or
         $log -notmatch 'textures=0x[0-9A-Fa-f]+:64x64:f10/n0/t9/dFAC')) {
         throw 'Expected a real 64x64 RGBA8 texture binding without fallback; inspect the draw trace'
@@ -65,7 +66,7 @@ try {
         Profile=$Profile; FrozenView=$staticView; Input=$elf; InputSha256=$inputHash
         SourceModified=$buildReport.SourceModified; DepthClearMethod=$buildReport.DepthClearMethod
         ReversedFaceOrder=$buildReport.ReversedFaceOrder
-        StrictShaderDescriptors=($Profile -eq 'TextureStatic')
+        StrictShaderDescriptors=$Profile.StartsWith('Texture')
         InputHasInitAbiCorrection=$true; StartupModified=$false
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode
         SourceLoopCompleted=$true; PresentedCaptureCount=$frames.Count

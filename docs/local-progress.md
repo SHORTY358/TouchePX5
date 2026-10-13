@@ -6,6 +6,15 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Texturing and depth now work together in an animated adapted cube.**
+  `TextureDepth` submits the same public texture program and a real fullscreen
+  depth-reset draw, then renders all six textured cube faces without back-face
+  culling. Native execution finishes 600 frames with host exit 0, three
+  distinct captures and real texture bindings without fallback. The decoded
+  contact sheet shows complete rotating textured faces in the later captures;
+  the first readback is blank. This is a single-object, single-mip, linear
+  texture scene, not a full 3D game. No general performance claim is inferred.
+
 - **Native adapted texture plane reaches verified image sampling.** Local
   LLVM 18.1.8 AMDGPU tools assemble the pinned public one-texture pixel
   program; the generated SCE ELF has 30 real imports and no unpatched

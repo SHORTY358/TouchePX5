@@ -295,3 +295,33 @@ The cell report explicitly does not certify all pixels or commercial-game
 compatibility. CPU depth clear replay `smoke-DepthCpuClear-20261013-113709`
 still visually loses most rotating geometry despite completing normally;
 this diagnostic profile must not be presented as a visual pass.
+
+### Combined texture/depth cube
+
+`Build-PS5LinkTextureCube.ps1` builds a separate animated source adaptation
+using the validated plane's checker texture initialization and the depth
+cube's real fullscreen depth reset. Each face's UV is transported through
+`normal.xy`, with identity model constants for those interpolants; the MVP
+still rotates positions normally. All six faces are submitted without culling.
+The texture resources are bound before both the masked depth-reset draw and
+the cube draw. The final native ELF links 31 imports with zero unpatched
+relocations; original startup and the source checkout remain unchanged.
+
+`smoke-TextureDepth-20261013-114638` completes 600 source frames with host exit
+0 and three distinct presented captures. Strict descriptors and the compact
+trace confirm the real 64x64 linear RGBA8 texture without fallback. The decoded
+contact sheet was visually inspected: the later captures show complete cube
+faces with the checker quadrants rotating with the geometry, without trails
+or the earlier disappearing fragments. The first readback is blank. The
+plane's 64-center palette check is not incorrectly applied to a projected
+cube; no automated whole-image or perspective-accuracy claim is made.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkTextureCube.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureDepth
+```
+
+Next independent-scene work: multiple intersecting objects, perspective/UV
+reference checks, texture updates and guest CPU depth-image ownership. Gears
+still requires its separate pinned LLPC/native foundation. GTA VI has not
+been run.
