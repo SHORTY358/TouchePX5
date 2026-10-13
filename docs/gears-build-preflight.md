@@ -51,3 +51,75 @@ The existing gfx1030 assembler is not the required GFX1013 LLPC compiler.
 
 Until these steps succeed, retain the compiler/foundation blocker explicitly;
 do not describe the cube or producer probes as Gears or GTA VI compatibility.
+
+
+## Windows compiler preparation — 2026-10-13
+
+The documented LLPC/LLVM pins and native foundation are now fetched in
+`artifacts/external-homebrew/gears-toolchain`. Thirteen exact source commits are
+recorded in `tools/external-homebrew/GearsToolchainDependencies.json` and verified
+by `Get-GearsToolchainSources.ps1`; original checkouts remain clean. Supplemental
+PAL/SPVGEN/MetroHash/CWPack/Vulkan-header commits are candidate versions selected
+before the LLPC parent date, not a claimed upstream validated dependency set.
+The GLSL/SPIRV dependencies come from AMDVLK manifest commit
+`12d06a9802d75fd043fb4002a1854cc5d5d121f8`; llvm-dialects uses LLPC's exact gitlink.
+Available root license hashes are retained in `source-license-report.json`.
+LLPC is MIT, LLVM carries its own license, and the native foundation is GPL-3.0;
+retain all notices and subordinate dependency licenses.
+
+A separate CMake wrapper configures native Windows MSVC/Ninja with the existing
+BuildTools, Release, AMDGPU/X86 only, two compile tasks and one linker task.
+The pinned compiler contains Windows build paths; a working CMake configuration
+is now verified, but the compiler executable is not yet available. The wrapper
+adds only host configuration, without editing upstream compiler sources.
+Microsoft DXC v1.8.2505 is required for LLPC's advanced-blend runtime generation.
+Its official archive is cached with exact size and observed SHA256
+`81380F3ECA156D902D6404FD6DF9F4B0886F576FF3E18B2CC10D3075FFC9D119`.
+This is a recorded download digest, not a published upstream signature/digest.
+
+The first bounded build compiled hundreds of objects. A later batch exposed
+optional Windows DIA/PDB support requiring unavailable `atlbase.h`; the wrapper
+now sets the upstream `LLVM_ENABLE_DIA_SDK=OFF`. This disables Windows debug-symbol
+support, not the GFX1013 shader target. The installed MSVC has Russian resources;
+CMake's detected include prefix was mojibake. The wrapper uses the observed UTF-8
+Russian prefix, so Ninja parses header dependencies and suppresses include spam.
+The earlier invalid dependency cache was removed only inside the isolated build
+directory, and those objects are rebuilding with correct dependency tracking.
+The prior failure and batch logs/reports are preserved.
+
+`Setup-GearsPython.ps1` supplies an isolated Python environment with PyYAML 6.0.3.
+Four upstream Python source contracts and the publication audit passed there;
+the audit checked 122 allowlisted files. The native C host suite has not run,
+so this is not `make test` completion. Gears' native dependency/bootstrap scripts
+still require Linux/WSL; their Windows wrappers call WSL as well. No Linux
+installation, Windows feature change, system PATH or driver change was performed.
+
+Resume:
+
+```powershell
+& tools/external-homebrew/Setup-GearsPython.ps1
+& tools/external-homebrew/Build-GearsCompiler.ps1 -BuildSeconds 900
+```
+
+Each build is bounded, uses a mutex to prevent a duplicate launcher, and records
+`build-report.json`. `BoundedIncomplete=true` means an intentional time boundary;
+Ninja's completed outputs are retained for the next batch. A compilation error
+is recorded separately and fails the command. The runner terminates only its own
+live build process tree at the boundary. Do not treat completed object counts as
+compiler, emulator or game readiness.
+
+Next: finish the compiler and verify the actual Gears GLSL pipeline produces a
+GFX1013 PAL ELF with expected notes and no relocations; then address the native
+foundation/host-test Linux path before packaging or emulator launch.
+
+
+The corrected build was rechecked in a fresh 180-second batch: 367/2446 build
+steps completed before the owned timeout, with no compilation failure. These
+are build steps, not a completion percentage. The original failing `PDB.cpp`
+was then compiled directly and passed with DIA disabled
+(`build-dia-regression-report.json`). Ninja's dependency query for `APInt.cpp`
+now records 122 actual headers, including `llvm/ADT/APInt.h`
+(`ninja-header-dependency-proof.txt`), confirming the locale correction on the
+real compiler path. `build-report.json` still says `BuildComplete=false` and
+`BoundedIncomplete=true`. No owned build process is left running at this
+checkpoint. Continue with the bounded command above.

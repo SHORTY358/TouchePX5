@@ -1,0 +1,80 @@
+[
+  {
+    "Repo": "GPUOpen-Drivers/pal",
+    "Pin": "c5e800072a32f68b6ccc4422936d96167c6e0728",
+    "Name": "pal",
+    "Selection": "candidate last branch commit before LLPC parent; not yet validated"
+  },
+  {
+    "Repo": "GPUOpen-Drivers/spvgen",
+    "Pin": "ba3bda984defc22aadb20f3e1fdfaf23972cf636",
+    "Name": "spvgen",
+    "Selection": "candidate last branch commit before LLPC parent; not yet validated"
+  },
+  {
+    "Repo": "GPUOpen-Drivers/MetroHash",
+    "Pin": "6ab6ee5d31d001ba73feb5e7f13dbc75da96b620",
+    "Name": "third_party/metrohash",
+    "Selection": "candidate last branch commit before LLPC parent; not yet validated"
+  },
+  {
+    "Repo": "GPUOpen-Drivers/CWPack",
+    "Pin": "73d612971b3a73341f241b021e5cbda220eef7f2",
+    "Name": "third_party/cwpack",
+    "Selection": "candidate last branch commit before LLPC parent; not yet validated"
+  },
+  {
+    "Repo": "KhronosGroup/Vulkan-Headers",
+    "Pin": "e2e53a724677f6eba8ff0ce1ccb64ee321785cbd",
+    "Name": "Vulkan-Headers",
+    "Selection": "candidate last branch commit before LLPC parent; not yet validated"
+  },
+  {
+    "Repo": "mpereiraesaa/llpc",
+    "Pin": "23a0757d922da7eb06c6a626d48553e0fb99fde0",
+    "Name": "llpc",
+    "Selection": "Gears documented compiler"
+  },
+  {
+    "Repo": "GPUOpen-Drivers/llvm-project",
+    "Pin": "8fd93e26cf9b1235fc9573b68b96233818be0ed4",
+    "Name": "llvm-project",
+    "Selection": "Gears documented LLVM"
+  },
+  {
+    "Repo": "mpereiraesaa/ps5-native-app-boilerplate",
+    "Pin": "37dd53602bdead63936f718004555ba10154be48",
+    "Name": "native-foundation",
+    "Selection": "Gears native build contract"
+  },
+  {
+    "Repo": "KhronosGroup/glslang",
+    "Pin": "6624e1367309630b2f6df3cf93a5f864e89973f9",
+    "Name": "third_party/glslang",
+    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+  },
+  {
+    "Repo": "KhronosGroup/SPIRV-Tools",
+    "Pin": "8a40f6de57d7b78bc431678d90aa8a570d1631f2",
+    "Name": "third_party/SPIRV-tools",
+    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+  },
+  {
+    "Repo": "KhronosGroup/SPIRV-Headers",
+    "Pin": "b8047fbe45f426f5918fadc67e8408f5b108c3c9",
+    "Name": "third_party/SPIRV-tools/external/SPIRV-Headers",
+    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+  },
+  {
+    "Repo": "KhronosGroup/SPIRV-Cross",
+    "Pin": "a1bb29ccbb285618028a24efb3fe4f6718cee0b5",
+    "Name": "third_party/SPIRV-cross",
+    "Selection": "AMDVLK build-with-tools manifest 12d06a9802d75fd043fb4002a1854cc5d5d121f8"
+  },
+  {
+    "Repo": "GPUOpen-Drivers/llvm-dialects",
+    "Pin": "b249d1d3285696bd2a6a5729f5dfb7f69150047e",
+    "Name": "llpc/imported/llvm-dialects",
+    "Selection": "LLPC pinned gitlink; public upstream mirror"
+  }
+]

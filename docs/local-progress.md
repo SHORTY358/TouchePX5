@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **The pinned Gears compiler now has a real Windows build in progress.**
+  Thirteen source commits are fetched/verified; a separate MSVC/Ninja wrapper
+  configures LLPC/LLVM successfully with bounded memory use. Official pinned
+  DXC and isolated PyYAML supply missing host dependencies. Four Gears Python
+  contracts and its 122-file publication audit pass; native C tests are not
+  claimed. A real build exposed optional DIA/PDB support missing ATL; that
+  upstream option is disabled. The localized include-prefix problem is also
+  corrected: Ninja now records 122 headers for the checked object. The original
+  failing PDB.cpp compiles with DIA disabled. A corrected bounded batch made
+  367/2446 build steps before its owned timeout; completed objects are retained. Compiler
+  binaries, Gears shaders/native title and a Gears emulator launch remain
+  unverified. Resume bounded compiler batches via `docs/gears-build-preflight.md`;
+  next gate is an actual GFX1013 PAL shader, followed by the Linux-oriented
+  native foundation requirements.
+
 - **Shared-page producers now evolve separate left/right palettes.**
   Left changes every 150 frames and right every 100. Both 600-frame native
   runs pass all scheduling/retirement checks, 64 immutable cell samples and
