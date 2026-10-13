@@ -42,6 +42,29 @@ Do not promote build/metadata checks to game or renderer compatibility.
 
 ### Subsequent initializer variant and current blocker
 
+Latest continuation: `-LegacyDefaultsAbi` (requires public-init and diagnostics)
+builds the separate `gears-legacy-defaults-windows` consumer. Existing HLE tables
+have 127 groups/78 CX slots/12-byte records, independently counted from source;
+OpenAGC's retained builder also uses three-dword records. Original Gears' FW12.02
+selector requires 137/84/8 and remains unchanged. The explicit legacy profile
+keeps exact count, unique MRT0 key/bank/index, sixteen register-offset and address
+checks. Local header/source hashes and the adapted original selector assertions
+are retained. This is an HLE consumer experiment, not FW12.02 compatibility.
+
+```powershell
+& tools/external-homebrew/Build-GearsNativeWindows.ps1 -PublicInitAbi -BootDiagnostics -LegacyDefaultsAbi
+& tools/external-homebrew/Invoke-GearsNative.ps1 -PublicInitAbi -BootDiagnostics -LegacyDefaultsAbi
+```
+
+Host selector tests pass with all original negative assertions and explicit
+12-byte stride. Paired bounded boots reproduce `color_defaults` in the prior
+variant and advance the new variant through both pipeline builds/depth setup to
+`srd_aperture`. See `gears-legacy-defaults-windows/comparison-report.json` and
+runs `20261013-115736-968` / `20261013-115739-740`. No frame submission or rendering.
+Next inspect fixed guest direct-memory mapping and request the real required
+0x2xxxxxxxx shader address in another separate variant; retain the aperture
+check and reject a mapping that does not honor the request.
+
 The original title remains intact. `Build-GearsNativeWindows.ps1 -PublicInitAbi`
 creates `gears-public-init-windows` with one local GPL-3.0 main overlay: an alias
 to the same public `sceAgcInit` symbol called with explicit supported revision 8.

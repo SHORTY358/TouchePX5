@@ -6,6 +6,33 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Strict legacy defaults consumer advances Gears to the shader address gate.**
+  Independent source inspection confirms current HLE has 127 primary groups,
+  78 CX slots and 12-byte type/index records; the retained OpenAGC builder also
+  uses three dwords per record. Pinned Gears explicitly requires its different
+  FW12.02 profile (137 groups, 84 CX slots, 8-byte records). No claim that one
+  profile reproduces the other. A separate `-LegacyDefaultsAbi` title variant
+  adapts only the color selector's local headers/profile to existing HLE data.
+  Original source/title and HLE runtime remain unchanged. Exact count, unique
+  MRT0 key, bank, index, all sixteen register offsets and address checks stay
+  enforced. Source group counts are checked before building; copied source and
+  header hashes are recorded in `legacy-defaults-report.json`.
+  `Test-GearsLegacyDefaults.ps1` preserves all original selector assertions,
+  with explicit 12-byte stride and adapted profile; positive selection/target
+  and rejected count/bank/duplicates/offset/alignment cases pass on the host.
+
+  Side-by-side bounded boots under the same 1277-test runtime:
+  unchanged public-init diagnostic title (`20261013-115736-968`) still fails
+  `color_defaults`; legacy consumer (`20261013-115739-740`) passes color selection,
+  both pipeline builds and depth setup, then fails `srd_aperture` as expected.
+  SELF SHA256 `7509945407CA4C18B93DD56B8AB2F4C727BECE65404AD46A41A74E5FEB4956E8`.
+  Evidence: `gears-toolchain/gears-legacy-defaults-windows/comparison-report.json`
+  and both original run directories. **No frame submission/rendering yet.**
+  Next: preserve this variant, inspect the guest direct-memory mapping contract,
+  and create a separate fixed-address shader mapping experiment for the required
+  0x2xxxxxxxx aperture. Keep the aperture assertion and fail if the requested
+  mapping cannot be honored; do not force/truncate the address or skip checks.
+
 - **A separate Gears initializer variant now reaches actual shader creation/linking.**
   `Build-GearsNativeWindows.ps1 -PublicInitAbi` creates an isolated GPL-3.0 main
   overlay using the public one-argument `sceAgcInit(revision=8)` ABI; 8 is an

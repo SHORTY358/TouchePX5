@@ -1,13 +1,14 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateRange(1,60)][int]$TimeoutSeconds=20,[switch]$PublicInitAbi,[switch]$BootDiagnostics)
+param([ValidateRange(1,60)][int]$TimeoutSeconds=20,[switch]$PublicInitAbi,[switch]$BootDiagnostics,[switch]$LegacyDefaultsAbi)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . "$repo/tools/native-probes/RuntimeManifest.ps1"
 $deps=Join-Path $repo 'artifacts/external-homebrew/gears-toolchain'
 if($BootDiagnostics -and -not $PublicInitAbi) { throw 'Select public-init ABI for the diagnostic variant' }
-$variant=if($BootDiagnostics) { 'gears-public-init-diagnostics' } elseif($PublicInitAbi) { 'gears-public-init-windows' } else { 'gears-native-windows' }
+if($LegacyDefaultsAbi -and (-not $PublicInitAbi -or -not $BootDiagnostics)) { throw 'Select public-init and diagnostics for the legacy defaults experiment' }
+$variant=if($LegacyDefaultsAbi) { 'gears-legacy-defaults-windows' } elseif($BootDiagnostics) { 'gears-public-init-diagnostics' } elseif($PublicInitAbi) { 'gears-public-init-windows' } else { 'gears-native-windows' }
 $native=Get-Content "$deps/$variant/native-report.json" -Raw | ConvertFrom-Json
 $hostChecks=Get-Content "$deps/cygwin-host/host-verification-report.json" -Raw | ConvertFrom-Json
 if(-not $hostChecks.TestCompleted -or -not $hostChecks.AuditCompleted) { throw 'Complete unchanged upstream host tests and audit first' }

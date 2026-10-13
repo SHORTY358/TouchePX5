@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # The native outputs/assembly overlay retain the upstream GPL-3.0 license.
 [CmdletBinding()]
-param([switch]$PublicInitAbi,[switch]$BootDiagnostics)
+param([switch]$PublicInitAbi,[switch]$BootDiagnostics,[switch]$LegacyDefaultsAbi)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $deps=Join-Path $root 'artifacts/external-homebrew/gears-toolchain'
@@ -10,7 +10,8 @@ $gears=Join-Path $root 'artifacts/external-homebrew/ps5-agc-gears'
 $foundation=Join-Path $deps 'native-foundation'
 $shaderRoot=Join-Path $deps 'gears-native-windows'
 if($BootDiagnostics -and -not $PublicInitAbi) { throw 'Boot diagnostics belong to the separate public-init variant' }
-$out=if($BootDiagnostics) { Join-Path $deps 'gears-public-init-diagnostics' } elseif($PublicInitAbi) { Join-Path $deps 'gears-public-init-windows' } else { $shaderRoot }
+if($LegacyDefaultsAbi -and (-not $PublicInitAbi -or -not $BootDiagnostics)) { throw 'Legacy defaults experiment requires explicit public-init and diagnostics' }
+$out=if($LegacyDefaultsAbi) { Join-Path $deps 'gears-legacy-defaults-windows' } elseif($BootDiagnostics) { Join-Path $deps 'gears-public-init-diagnostics' } elseif($PublicInitAbi) { Join-Path $deps 'gears-public-init-windows' } else { $shaderRoot }
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 $shaderReport=Get-Content "$shaderRoot/shader-report.json" -Raw | ConvertFrom-Json
 if(-not $shaderReport.ShadersBuilt -or $shaderReport.MetadataHeaderSha256 -ne (Get-FileHash "$shaderRoot/generated/gears_shader_metadata.h").Hash -or $shaderReport.ManifestSha256 -ne (Get-FileHash "$shaderRoot/shaders/gears_lit.manifest.json").Hash) { throw 'Verified real Gears shader outputs required' }
@@ -66,8 +67,34 @@ $buildScript=[IO.File]::ReadAllText("$gears/tools/build_native.sh")
 $sources=[regex]::Match($buildScript,'(?s)sources=\((.*?)\)').Groups[1].Value.Trim() -split '\s+'
 if($sources.Count -ne 25) { throw 'Review changed native source list' }
 $objects=@("$cross/foundation_app_crt.cpp.o")
+$colorObject=$null
+if($LegacyDefaultsAbi) {
+    # This is a separate consumer ABI experiment for the existing legacy HLE
+    # table, not a claim that its 127 groups reproduce FW12.02's 137 groups.
+    New-Item -ItemType Directory -Path "$out/include","$out/src" -Force | Out-Null
+    $primaryDefaults=[IO.File]::ReadAllText("$root/src/SharpEmu.Libs/Agc/AgcPrimaryRegisterDefaults.cs")
+    if(([regex]::Matches($primaryDefaults,'(?m)^\s+new\([012]u,')).Count -ne 127 -or
+       ([regex]::Matches($primaryDefaults,'(?m)^\s+new\(0u,')).Count -ne 78) { throw 'Review changed legacy HLE table counts' }
+    Copy-Item "$gears/include/ps5_agc.h" "$out/include/ps5_agc.h" -Force
+    $registerHeader=[IO.File]::ReadAllText("$gears/include/ps5_agc_registers.h")
+    $pair='    uint32_t encoded_index;'
+    if(([regex]::Matches($registerHeader,[regex]::Escape($pair))).Count -ne 1) { throw 'Review changed upstream type/index ABI' }
+    $registerHeader=$registerHeader.Replace($pair,$pair+"`n    uint32_t reserved;")
+    [IO.File]::WriteAllText("$out/include/ps5_agc_registers.h",$registerHeader)
+    $colorHeader=[IO.File]::ReadAllText("$gears/src/ps5_color_target.h")
+    if(-not $colorHeader.Contains('PS5_FW_1202_DEFAULT_COUNT = 137') -or -not $colorHeader.Contains('PS5_FW_1202_CX_DEFAULT_COUNT = 84')) { throw 'Review changed original firmware profile' }
+    $colorHeader=$colorHeader.Replace('PS5_FW_1202_DEFAULT_COUNT = 137','PS5_HLE_LEGACY_DEFAULT_COUNT = 127').Replace('PS5_FW_1202_CX_DEFAULT_COUNT = 84','PS5_HLE_LEGACY_CX_DEFAULT_COUNT = 78')
+    [IO.File]::WriteAllText("$out/src/ps5_color_target.h",$colorHeader)
+    $colorSource=[IO.File]::ReadAllText("$gears/src/ps5_color_target.c").Replace('PS5_FW_1202_DEFAULT_COUNT','PS5_HLE_LEGACY_DEFAULT_COUNT').Replace('PS5_FW_1202_CX_DEFAULT_COUNT','PS5_HLE_LEGACY_CX_DEFAULT_COUNT')
+    [IO.File]::WriteAllText("$out/src/ps5_color_target.c",$colorSource)
+    $colorObject="$out/color-legacy.o"
+    & "$bin/clang.exe" @flags -std=c11 -c "$out/src/ps5_color_target.c" -o $colorObject > "$out/color-build.log" 2>&1
+    if($LASTEXITCODE) { throw 'Legacy consumer ABI compilation failed' }
+    & "$PSScriptRoot/Test-GearsLegacyDefaults.ps1"
+}
 foreach($source in $sources) {
     if($source -eq 'native/main.c') { $objects+="$out/main.o" }
+    elseif($LegacyDefaultsAbi -and $source -eq 'src/ps5_color_target.c') { $objects+=$colorObject }
     else { $objects+=Join-Path $cross ($source.Replace('/','_')+'.o') }
 }
 $objects+=@("$cross/native_ps5log_ps5log.c.o","$cross/native_ps5log_ps5log_ps5_net.c.o","$out/shader_assets.o")
@@ -89,7 +116,14 @@ if(Test-Path "$gears/dev.conf") { Copy-Item -LiteralPath "$gears/dev.conf" -Dest
     ShaderManifestSha256=$shaderReport.ManifestSha256; MetadataHeaderSha256=$shaderReport.MetadataHeaderSha256;
     OriginalAssemblySha256=(Get-FileHash "$gears/native/shader_assets.S").Hash; AssemblyOverlaySha256=(Get-FileHash "$out/shader_assets.S").Hash;
     ConverterSha256=$converterReport.ConverterSha256; PosixHostNetworkTestCompleted=$false;
-    PublicInitAbi=[bool]$PublicInitAbi; BootDiagnostics=[bool]$BootDiagnostics; OriginalMainSha256=(Get-FileHash "$gears/native/main.c").Hash; BuiltMainSha256=(Get-FileHash $main).Hash;
+    PublicInitAbi=[bool]$PublicInitAbi; BootDiagnostics=[bool]$BootDiagnostics; LegacyDefaultsAbi=[bool]$LegacyDefaultsAbi; OriginalMainSha256=(Get-FileHash "$gears/native/main.c").Hash; BuiltMainSha256=(Get-FileHash $main).Hash;
     Scope='native pinned Gears title built using actual LLPC stages; no emulator execution or full upstream host test claim'
 } | ConvertTo-Json -Depth 4 | Set-Content "$out/native-report.json" -Encoding utf8
+if($LegacyDefaultsAbi) {
+    $overlayFiles=@('include/ps5_agc.h','include/ps5_agc_registers.h','src/ps5_color_target.h','src/ps5_color_target.c')
+    @{Scope='legacy HLE consumer profile: 127 groups, 78 CX slots, 12-byte type/index records; not FW12.02';
+      HleDefaultsSourceSha256=(Get-FileHash "$root/src/SharpEmu.Libs/Agc/AgcPrimaryRegisterDefaults.cs").Hash;
+      Overlays=@($overlayFiles | ForEach-Object { @{Path=$_;Sha256=(Get-FileHash (Join-Path $out $_)).Hash} })} |
+      ConvertTo-Json -Depth 5 | Set-Content "$out/legacy-defaults-report.json" -Encoding UTF8
+}
 Write-Output 'PASS: native Gears app built and packaged; not executed'
