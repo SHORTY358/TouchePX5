@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureGuestProducersBatch','TextureGuestProducersBatchReverse','TextureGuestProducersBatchFrozenStatic','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureGuestProducersBatch','TextureGuestProducersBatchReverse','TextureGuestProducersBatchFrozenStatic','TextureGuestProducersSharedHalves','TextureGuestProducersSharedHalvesReverse','TextureGuestProducersSharedHalvesMissing','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
 $ErrorActionPreference='Stop'
 if($UseWriteWatch -and $DisableNativeCpuTracking) { throw 'Choose write-watch or disabled tracking' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -31,6 +31,9 @@ $inputName=switch($Profile) {
     'TextureGuestProducersBatch' {'app-texture-guest-producers-batch.elf'}
     'TextureGuestProducersBatchReverse' {'app-texture-guest-producers-batch-reverse.elf'}
     'TextureGuestProducersBatchFrozenStatic' {'app-texture-guest-producers-batch-frozen-static.elf'}
+    'TextureGuestProducersSharedHalves' {'app-texture-guest-producers-batch-shared-halves.elf'}
+    'TextureGuestProducersSharedHalvesReverse' {'app-texture-guest-producers-batch-shared-halves-reverse.elf'}
+    'TextureGuestProducersSharedHalvesMissing' {'app-texture-guest-producers-batch-shared-halves-missing-half.elf'}
     'TextureCubeSlots' {'app-texture-cube-slots.elf'}
     'TextureCubeSlotsPattern' {'app-texture-cube-slots-pattern.elf'}
     'TextureCubeSlotsPatternRedZone' {'app-texture-cube-slots-pattern-red-zone.elf'}
@@ -107,7 +110,8 @@ try {
         if(-not $slotStats.Success) { throw 'Missing real guest frame-slot accounting' }
         $counts=@(1..4 | ForEach-Object { [Convert]::ToUInt32($slotStats.Groups[$_].Value,16) })
         if($counts[0] -ne 600 -or $counts[1] -ne 600 -or $counts[2] -lt 1 -or
-           $counts[2] -gt 2 -or $counts[3] -ne 598 -or $textureAddresses.Count -ne 3) {
+           $counts[2] -gt 2 -or $counts[3] -ne 598 -or
+           $textureAddresses.Count -ne $(if($buildReport.SharedTextureHalves) { 2 } else { 3 })) {
             throw 'Frame-slot retirement or independent mutable texture binding failed'
         }
         $frameSlotAccounting=@{ Submitted=$counts[0]; Retired=$counts[1]; MaxPending=$counts[2]; Reuses=$counts[3] }
@@ -134,6 +138,8 @@ try {
         FrozenProducerPalette=$buildReport.FrozenProducerPalette
         BatchProducerRequests=$buildReport.BatchProducerRequests
         OutstandingProducerJobs=$buildReport.OutstandingProducerJobs
+        SharedTextureHalves=$buildReport.SharedTextureHalves
+        SkipSecondHalfWrites=$buildReport.SkipSecondHalfWrites
         JobsPerProducer=$buildReport.JobsPerProducer
         ProducerHandoff=$buildReport.ProducerHandoff
         CpuBackgroundWrites=$buildReport.CpuBackgroundWrites

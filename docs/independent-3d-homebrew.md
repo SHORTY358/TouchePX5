@@ -1161,3 +1161,37 @@ No runtime code changed and no fresh library suite is claimed. This extends the
 fixture's disjoint-allocation handoff only; every GPU submission is on main and
 both GPU consumers are drained before each CPU batch. Next: disjoint native
 producer regions within one shared texture, preserving that consumer retirement.
+
+### 2026-10-13: two native writers in disjoint halves of a shared texture
+
+`-BatchProducerRequests -SharedTextureHalves` aliases both frame slots to the same
+mutable texture, assigns top/bottom 8192-byte producer ranges and adjusts each
+worker's source/destination pointers. Ready and half-fill barriers are retained,
+with both GPU consumers retired before every batch and both CPU completions
+consumed before either draw. The runner requires two real texture addresses for
+this explicit variant, while retaining three-address requirements for earlier
+separate-slot textures. No emulator runtime code is modified.
+
+Final positive outputs are `smoke-TextureGuestProducersSharedHalves-20261013-172527`
+and `smoke-TextureGuestProducersSharedHalvesReverse-20261013-172606`; negative is
+`smoke-TextureGuestProducersSharedHalvesMissing-20261013-172629`. All execute 600
+submitted/retired frames, 598 slot reuses, max_pending=2, 300 worker jobs and half
+checks each, with distinct full-width join returns. Positive captures pass every
+64-cell check on both objects and cycle [1,1,2,2,0,1,1]. All seven forward/reverse
+pairs and all seven matched separate-allocation batch baseline pairs are
+byte-identical. Input ELF/source/build snapshots and matching Core/HLE/Libs/CLI
+hashes are verified in `guest-producer-shared-halves-comparison.json`.
+
+The negative deliberately skips lower-half stores without skipping barriers,
+signals, accounting or returns. Initial palette-1 images remain complete, but
+both phase-2 captures match exactly 32/64 second-object cell centers; the first
+object remains 64/64. The independent checker correctly exits 1 while native
+completion succeeds. This catches incomplete native texture production rather
+than merely detecting an absent output or failed worker.
+
+Scope is disjoint 8192-byte regions occupying separate OS pages within one
+sampled allocation and explicit retirement of both GPU consumers. It does not
+certify shared-page dirty tracking, byte-overlapping stores, arbitrary aliases,
+concurrent AGC submission or consumer reads during refill. No new library suite
+is claimed for fixture-only changes. Next: strided disjoint columns sharing OS
+pages, keeping the same consumer retirement and independent update oracle.

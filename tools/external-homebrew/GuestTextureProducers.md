@@ -66,3 +66,28 @@ The paired variant validates two outstanding jobs and interleaved half-fill
 progress on disjoint texture allocations. The barriers do not measure simultaneous
 CPU instructions or throughput, and draining both GPU slots limits overlap with
 rendering. Concurrent guest GPU submission remains unvalidated.
+
+## Two native writers in one texture
+
+Add `-SharedTextureHalves` to `-BatchProducerRequests`. Both GPU frame slots
+then sample one mutable allocation. Worker 0 owns bytes 0..8191 (top 32 rows),
+worker 1 owns bytes 8192..16383 (bottom 32 rows). Both consumers must retire
+before either refill, and both CPU completion signals must arrive before drawing.
+The same ready and mid-fill barriers remain, with 300 jobs/checks per worker.
+Smoke profiles are `TextureGuestProducersSharedHalves` and, with `-ReverseObjects`,
+`TextureGuestProducersSharedHalvesReverse`. Exactly two real texture addresses
+are expected: one immutable object texture and one shared mutable texture.
+
+`-SkipSecondHalfWrites` deliberately omits worker 1's image writes while preserving
+its semaphores, barriers, job counts and return value. Profile
+`TextureGuestProducersSharedHalvesMissing` should execute successfully, but the
+independent update checker must reject it. Initial captures remain complete
+because the texture starts in palette 1; phase-2 captures show exactly 32/64
+matching cells on the second object. This isolates incomplete native image writes
+from failed scheduling or an entirely missing image.
+
+The two byte ranges do not overlap and occupy separate OS pages. This covers one
+shared sampled texture with explicitly retired consumers; shared-page writes,
+overlapping byte writes, arbitrary aliases and GPU reads during refill remain
+unvalidated. Its final positive captures also match the separate-allocation batch
+baseline byte-for-byte. The shader/startup and emulator runtime are unchanged.

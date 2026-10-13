@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Two native producers now fill disjoint halves of one shared texture.**
+  Each worker owns 8192 bytes; both GPU frame slots sample the same mutable
+  allocation. Ready/half-fill barriers, 300 jobs/checks per worker, full-width
+  joins and 600 retired frames pass with both consumers retired before refill.
+  Seven captures per order pass every 64-cell sample per object. All seven
+  reverse and seven separate-allocation baseline pairs are byte-identical.
+  The missing-half control completes jobs/barriers/frames but is correctly
+  rejected: phase-2 images update exactly 32/64 cells of the second object.
+  This covers disjoint page-aligned regions and explicitly drained consumers;
+  shared-page/overlapping-byte writes and GPU reading during refill remain open.
+  Next: disjoint columns sharing OS pages in the same texture, preserving the
+  existing two-consumer retirement and independent image checks.
+
 - **Two outstanding guest producer jobs now have a bounded GPU checkpoint.**
   Main issues both slot requests before waiting. Both workers must start before
   either fills, and each must observe the peer's half-fill before completing.
