@@ -16,6 +16,9 @@ namespace SharpEmu.HLE;
 /// write-protected; the first write faults, the fault handler restores write
 /// access and marks the range dirty, and the video backend consumes the dirty
 /// flag once per flip and re-arms protection after re-uploading.
+/// Windows also has an experimental allocation-time write-watch backend,
+/// selected by SHARPEMU_GUEST_IMAGE_CPU_SYNC=write-watch in a fresh process.
+/// It polls writable pages and distributes changes to all overlapping owners.
 /// </summary>
 public static unsafe class GuestImageWriteTracker
 {
@@ -40,6 +43,7 @@ public static unsafe class GuestImageWriteTracker
         /// so native CPU stores do not fault.
         /// </summary>
         public bool Protect;
+        public bool WriteWatchFailed;
         public int FirstCpuWriteSeen;
         public int PendingFirstCpuWrite;
         public long WriteGeneration;
@@ -107,9 +111,10 @@ public static unsafe class GuestImageWriteTracker
     // like Dead Cells / Demon's Souls. Opt in with SHARPEMU_GUEST_IMAGE_CPU_SYNC=1
     // when a title needs CPU-written guest planes (e.g. GTA intro). Linux/macOS
     // keep the historical opt-out (=0 disables).
+    // "write-watch" enables polling instead of protected-page native faults.
     private static readonly bool _enabled =
         OperatingSystem.IsWindows()
-            ? string.Equals(
+            ? WindowsWriteWatch.Requested || string.Equals(
                 Environment.GetEnvironmentVariable("SHARPEMU_GUEST_IMAGE_CPU_SYNC"),
                 "1",
                 StringComparison.Ordinal)
@@ -169,8 +174,78 @@ public static unsafe class GuestImageWriteTracker
     /// <summary>
     /// Monotonic signal used by GPU backends to skip dirty-range scans when
     /// no tracked guest image has received a new CPU write.
+    /// The experimental write-watch backend polls before returning this value.
     /// </summary>
-    public static long DirtyEpoch => Volatile.Read(ref _dirtyEpoch);
+    public static long DirtyEpoch
+    {
+        get
+        {
+            if (WindowsWriteWatch.Requested)
+                lock (_gate) { PollWriteWatchLocked(); }
+            return Volatile.Read(ref _dirtyEpoch);
+        }
+    }
+
+    // Query/reset is shared by every range on a page. Distribute dirty pages
+    // to ALL current owners before any one cache owner consumes its flag.
+    private static void PollWriteWatchLocked(TrackedRange? only = null)
+    {
+        foreach (var range in only is null ? _rangesByAddress.Values.ToArray() : new[] { only })
+            PollWriteWatchPagesLocked(range.Start, range.End - range.Start);
+    }
+
+    private static void PollWriteWatchPagesLocked(ulong start, ulong length)
+    {
+        if (!WindowsWriteWatch.TryConsume(start, length, out var pages))
+        {
+            foreach (var owner in _rangesByAddress.Values)
+                if (owner.Start < start + length && start < owner.End && !owner.WriteWatchFailed)
+                {
+                    owner.WriteWatchFailed = true;
+                    Console.Error.WriteLine($"[GIMG-WATCH] unsupported addr=0x{owner.Address:X} bytes={owner.ByteCount}");
+                }
+            return; // Never fall back to destructive Windows fault tracking.
+        }
+        foreach (ulong page in pages)
+            foreach (var owner in _rangesByAddress.Values)
+                if (page < owner.End && owner.Start < page + 4096)
+                {
+                    // Native page granularity cannot retain managed byte spans.
+                    owner.ManagedWritesOverflow = true;
+                    owner.ManagedWrites?.Clear();
+                    if (Interlocked.Exchange(ref owner.Dirty, 1) == 0)
+                    {
+                        Interlocked.Increment(ref owner.WriteGeneration);
+                        Interlocked.Increment(ref _dirtyEpoch);
+                    }
+                }
+    }
+
+    // Serialize release with polling: a query must never race a free and
+    // report a retired allocation as an unsupported live write-watch owner.
+    internal static bool FreeWriteWatchAllocation(nint address, nuint size, uint freeType)
+    {
+        lock (_gate)
+        {
+            ulong start=(ulong)address, end=start+(ulong)size;
+            if(freeType==MemRelease)
+            {
+                ulong cursor=start;
+                while(HostMemory.Query((void*)cursor,out var info)!=0 &&
+                    info.AllocationBase==start && info.RegionSize!=0)
+                {
+                    ulong next=info.BaseAddress+info.RegionSize;
+                    if(next<=cursor) break;
+                    end=cursor=next;
+                }
+            }
+            if(VirtualFree(address,size,freeType)==0) return false;
+            foreach(var range in _rangesByAddress.Values.ToArray())
+                if(range.Start<end && start<range.End) _rangesByAddress.Remove(range.Address);
+            RebuildSnapshotLocked();
+            return true;
+        }
+    }
 
     /// <summary>
     /// Test/diagnostics helper: whether <paramref name="address"/> is tracked
@@ -212,7 +287,8 @@ public static unsafe class GuestImageWriteTracker
         // CRT heap memory makes neighbouring heap metadata read-only and
         // crashes the process on Windows.
         var scratch = OperatingSystem.IsWindows()
-            ? VirtualAlloc(0, 4096, MemCommit | MemReserve, PageReadWrite)
+            ? VirtualAlloc(0, 4096, MemCommit | MemReserve |
+                (WindowsWriteWatch.Requested ? WindowsWriteWatch.AllocationFlag : 0), PageReadWrite)
             : (nint)NativeMemory.AllocZeroed(4096);
         if (scratch == 0)
         {
@@ -248,6 +324,7 @@ public static unsafe class GuestImageWriteTracker
     /// protection so native stores fault and mark the range dirty. When false,
     /// the range is watch-only (managed HLE writes still dirty via
     /// <see cref="NotifyManagedWrite"/>) and never <c>VirtualProtect</c>'d.
+    /// Windows write-watch keeps all ranges writable and polls native writes.
     /// </summary>
     public static void Track(
         ulong address,
@@ -264,11 +341,17 @@ public static unsafe class GuestImageWriteTracker
         // Native page protection remains opt-in. When it is disabled, retain
         // a watch-only range so managed TryWrite/TryCopy operations can still
         // invalidate the corresponding host image without faulting.
-        protect &= _enabled;
+        protect &= _enabled && !WindowsWriteWatch.Requested;
         var (start, length) = PageAlign(address, byteCount);
         lock (_gate)
         {
             _rangesByAddress.TryGetValue(address, out var range);
+            if (WindowsWriteWatch.Requested)
+            {
+                // Drain pre-registration stores as the new owner's baseline,
+                // but preserve them for existing overlapping cache owners.
+                PollWriteWatchPagesLocked(start, length);
+            }
             if (range is not null &&
                 (range.Start != start ||
                  range.End != start + length ||
@@ -371,6 +454,7 @@ public static unsafe class GuestImageWriteTracker
         {
             if (!_rangesByAddress.TryGetValue(address, out var range))
                 return false;
+            if (WindowsWriteWatch.Requested) PollWriteWatchLocked(range);
             FlushPendingFirstCpuWrite(range);
             var dirty = Interlocked.Exchange(ref range.Dirty, 0) != 0;
             generation = Volatile.Read(ref range.WriteGeneration);
@@ -396,6 +480,7 @@ public static unsafe class GuestImageWriteTracker
                 return false;
             }
 
+            if (WindowsWriteWatch.Requested) PollWriteWatchLocked(range);
             FlushPendingFirstCpuWrite(range);
             return Volatile.Read(ref range.Dirty) != 0;
         }
@@ -428,6 +513,7 @@ public static unsafe class GuestImageWriteTracker
                 return false;
             }
 
+            if (WindowsWriteWatch.Requested) PollWriteWatchLocked(range);
             generation = Volatile.Read(ref range.WriteGeneration);
             return true;
         }

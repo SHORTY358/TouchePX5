@@ -19,6 +19,8 @@ unsafe class Program
 
     static int Main(string[] args)
     {
+        if(args.Length > 0 && args[0]=="--write-watch")
+            return WriteWatchProbe.Run(args.Length==2?args[1]:null);
         if (!OperatingSystem.IsWindows() || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException("Windows x64 only");
         nint page = VirtualAlloc(0, 4096, 0x3000, 4);

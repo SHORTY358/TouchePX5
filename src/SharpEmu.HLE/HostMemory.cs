@@ -49,6 +49,8 @@ public static unsafe class HostMemory
     {
         if (OperatingSystem.IsWindows())
         {
+            if (WindowsWriteWatch.Requested && (allocationType & MEM_RESERVE) != 0)
+                allocationType |= WindowsWriteWatch.AllocationFlag;
             return Win32VirtualAlloc(address, size, allocationType, protect);
         }
 
@@ -59,6 +61,8 @@ public static unsafe class HostMemory
     {
         if (OperatingSystem.IsWindows())
         {
+            if (WindowsWriteWatch.Requested)
+                return GuestImageWriteTracker.FreeWriteWatchAllocation((nint)address, size, freeType);
             return Win32VirtualFree(address, size, freeType);
         }
 

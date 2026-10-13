@@ -901,3 +901,72 @@ entry. Windows native CPU image tracking remains opt-in; this stage does not
 turn it on globally. Initial CPU depth upload remains a subsequent independent
 image-coherence task. Library tests were not rerun because runtime code is
 unchanged; the preceding verified runtime checkpoint remains 1262 passing tests.
+
+## Opt-in Windows write-watch runtime — 2026-10-13
+
+The earlier exception-path isolation led to a non-fault dirty tracker rather
+than arbitrary instruction patching. This stage changes runtime code: Windows
+HostMemory reservations carry MEM_WRITE_WATCH only when the process selects
+SHARPEMU_GUEST_IMAGE_CPU_SYNC=write-watch. The Windows IHostMemory adapter shares
+that allocation/free path. GuestImageWriteTracker keeps pages writable and polls
+GetWriteWatch with its combined query/reset flag, bounded to 128 MiB per query.
+Before consuming any owner's flag, dirty pages are distributed to every tracked
+owner sharing those pages. Generation/epoch queries poll too, preserving cache
+invalidation. Registration establishes the new owner's baseline while retaining
+old owners' writes. Successful release removes intersecting ranges under the
+same lock as polling; failed release retains them. Unsupported ranges are
+reported, never silently replaced by native page protection. Default settings
+and explicit native-fault/disabled controls remain available.
+
+OS-only evidence: windows-write-watch-probe.json passes 100 native stores with
+16 red-zone markers intact per store; it detects identical-value writes and
+supports a 1-GiB reserve with 12 KiB committed at three far-apart pages. Ordinary
+memory returns unsupported; retrofitting MEM_WRITE_WATCH at commit fails with
+error 87. Shared-page reset consumes state for the other alias, motivating the
+runtime fanout. Primary API contract:
+https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-getwritewatch.
+
+Fresh-process HLE regression (tools/native-probes/write-watch-tracker) passes
+100 increasing generations, baseline cleanliness, writable protection, shared
+page fanout, disjoint-page negative control, registration ownership, invalid
+release preserving owners and valid release forgetting all aliases.
+
+First cube attempt smoke-TextureCubeSlotsPatternRedZone-20261013-154057 completed
+with correct CPU source probes but was deliberately rejected by the smoke
+runner: stale ranges were still polled after guest teardown. Release ownership
+was added and the final run has no unsupported-range diagnostics.
+
+Final same-input / same-runtime controls (all in artifacts/external-homebrew/
+ps5link-cube):
+- write-watch: smoke-TextureCubeSlotsPatternRedZone-20261013-154305;
+- fault: smoke-TextureCubeSlotsPatternRedZone-20261013-154407;
+- disabled: smoke-TextureCubeSlotsPatternRedZone-20261013-154424.
+
+pattern-write-watch-controlled-comparison.json verifies identical ELF, CLI,
+Libs and HLE hashes across these three runs. ELF SHA256 is
+E1B108989E5E44DCA4197BF3C318C934658E205E6EBC46034201F28701DB5EA0:
+the existing source-adapted fixture with default red-zone compilation, not the
+later guarded-store variant and not -mno-red-zone. No executable rewrite occurs.
+All runs retire 600 submissions / 598 reuses / max_pending=2 and bind three real
+textures without fallback. The independent patterned-background checker gives:
+- pattern-write-watch-cycle.json: PASS, all five native source probes correct,
+  seven captures with 210/210 exterior points each and phases 0,0,1,1,2,0,0;
+- pattern-write-watch-fault-control.json: intentional failure, source values
+  corrupt and only first capture matches its expected background;
+- pattern-write-watch-disabled-control.json: intentional failure, source words
+  correct but all seven captures remain phase 0.
+A phase-2 screenshot was visually inspected. Sparse checks do not certify all
+object pixels or all texture formats; the cube image has not been called a
+whole-image reference test.
+
+Release CLI builds with the existing sceAgcInit_0090 catalog warning. Final
+library suite: 1262 passed / 0 failed / 0 skipped, results in
+ tests/SharpEmu.Libs.Tests/TestResults/windows-write-watch-final.trx.
+
+Scope: this avoids native tracked-image write AVs in the validated Windows
+fixture. It does not solve arbitrary SysV red-zone exceptions, claim commercial
+compatibility, establish concurrent-writer correctness or improve performance.
+Other allocation types need separate coverage; no-fault polling/dirty ownership
+must be checked with sampled-texture aliases and multiple native guest threads
+before broadening use. Initial CPU depth-image seeding remains an independent
+following task.

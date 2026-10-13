@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[ValidateRange(1,600)][int]$CaptureEvery=150)
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
 $ErrorActionPreference='Stop'
+if($UseWriteWatch -and $DisableNativeCpuTracking) { throw 'Choose write-watch or disabled tracking' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -59,7 +60,7 @@ New-Item -ItemType Directory -Path $capture -Force | Out-Null
 # This profile needs direct CPU framebuffer-write tracking. Windows leaves
 # it off by default because it can regress other titles; do not set globally.
 $settings=@{
-    SHARPEMU_GUEST_IMAGE_CPU_SYNC=if($DisableNativeCpuTracking) { '0' } else { '1' }
+    SHARPEMU_GUEST_IMAGE_CPU_SYNC=if($UseWriteWatch) { 'write-watch' } elseif($DisableNativeCpuTracking) { '0' } else { '1' }
     SHARPEMU_SEED_REGISTERED_DISPLAY_BUFFERS=if($SeedRegisteredDisplayBuffers) { '1' } else { '0' }
     SHARPEMU_TRACE_GUEST_IMAGES='present'
     SHARPEMU_GUEST_IMAGE_DUMP_DIR=$capture
@@ -82,6 +83,7 @@ try {
     }
     if($p.ExitCode -ne 0) { throw "Cube host exit $($p.ExitCode); see $capture/stderr.log" }
     $log=[IO.File]::ReadAllText("$capture/stderr.log")
+    if($UseWriteWatch -and $log.Contains('[GIMG-WATCH] unsupported')) { throw 'Write-watch encountered an unsupported allocation; see stderr.log' }
     if(-not $log.Contains('Guest notification: mesh_test: fin')) { throw 'Cube did not finish its 600-frame source loop' }
     if($Profile.StartsWith('Texture') -and
        ($log.Contains(':FALLBACK') -or
@@ -129,6 +131,8 @@ try {
         InputHasInitAbiCorrection=$true; StartupModified=$false
         RegisteredDisplayBufferSeeding=[bool]$SeedRegisteredDisplayBuffers
         CpuFramebufferTracking=(-not $DisableNativeCpuTracking); HostExit=$p.ExitCode
+        CpuTrackingMode=if($UseWriteWatch) { "write-watch" } elseif($DisableNativeCpuTracking) { "disabled" } else { "fault" }
+        RuntimeHleSha256=(Get-FileHash -LiteralPath (Join-Path (Split-Path $exe) "SharpEmu.HLE.dll")).Hash
         SourceLoopCompleted=$true; PresentedCaptureCount=$frames.Count
         DistinctCaptureCount=$hashes.Count
         VisualCorrectnessAutomaticallyVerified=$false

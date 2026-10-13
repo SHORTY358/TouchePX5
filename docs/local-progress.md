@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **An opt-in Windows write-watch runtime avoids this fixture's red-zone
+  corruption without changing its executable.** Host reservations enable OS
+  write watch before commit; polling resets page state while distributing
+  changes to all overlapping image owners. Released allocations are forgotten
+  under the polling lock. Native pages stay writable. The exact prior unguarded
+  red-zone ELF passes all five CPU probes and 210 background points in each of
+  seven captures, cycling 0,0,1,1,2,0,0 over 600 retired submissions. Same-input,
+  same-runtime controls confirm that native fault mode still corrupts values
+  and disabled tracking leaves the GPU background at phase 0. Fresh-process HLE
+  checks cover 100 write generations, aliases, registration and release; all
+  1262 library tests pass. Select only with `SHARPEMU_GUEST_IMAGE_CPU_SYNC=write-watch`
+  or smoke `-UseWriteWatch`. This is a scoped runtime fix for tracked writable
+  image memory; other faults, allocation types, concurrency and performance
+  remain unverified. See `tools/native-probes/write-watch-tracker/README.md`.
+
 - **Windows red-zone corruption is now isolated outside the emulator.** A
   six-case native probe uses a handler containing no managed calls and snapshots
   guest-style stack markers before its first native call or push. Two fresh

@@ -3,6 +3,8 @@
 For the isolated Windows CPU exception/red-zone reproduction, see
 [`red-zone-fault/README.md`](red-zone-fault/README.md). Its exit 0 confirms the
 incompatibility and its controls, not emulator readiness or a runtime fix.
+The subsequently validated opt-in runtime write-watch path and its independent
+controls are documented in [`write-watch-tracker/README.md`](write-watch-tracker/README.md).
 
 PS5 CPU-tiled display integration: run
 `Test-TouchePX5-FlipLifecycle.ps1 -Mode cpu -TiledCpu`, optionally with

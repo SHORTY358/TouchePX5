@@ -27,12 +27,12 @@ internal sealed unsafe partial class WindowsHostMemory : IHostMemory
 
     public ulong Allocate(ulong desiredAddress, ulong size, HostPageProtection protection)
     {
-        return (ulong)VirtualAlloc((void*)desiredAddress, (nuint)size, MEM_COMMIT | MEM_RESERVE, ToNativeProtection(protection));
+        return (ulong)HostMemory.Alloc((void*)desiredAddress, (nuint)size, MEM_COMMIT | MEM_RESERVE, ToNativeProtection(protection));
     }
 
     public ulong Reserve(ulong desiredAddress, ulong size, HostPageProtection protection)
     {
-        return (ulong)VirtualAlloc((void*)desiredAddress, (nuint)size, MEM_RESERVE, ToNativeProtection(protection));
+        return (ulong)HostMemory.Alloc((void*)desiredAddress, (nuint)size, MEM_RESERVE, ToNativeProtection(protection));
     }
 
     public bool Commit(ulong address, ulong size, HostPageProtection protection)
@@ -42,7 +42,7 @@ internal sealed unsafe partial class WindowsHostMemory : IHostMemory
 
     public bool Free(ulong address)
     {
-        return VirtualFree((void*)address, 0, MEM_RELEASE);
+        return HostMemory.Free((void*)address, 0, MEM_RELEASE);
     }
 
     public bool Protect(ulong address, ulong size, HostPageProtection protection, out uint rawOldProtection)
