@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -22,6 +22,8 @@ $inputName=switch($Profile) {
     'TextureBindingsStatic' {'app-texture-bindings-static.elf'}
     'TextureBindingsUpdates' {'app-texture-bindings-updates.elf'}
     'TextureBindingsUpdatesFenced' {'app-texture-bindings-updates-fenced.elf'}
+    'TextureFrameSlots' {'app-texture-frame-slots.elf'}
+    'TextureFrameSlotsReverse' {'app-texture-frame-slots-reverse.elf'}
     'TextureBindingsReverseUpdatesFenced' {'app-texture-bindings-reverse-updates-fenced.elf'}
     'TextureBindingsReverseUpdates' {'app-texture-bindings-reverse-updates.elf'}
     'TextureBindingsReverseStatic' {'app-texture-bindings-reverse-static.elf'}
@@ -79,6 +81,17 @@ try {
     if($buildReport.DistinctObjectTextures -and $textureAddresses.Count -lt 2) {
         throw 'Expected two different real per-draw texture addresses'
     }
+    $frameSlotAccounting=$null
+    if($buildReport.FrameSlotCount -eq 2) {
+        $slotStats=[regex]::Match($log,'frame_slots submitted=([0-9A-F]{8}) retired=([0-9A-F]{8}) max_pending=([0-9A-F]{8}) reuses=([0-9A-F]{8})')
+        if(-not $slotStats.Success) { throw 'Missing real guest frame-slot accounting' }
+        $counts=@(1..4 | ForEach-Object { [Convert]::ToUInt32($slotStats.Groups[$_].Value,16) })
+        if($counts[0] -ne 600 -or $counts[1] -ne 600 -or $counts[2] -lt 1 -or
+           $counts[2] -gt 2 -or $counts[3] -ne 598 -or $textureAddresses.Count -ne 3) {
+            throw 'Frame-slot retirement or independent mutable texture binding failed'
+        }
+        $frameSlotAccounting=@{ Submitted=$counts[0]; Retired=$counts[1]; MaxPending=$counts[2]; Reuses=$counts[3] }
+    }
     $frames=@(Get-ChildItem -LiteralPath $capture -Filter '*.bgra')
     $hashes=@($frames | Get-FileHash | Select-Object -ExpandProperty Hash -Unique)
     $staticView=$Profile.EndsWith('Static')
@@ -92,6 +105,7 @@ try {
         DistinctObjectTextures=$buildReport.DistinctObjectTextures
         BoundTextureAddresses=$textureAddresses
         TerminalGpuFence=$buildReport.TerminalGpuFence; FrameOwnership=$buildReport.FrameOwnership
+        FrameSlotAccounting=$frameSlotAccounting; MutableTexturePerSlot=$buildReport.MutableTexturePerSlot
         StrictShaderDescriptors=$Profile.StartsWith('Texture')
         InputHasInitAbiCorrection=$true; StartupModified=$false
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode

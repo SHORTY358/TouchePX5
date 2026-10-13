@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Two frame slots now own their mutable resources until real GPU retirement.**
+  `Build-PS5LinkFrameSlots.ps1` generates an adapted native two-plane scene with
+  separate terminal labels and mutable texture allocations per slot, alongside
+  the existing per-slot command/constants state. It waits only when reusing the
+  selected slot, then drains both slots before exit. Both submission orders
+  complete **600 submissions / 600 retirements / 598 reuses**, with measured
+  **max_pending=2**. Real traces bind three distinct texture addresses (one
+  immutable, two mutable). All five saved captures in each run pass **64/64 cell
+  centers per object**, including the first; all five forward/reverse whole-frame
+  comparisons have **0 differing pixels**. First/last decoded images were
+  inspected. This is validated ownership in this adapted scene, not a general
+  throughput gain, a console-equivalent image or commercial-game compatibility.
+
 - **Serialized GPU retirement gives complete first frames in both updated-plane
   submission orders.** New fenced diagnostic profiles append terminal RELEASE_MEM
   after the ordered flip and wait for the real completion label before another

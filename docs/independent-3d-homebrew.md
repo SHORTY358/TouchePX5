@@ -541,10 +541,61 @@ py -3 ./tools/external-homebrew/Check-PS5LinkIndependentTextureUpdates.py <captu
 # Repeat with -ReverseObjects / TextureBindingsReverseUpdatesFenced.
 ```
 
-Next: retire two independent frame slots with their own fences before reuse,
-including per-slot mutable texture storage. Keep immutable flip snapshots ahead
-of their terminal fences; do not mutate shared texture bytes while another slot
-can still sample them. Then compare perspective/UV reference images and investigate
-guest CPU depth-image ownership. Legacy unfenced probes remain diagnostic only;
-their initial-frame behavior has not been fixed globally. Gears still needs its
-pinned LLPC/native foundation. GTA VI has not been run.
+### Two frame slots with independent mutable textures
+
+`Build-PS5LinkFrameSlots.ps1` derives a separate native input from the serialized
+two-plane sample. Existing command/state and constant allocations already have
+two slots. The new adapter gives each slot an aligned 64-bit completion label
+and its own mutable second texture. The first texture remains shared/immutable.
+Before changing a slot's bytes or constants, the CPU polls that slot's real
+terminal completion, using the bounded kernel-time/Usleep helper. After drawing
+and SetFlip, RELEASE_MEM zeros that slot's label. The next frame can use the
+other slot without waiting for the just-submitted frame. Both outstanding labels
+are drained before the final source notification/exit.
+
+This preserves flip-before-terminal ordering: an ordered flip's immutable
+snapshot is copied before its terminal signal allows the CPU to reuse the
+mutable backing. The adapter does not force-satisfy labels, change global timing,
+or turn on CPU image sync outside the smoke process. A five-second fence timeout
+and command-buffer capacity guard fail closed. Upstream startup/source remain
+unchanged; this is an explicitly source-adapted unsigned native executable.
+
+Verified on 2026-10-13:
+
+- Forward: `smoke-TextureFrameSlots-20261013-142859`.
+- Reverse: `smoke-TextureFrameSlotsReverse-20261013-142916`.
+- Each finishes 600 source frames with host exit 0; guest accounting records
+  submitted=600, retired=600, reuses=598, measured max_pending=2.
+- Three real texture bindings: immutable `0x11418000`, slot0 mutable `0x1141C000`,
+  slot1 mutable `0x11468000`, with strict descriptors and no fallback.
+- All five captures in each run match 64 cell centers on each object, pass the
+  strict complete-first-frame requirement, and show second palettes 1,1,2,0,1.
+- All five paired whole-frame forward/reverse comparisons have 0 differences,
+  recorded in `frame-slots-order-comparison.json` under the cube output folder.
+  The forward first/last decoded image pair was visually inspected.
+
+Smoke validation additionally parses actual guest accounting, requires 600
+retirements/598 reuses, max_pending between one and two, and exactly three bound
+texture addresses. The measured two pending labels demonstrate overlapping
+submitted work in these runs; they do not measure simultaneous hardware execution
+or establish a speed improvement. Cell checks do not certify console-equivalent
+background bytes or all shading/perspective behavior. Runtime source did not
+change in this stage, so the earlier 1261-test baseline was not needlessly rerun.
+The updated accounting/binding guard was exercised by
+`smoke-TextureFrameSlots-20261013-143157`: submitted=600, retired=600,
+max_pending=2, reuses=598, three texture bindings and five captures. Its strict
+first-frame/cell-color check also passes on all five captures.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkFrameSlots.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureFrameSlots
+py -3 ./tools/external-homebrew/Check-PS5LinkIndependentTextureUpdates.py <capture-folder> --require-complete-first-frame
+& ./tools/external-homebrew/Build-PS5LinkFrameSlots.ps1 -ReverseObjects
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureFrameSlotsReverse
+```
+
+Next: apply validated slot ownership to an animated depth scene, then compare
+perspective/UV reference images and investigate guest CPU depth-image ownership.
+Legacy unfenced probes remain diagnostic only; their initial-frame behavior has
+not been fixed globally. Gears still needs its pinned LLPC/native foundation.
+GTA VI has not been run.
