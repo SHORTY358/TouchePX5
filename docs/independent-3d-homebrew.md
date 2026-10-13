@@ -227,3 +227,71 @@ must not be mistaken for a correct image.
 Remaining: CPU depth uploads/ownership, nonuniform depth contents, stencil,
 textures, independent multi-object scenes and Gears compiler setup. These
 results do not establish commercial PS5-game or GTA VI compatibility.
+
+## Adapted texture plane — 13 October 2026
+
+The installed MSVC and llvm-mingw compilers did not register an AMDGPU target.
+Official LLVM 18.1.8 sources were downloaded to the separate local tool folder
+`C:/Dev/tools/llvm-amdgpu-18.1.8`; `Build-LLVMAMDGPUTools.ps1` builds only
+`llvm-mc` and `llvm-objcopy` with AMDGPU support. The Windows tar lacked xz
+support, so extraction uses Python's standard library with the data safety
+filter and completion markers. The build detected DIA but lacked `atlbase.h`;
+disabling optional DIA SDK support resolved that dependency without installing
+ATL. A final script replay succeeds and both tool binaries are present.
+
+Pinned official release archives:
+
+- [llvm-18.1.8.src.tar.xz](https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-18.1.8.src.tar.xz),
+  SHA256 `f68cf90f369bc7d0158ba70d860b0cb34dbc163d6ff0ebc6cfa5e515b9b2e28d`.
+- [cmake-18.1.8.src.tar.xz](https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/cmake-18.1.8.src.tar.xz),
+  SHA256 `59badef592dd34893cd319d42b323aaa990b452d05c7180ff20f23ab1b41e837`.
+
+These are locally recorded download hashes, not a claimed signature audit.
+The build script checks exact sizes and hashes before extraction. It does not
+change system PATH or install drivers. This assembler is **not LLPC** and does
+not satisfy the Gears GLSL/GFX1013 compiler dependency.
+
+`Build-PS5LinkTextureShaders.ps1` assembles the unchanged pinned
+`shaders/src/textured_p.s` for gfx1030, matching upstream `build.sh`. The public
+packer generates its one-texture/one-sampler container from the retained
+GPL-3.0 SharpProspero pixel container. Packing passes its container self-check;
+the resulting program is 116 bytes and its container is 2112 bytes. Two-texture
+sources remain excluded because their resource contract requires a different
+container. Successful assembly is not console hardware validation.
+
+`Build-PS5LinkTexturePlane.ps1` creates a separate source adaptation from the
+init-corrected cube. The mesh vertex program actually exports `normal` through
+TEXCOORD0, not the input UV field. The local plane therefore supplies UV through
+`normal.xy`, with identity model/MVP constants; it does not claim unchanged
+upstream mesh semantics. A 64x64 linear RGBA8 texture carries an 8x8 checker
+pattern, red/green lower quadrants and blue/yellow upper quadrants, with bright
+255 and dark 48 cell colors. Native startup remains unchanged. The SCE ELF
+links 30 imports and has zero unpatched relocations.
+
+`smoke-TextureStatic-20261013-114116` completes its 600-frame source loop with
+host exit 0 and three captures. Its compact draw trace reports
+`64x64:f10/n0/t9/dFAC`; strict descriptor validation is enabled and no fallback
+texture is reported. The decoded contact sheet was visually inspected and
+shows the expected colored checker plane. The cell validator samples all 64
+cell centers away from edges: **64/64 exactly match expected BGRA values**.
+The first captured frame is blank, so it is not counted as a rendered-image
+success; the final capture is used for the palette check. A negative control
+using the blank first capture is rejected. This is bounded evidence for one
+static linear texture and normalized coordinate transport. Nonuniform depth
+uploads, texture streaming/updates, mipmapping and multi-texture shader
+resources remain separate work.
+
+Reproduce with the downloaded LLVM archives in the tool folder:
+
+```powershell
+& ./tools/external-homebrew/Build-LLVMAMDGPUTools.ps1
+& ./tools/external-homebrew/Build-PS5LinkTextureShaders.ps1
+& ./tools/external-homebrew/Build-PS5LinkTexturePlane.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureStatic
+py -3 tools/external-homebrew/Check-PS5LinkTexturePlane.py <printed-capture-folder>
+```
+
+The cell report explicitly does not certify all pixels or commercial-game
+compatibility. CPU depth clear replay `smoke-DepthCpuClear-20261013-113709`
+still visually loses most rotating geometry despite completing normally;
+this diagnostic profile must not be presented as a visual pass.

@@ -6,6 +6,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Native adapted texture plane reaches verified image sampling.** Local
+  LLVM 18.1.8 AMDGPU tools assemble the pinned public one-texture pixel
+  program; the generated SCE ELF has 30 real imports and no unpatched
+  relocations. Strict descriptor validation and the draw trace confirm a real
+  64x64 RGBA8 2D texture without fallback. The 600-frame scene completes with
+  host exit 0. Decoded readbacks show the intended four colored quadrants and
+  checker cells; all 64 sampled cell centers exactly match the intended BGRA
+  colors. This verifies static linear single-texture sampling in this adapted
+  scene, not texture streaming, multiple textures or whole-image correctness.
+  The compiler is separate from the pinned LLPC/GFX1013 toolchain Gears needs.
+
 - **Adapted independent cube now exercises persistent D32 depth.** A masked
   color pass with a pixel shader formerly lost its attachment and fell back
   to default raster/depth state. Translation now retains the bound attachment
