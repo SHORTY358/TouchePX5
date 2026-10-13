@@ -670,3 +670,16 @@ Next: investigate first-frame CPU background ownership and guest CPU depth-image
 updates with independent controls, then broaden the actual shader/resource
 subset. Gears remains blocked on its pinned LLPC/native foundation; GTA VI has
 not been run.
+
+The background investigation has a specific code-path hypothesis. The adapter
+fills CPU framebuffer memory before submission. Vulkan creates/tracks the target
+only when executing its first draw (`GetOrCreateGuestRenderTarget`); the resource
+starts uninitialized and its first color attachment uses CLEAR instead of LOAD.
+Write tracking therefore does not observe the pre-creation CPU store. The frozen
+log shows both targets created before later `cpu-write-drain` events, while the
+first saved image has a zero background. This fits the observed black-first /
+dark-later sequence, but is not yet a causal A/B validation or a runtime fix.
+A proper initial snapshot must preserve submission ordering and immutable
+ownership; blindly marking every new image dirty or uploading before every draw
+could overwrite GPU-produced data. Keep this separate from the withdrawn seed
+fingerprint claim above, which did not cover these tiled BGRA targets.
