@@ -683,3 +683,80 @@ A proper initial snapshot must preserve submission ordering and immutable
 ownership; blindly marking every new image dirty or uploading before every draw
 could overwrite GPU-produced data. Keep this separate from the withdrawn seed
 fingerprint claim above, which did not cover these tiled BGRA targets.
+
+## Registration-only display seed: controlled Vulkan opt-in (2026-10-13)
+
+The next investigation found an earlier gate than the first render pass:
+`RegisterKnownDisplayBuffer` puts a valid flip buffer in `_availableGuestImages`
+before a GPU writer exists. `GuestImageWantsInitialData` treated that availability
+as evidence that initial seeding was unnecessary. The initial CPU framebuffer
+fill was therefore skipped before write tracking became active. The prior
+creation/initial-clear explanation is part of the path, but registration is the
+specific gate now exercised by the on/off control.
+
+Vulkan now records registration-only buffers separately. Successful queued GPU
+publication or a resident CPU upload removes the registration-only state;
+failed publication keeps it. Re-registering an already published image does not
+restore eligibility, and host-session reset clears the state. The regression
+`VulkanDisplayRegistrationTests` covers flip availability, failed publication,
+successful publication and repeated registration without overwriting live data.
+
+`SHARPEMU_SEED_REGISTERED_DISPLAY_BUFFERS=1` opts into first-draw seeding of
+registration-only buffers. The default remains off. The AGC adapter currently
+permits only single-layer, base-mip format10/number0, comp-swap0/1, linear or
+tile27 targets. Tile27 snapshots read the padded storage size and detile to the
+logical image before upload, with the existing 128 MiB bound and read/decode
+failure rejection. CPU bytes are copied before enqueue; a pending snapshot
+prevents repeated initial captures, and GPU publication stops future reseeding.
+The former withdrawn fingerprint helper remains removed. Existing unregistered
+target seeding retains its previous behavior; other tiled formats, alias/view
+changes, patterned initial fills and initial depth data are separate work.
+
+The smoke wrapper explicitly sets/restores the opt-in from
+`-SeedRegisteredDisplayBuffers`, and records that setting plus executable/library
+hashes. Final-runtime runs:
+
+- Default/off: `smoke-TextureCubeSlotsStatic-20261013-150340`.
+- Seeded forward: `smoke-TextureCubeSlotsStatic-20261013-150357`.
+- Seeded reverse: `smoke-TextureCubeSlotsReverseStatic-20261013-150414`.
+- Seeded animated: `smoke-TextureCubeSlots-20261013-150431`.
+- Seeded no-CPU-background control:
+  `smoke-TextureCubeSlotsNoBackgroundStatic-20261013-150456`.
+
+All complete 600 submissions/retirements, 598 slot reuses, max_pending=2 and three
+strict real texture bindings. The enabled frozen forward/reverse captures are
+all byte-identical. Both pass 176+71 object samples and six fixed exterior
+background samples on all five captures, including the first, using
+`Check-PS5LinkCubeProjection.py --require-background`. The off control fails all
+six background samples only on its first capture, while geometry passes.
+`registered-display-seed-ab.json` confirms equal input ELF/runtime library hashes,
+1592464 changed first-frame pixels, zero last-frame differences, and identical
+enabled forward/reverse capture hashes. First-frame and animated decoded images
+were visually inspected.
+
+`Build-PS5LinkCubeFrameSlots.ps1 -FreezeView -SkipBackgroundWrites` builds an
+independent source control that omits CPU background stores. With seeding enabled
+it still passes all 247 object points per capture, but fails all six expected
+dark-background points in every capture. The source allocation remains zero and
+is not spuriously filled with a hard-coded dark color. The two failed-background
+reports are intentional negative controls, not passing checks. The native
+uniform fill proves this registration/seed path; it does not independently prove
+spatially varying detile equations or every pixel in arbitrary applications.
+
+Final `SharpEmu.Libs.Tests` result: **1262 passed, 0 failed, 0 skipped** in
+`tests/SharpEmu.Libs.Tests/TestResults/registered-display-seed.trx`. Release CLI
+build passes; the compilation still reports the pre-existing SHEM006 catalog
+warning when the library is rebuilt. No default CPU-sync setting was changed.
+
+```powershell
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlotsStatic -SeedRegisteredDisplayBuffers
+py -3 ./tools/external-homebrew/Check-PS5LinkCubeProjection.py <capture-folder> --require-background --output <report.json>
+& ./tools/external-homebrew/Build-PS5LinkCubeFrameSlots.ps1 -FreezeView -SkipBackgroundWrites
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureCubeSlotsNoBackgroundStatic -SeedRegisteredDisplayBuffers
+# The no-background source must pass geometry and fail --require-background.
+```
+
+Next: use an independently laid-out patterned CPU surface to validate the full
+initial tiled snapshot and ordering, then cover initial depth-image data and
+broaden actual shader/resource support. General commercial compatibility and
+GTA VI playability remain unverified.

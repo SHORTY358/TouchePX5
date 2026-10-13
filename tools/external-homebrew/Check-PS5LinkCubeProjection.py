@@ -102,10 +102,13 @@ def main():
                         help='Deliberately incorrect UV reference; must reject correct images')
     parser.add_argument('--shared-texture-control', action='store_true',
                         help='Deliberately use object zero palette for both objects')
+    parser.add_argument('--require-background', action='store_true',
+                        help='Also require the CPU-authored dark fill at six fixed exterior points')
     args = parser.parse_args()
     smoke = json.loads((args.folder/'report.json').read_text(encoding='utf-8-sig'))
     profiles = {'TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic',
-                'TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic'}
+                'TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic',
+                'TextureCubeSlotsNoBackgroundStatic'}
     if (smoke.get('Profile') not in profiles or not smoke.get('FrozenView') or
             smoke.get('ObjectCount') != 2 or not smoke.get('MutableTexturePerSlot')):
         raise ValueError('Reference is only for the frozen two-cube fixture')
@@ -121,6 +124,11 @@ def main():
             raise ValueError(f'Truncated capture: {path}')
         checked = [0,0]
         mismatches = []
+        background_mismatches = 0
+        if args.require_background:
+            for x,y in ((8,8),(width-9,8),(8,height-9),(width-9,height-9),
+                        (8,height//2),(width-9,height//2)):
+                background_mismatches += pixels[(y*width+x)*4:(y*width+x)*4+4] != bytes((40,24,32,255))
         for y in range(11,height,23):
             for x in range(11,width,23):
                 expected = interior_reference((x+.5)*1920/width,(y+.5)*1080/height,scene,
@@ -134,17 +142,21 @@ def main():
                     mismatches.append({'xy':[x,y],'object':obj,'expected':list(color),'actual':list(actual)})
         results.append({'Capture':str(path.resolve()),'Sha256':hashlib.sha256(pixels).hexdigest(),
                         'SamplesPerObject':checked,'MismatchingSamples':len(mismatches),
+                        'BackgroundMismatchingSamples':background_mismatches,
                         'MismatchExamples':mismatches[:12]})
     passed = bool(results) and all(min(r['SamplesPerObject']) >= 50 and
-                                   r['MismatchingSamples'] == 0 for r in results)
+                                   r['MismatchingSamples'] == 0 and
+                                   r['BackgroundMismatchingSamples'] == 0 for r in results)
     report = {'SparseProjectionDepthUvPassed':passed,'Captures':results,
               'AffineUvNegativeControl':args.affine_uv_control,
               'SharedTextureNegativeControl':args.shared_texture_control,
+              'BackgroundSamplesRequired':args.require_background,
               'Scope':'frozen fixture interior samples only; background and raster edges excluded',
               'WholeImageCorrectnessVerified':False}
     args.output.write_text(json.dumps(report,indent=2),encoding='utf-8')
     print(json.dumps({'Passed':passed,'Captures':len(results),
                       'SamplesPerCapture':[r['SamplesPerObject'] for r in results],
+                      'BackgroundMismatchesPerCapture':[r['BackgroundMismatchingSamples'] for r in results],
                       'MismatchesPerCapture':[r['MismatchingSamples'] for r in results]}))
     if not passed:
         raise SystemExit('Independent cube projection/depth/UV reference failed')

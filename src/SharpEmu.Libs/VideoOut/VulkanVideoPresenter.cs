@@ -614,6 +614,10 @@ internal static unsafe class VulkanVideoPresenter
     private static readonly Dictionary<(ulong Address, uint Format), PendingGuestImageUpload>
         _pendingGuestImageUploads = new();
     private static readonly Dictionary<ulong, byte[]> _pendingGuestImageInitialData = new();
+    // Registration makes a buffer a valid flip target, not an initialized GPU image.
+    private static readonly HashSet<ulong> _registrationOnlyDisplayBuffers = new();
+    private static readonly bool _seedRegisteredDisplayBuffers =
+        Environment.GetEnvironmentVariable("SHARPEMU_SEED_REGISTERED_DISPLAY_BUFFERS") == "1";
     private static readonly Dictionary<ulong, (uint Width, uint Height, ulong ByteCount)>
         _guestImageExtents = new();
     private static readonly bool _traceGuestImageEvents =
@@ -1016,6 +1020,7 @@ internal static unsafe class VulkanVideoPresenter
         _pendingGuestImageUploads.Clear();
         _pendingTextureIdentities.Clear();
         _pendingGuestImageInitialData.Clear();
+        _registrationOnlyDisplayBuffers.Clear();
         _guestImageExtents.Clear();
         _pendingGuestColorClears.Reset();
         _tracedGuestImageSubmissions.Clear();
@@ -1617,16 +1622,20 @@ internal static unsafe class VulkanVideoPresenter
         return true;
     }
 
-    private static void PublishGuestImages(IReadOnlyList<GuestRenderTarget> targets)
+    internal static void PublishGuestImages(IReadOnlyList<GuestRenderTarget> targets)
     {
-        foreach (var target in targets)
+        lock (_gate)
         {
-            var guestTextureFormat = GetGuestTextureFormat(
-                target.Format,
-                target.NumberType);
-            if (guestTextureFormat != 0)
+            foreach (var target in targets)
             {
-                _availableGuestImages[target.Address] = guestTextureFormat;
+                var guestTextureFormat = GetGuestTextureFormat(
+                    target.Format,
+                    target.NumberType);
+                if (guestTextureFormat != 0)
+                {
+                    _availableGuestImages[target.Address] = guestTextureFormat;
+                    _registrationOnlyDisplayBuffers.Remove(target.Address);
+                }
             }
         }
     }
@@ -2092,7 +2101,8 @@ internal static unsafe class VulkanVideoPresenter
 
         lock (_gate)
         {
-            return !_availableGuestImages.ContainsKey(address) &&
+            return (!_availableGuestImages.ContainsKey(address) ||
+                    (_seedRegisteredDisplayBuffers && _registrationOnlyDisplayBuffers.Contains(address))) &&
                 !_pendingGuestImageInitialData.ContainsKey(address);
         }
     }
@@ -2102,6 +2112,14 @@ internal static unsafe class VulkanVideoPresenter
         lock (_gate)
         {
             _pendingGuestImageInitialData[address] = rgbaPixels;
+        }
+    }
+
+    internal static bool IsRegistrationOnlyDisplayBuffer(ulong address)
+    {
+        lock (_gate)
+        {
+            return _registrationOnlyDisplayBuffers.Contains(address);
         }
     }
 
@@ -2539,6 +2557,10 @@ internal static unsafe class VulkanVideoPresenter
 
         lock (_gate)
         {
+            if (!_availableGuestImages.ContainsKey(address))
+            {
+                _registrationOnlyDisplayBuffers.Add(address);
+            }
             _availableGuestImages[address] = guestFormat;
         }
     }
@@ -11881,6 +11903,7 @@ internal static unsafe class VulkanVideoPresenter
                     if (guestFormat != 0)
                     {
                         _availableGuestImages[texture.Address] = guestFormat;
+                        _registrationOnlyDisplayBuffers.Remove(texture.Address);
                     }
 
                     if (texture.WriteGeneration >= 0)
@@ -16030,6 +16053,7 @@ internal static unsafe class VulkanVideoPresenter
                         lock (_gate)
                         {
                             _availableGuestImages[targets[index].Address] = guestTextureFormat;
+                            _registrationOnlyDisplayBuffers.Remove(targets[index].Address);
                         }
                     }
                 }
@@ -16382,6 +16406,7 @@ internal static unsafe class VulkanVideoPresenter
                     lock (_gate)
                     {
                         _availableGuestImages[image.Address] = guestTextureFormat;
+                        _registrationOnlyDisplayBuffers.Remove(image.Address);
                     }
                 }
             }
@@ -20577,6 +20602,7 @@ internal static unsafe class VulkanVideoPresenter
                     if (guestImage.GuestFormat != 0)
                     {
                         _availableGuestImages[texture.Address] = guestImage.GuestFormat;
+                        _registrationOnlyDisplayBuffers.Remove(texture.Address);
                     }
 
                     if (traceContents &&

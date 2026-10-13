@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$FreezeView,[switch]$ReverseObjects,[switch]$DisableDepth)
+param([switch]$FreezeView,[switch]$ReverseObjects,[switch]$DisableDepth,[switch]$SkipBackgroundWrites)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -14,6 +14,9 @@ $text=[IO.File]::ReadAllText("$out/main-$parent.c")
 function Replace-Checked([string]$needle,[string]$replacement) {
     if(-not $script:text.Contains($needle)) { throw "Generated source contract changed: $needle" }
     $script:text=$script:text.Replace($needle,$replacement)
+}
+if($SkipBackgroundWrites) {
+    Replace-Checked 'for (unsigned long i = 0; i < n; i++) p[i] = 0xFF201828u;' '(void)p; (void)n; /* negative control: no CPU background stores */'
 }
 Replace-Checked 'extern int sceAgcSuspendPoint(void);' @'
 extern int sceAgcSuspendPoint(void);
@@ -95,6 +98,7 @@ for (int slot = 0; slot < 2; slot++) if (occupied[slot]) {
 $suffix='texture-cube-slots'
 if($DisableDepth) { $suffix+='-disabled' }
 if($ReverseObjects) { $suffix+='-reverse' }
+if($SkipBackgroundWrites) { $suffix+='-no-background' }
 if($FreezeView) { $suffix+='-static' }
 [IO.File]::WriteAllText("$out/main-$suffix.c",$text)
 & 'C:/BuildTools/VC/Tools/Llvm/x64/bin/clang.exe' --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector -I $out -I "$root/artifacts/external-homebrew/ps5link-texture-shaders" -c "$out/main-$suffix.c" -o "$out/main-$suffix.o"
@@ -107,6 +111,7 @@ $report | Add-Member FrameSlotCount 2
 $report | Add-Member MutableTexturePerSlot $true
 $report | Add-Member TerminalGpuFence $true
 $report | Add-Member TextureCpuUpdates (-not $FreezeView)
+$report | Add-Member CpuBackgroundWrites (-not $SkipBackgroundWrites)
 $report.GeneratedSourceSha256=(Get-FileHash "$out/main-$suffix.c").Hash
 $report.ElfSha256=(Get-FileHash "$out/app-$suffix.elf").Hash
 $report | ConvertTo-Json | Set-Content "$out/build-report-$suffix.json" -Encoding utf8

@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Initial CPU background seeding now passes a controlled Vulkan opt-in.**
+  Registration-only display buffers are distinguished from published GPU work;
+  a bounded first-draw snapshot detiles the supported tile27 RGBA8/BGRA8 surface.
+  `-SeedRegisteredDisplayBuffers` enables the experiment only in the smoke process.
+  On the final runtime, five frozen forward and five reversed captures are all
+  byte-identical and pass **247 object samples + six exterior background samples**
+  each, including the first. Same-input/same-runtime seeding-off control fails
+  six first-background points, while its last frame is identical to seeded output.
+  A separate native no-CPU-fill control preserves all 247 object samples but fails
+  every background check, demonstrating real guest data dependence. Animated
+  600-frame output was inspected. All runs retire 600 frames with 598 reuses and
+  max_pending=2. **1262/1262 library tests pass** and Release CLI builds. This fixes
+  this registered uniform-background fixture under the opt-in; default behavior,
+  spatially varying tiled seed accuracy and commercial titles are not established.
+
 - **Two rotating textured cubes now use two owned frame slots with real GPU
   retirement.** All five new profiles finish 600 submissions / 600 retirements /
   598 reuses with measured max_pending=2 and three real texture addresses.

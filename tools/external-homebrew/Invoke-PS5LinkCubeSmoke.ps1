@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureCubeSlots','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -25,6 +25,7 @@ $inputName=switch($Profile) {
     'TextureFrameSlots' {'app-texture-frame-slots.elf'}
     'TextureFrameSlotsReverse' {'app-texture-frame-slots-reverse.elf'}
     'TextureCubeSlots' {'app-texture-cube-slots.elf'}
+    'TextureCubeSlotsNoBackgroundStatic' {'app-texture-cube-slots-no-background-static.elf'}
     'TextureCubeSlotsStatic' {'app-texture-cube-slots-static.elf'}
     'TextureCubeSlotsReverseStatic' {'app-texture-cube-slots-reverse-static.elf'}
     'TextureCubeSlotsDisabledStatic' {'app-texture-cube-slots-disabled-static.elf'}
@@ -54,6 +55,7 @@ New-Item -ItemType Directory -Path $capture -Force | Out-Null
 # it off by default because it can regress other titles; do not set globally.
 $settings=@{
     SHARPEMU_GUEST_IMAGE_CPU_SYNC='1'
+    SHARPEMU_SEED_REGISTERED_DISPLAY_BUFFERS=if($SeedRegisteredDisplayBuffers) { '1' } else { '0' }
     SHARPEMU_TRACE_GUEST_IMAGES='present'
     SHARPEMU_GUEST_IMAGE_DUMP_DIR=$capture
     SHARPEMU_SWAPCHAIN_DUMP_EVERY='150'
@@ -103,16 +105,20 @@ try {
     if($frames.Count -lt 1 -or (-not $staticView -and $hashes.Count -lt 2)) { throw 'Expected presented frame captures (and varying captures for animated inputs)' }
     @{
         Profile=$Profile; FrozenView=$staticView; Input=$elf; InputSha256=$inputHash
+        ExecutableSha256=(Get-FileHash -LiteralPath $exe).Hash
+        RuntimeLibrarySha256=(Get-FileHash -LiteralPath (Join-Path (Split-Path $exe) 'SharpEmu.Libs.dll')).Hash
         SourceModified=$buildReport.SourceModified; DepthClearMethod=$buildReport.DepthClearMethod
         ReversedFaceOrder=$buildReport.ReversedFaceOrder
         ReversedObjectOrder=$buildReport.ReversedObjectOrder; ObjectCount=$buildReport.ObjectCount
         TextureCpuUpdates=$buildReport.TextureCpuUpdates
+        CpuBackgroundWrites=$buildReport.CpuBackgroundWrites
         DistinctObjectTextures=$buildReport.DistinctObjectTextures
         BoundTextureAddresses=$textureAddresses
         TerminalGpuFence=$buildReport.TerminalGpuFence; FrameOwnership=$buildReport.FrameOwnership
         FrameSlotAccounting=$frameSlotAccounting; MutableTexturePerSlot=$buildReport.MutableTexturePerSlot
         StrictShaderDescriptors=$Profile.StartsWith('Texture')
         InputHasInitAbiCorrection=$true; StartupModified=$false
+        RegisteredDisplayBufferSeeding=[bool]$SeedRegisteredDisplayBuffers
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode
         SourceLoopCompleted=$true; PresentedCaptureCount=$frames.Count
         DistinctCaptureCount=$hashes.Count

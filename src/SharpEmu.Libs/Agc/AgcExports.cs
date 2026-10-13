@@ -11348,6 +11348,17 @@ public static partial class AgcExports
             return;
         }
 
+        var registeredOnly = VulkanVideoPresenter.IsRegistrationOnlyDisplayBuffer(target.Address);
+        // The opt-in registration seed currently supports only the measured
+        // single-layer RGBA8/BGRA8 display layout. Do not reinterpret other RTs.
+        if (registeredOnly &&
+            (target.Format != 10 || target.NumberType != 0 ||
+             target.TileMode is not (0 or 27) || target.MipLevel != 0 ||
+             target.BaseArrayLayer != 0 || target.LayerCount != 1 || target.CompSwap > 1))
+        {
+            return;
+        }
+
         var byteCount = VulkanVideoPresenter.GetGuestImageByteCount(
             target.Format,
             target.Width,
@@ -11358,7 +11369,24 @@ public static partial class AgcExports
         }
 
         var initialData = new byte[byteCount];
-        var readOk = ctx.Memory.TryRead(target.Address, initialData);
+        bool readOk;
+        if (registeredOnly && target.TileMode == 27)
+        {
+            if (!GnmTiling.TryGetTiledByteCount(27, checked((int)target.Width),
+                    checked((int)target.Height), 4, out var tiledByteCount) ||
+                tiledByteCount > MaxPresentedTextureBytes)
+            {
+                return;
+            }
+            var tiled = new byte[tiledByteCount];
+            readOk = ctx.Memory.TryRead(target.Address, tiled) &&
+                GnmTiling.TryDetile(tiled, initialData, 27,
+                    checked((int)target.Width), checked((int)target.Height), 4);
+        }
+        else
+        {
+            readOk = ctx.Memory.TryRead(target.Address, initialData);
+        }
         var nonZero = readOk && initialData.AsSpan().IndexOfAnyExcept((byte)0) >= 0;
         if (_traceDraws && _rtSeedTraced.Add(target.Address))
         {
