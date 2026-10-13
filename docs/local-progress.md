@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Shared-page producers now evolve separate left/right palettes.**
+  Left changes every 150 frames and right every 100. Both 600-frame native
+  runs pass all scheduling/retirement checks, 64 immutable cell samples and
+  32 samples per producer region in each of seven captures. Palette pairs
+  are [1,1], [1,1], [2,2], [2,0], [0,1], [1,2], [1,0]; every forward/reverse
+  whole-frame pair is byte-identical. The missing-right control completes
+  jobs and frames but fails image validation: right stays phase 1 while
+  left follows its own schedule. Source/ELF/linker/runtime hashes are retained
+  in `guest-producer-independent-columns-comparison.json`. GPU readers remain
+  drained during fills. No runtime change or new full-suite result is claimed.
+  Next: resume the Gears toolchain blocker from `docs/gears-build-preflight.md`,
+  rather than adding another same-scene variant without a concrete defect.
+
 - **Guest producer builds now zero alignment gaps instead of leaking heap bytes.**
   Rebuilding unchanged source exposed three varying ELF padding bytes in the
   SDK linker. A local GPL-3.0 overlay fills code/rodata/data gaps with zeros;

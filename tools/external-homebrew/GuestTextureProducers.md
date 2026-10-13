@@ -130,3 +130,18 @@ hash and `DeterministicAlignmentPadding=true`.
 The shared-column checkpoint includes two identical fresh source/ELF builds and
 three subsequent GPU runs with retained source, ELF and linker metadata. This
 is scoped rebuild evidence for that fixture, not universal SDK reproducibility.
+
+
+## Independent producer regions
+
+Add `-IndependentProducerPalettes` to `-BatchProducerRequests -SharedTextureColumns`.
+Left palette changes every 150 frames, right every 100. Global freezing is
+rejected for this variant. Profiles are `TextureGuestProducersIndependentColumns`,
+`TextureGuestProducersIndependentColumnsReverse` (add `-ReverseObjects`) and
+`TextureGuestProducersIndependentColumnsMissing` (add `-SkipSecondHalfWrites`).
+Use `-CaptureEvery 100` and run `Check-PS5LinkProducerRegions.py <capture-folder>`.
+It requires all seven capture indices and separately checks immutable/left/right
+cells against independently specified palettes and frame timing. Positive and
+reverse must pass and have identical full frames; missing-right must fail while
+execution still completes. In that control, right stays phase 1 and left keeps
+changing, which isolates an incorrectly stale producer region.

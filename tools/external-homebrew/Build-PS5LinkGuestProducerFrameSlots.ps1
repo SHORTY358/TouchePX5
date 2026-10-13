@@ -1,12 +1,13 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$ReverseObjects,[switch]$FreezeProducerPalette,[switch]$BatchProducerRequests,[switch]$SharedTextureHalves,[switch]$SkipSecondHalfWrites,[switch]$SharedTextureColumns)
+param([switch]$ReverseObjects,[switch]$FreezeProducerPalette,[switch]$BatchProducerRequests,[switch]$SharedTextureHalves,[switch]$SkipSecondHalfWrites,[switch]$SharedTextureColumns,[switch]$IndependentProducerPalettes)
 $ErrorActionPreference='Stop'
 $sharedTexture=$SharedTextureHalves -or $SharedTextureColumns
 if($SharedTextureHalves -and $SharedTextureColumns) { throw 'Choose rows or columns for shared ownership' }
 if($sharedTexture -and -not $BatchProducerRequests) { throw 'Shared texture requires paired requests and retirement of both GPU consumers' }
 if($SkipSecondHalfWrites -and (-not $sharedTexture -or $FreezeProducerPalette)) { throw 'Missing-half control requires shared texture without a frozen palette' }
+if($IndependentProducerPalettes -and (-not $SharedTextureColumns -or $FreezeProducerPalette)) { throw 'Independent palettes require shared columns without globally frozen producers' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 $parent='texture-frame-slots'
@@ -193,6 +194,10 @@ if($sharedTexture) {
     }
     $suffix+=if($SharedTextureColumns) { '-shared-columns' } else { '-shared-halves' }
 }
+if($IndependentProducerPalettes) {
+    Replace-Checked '__atomic_store_n(&producers[owner].phase,batch_phase,__ATOMIC_RELEASE);' '__atomic_store_n(&producers[owner].phase,(1u+(unsigned int)(frame/(owner ? 100 : 150)))%3,__ATOMIC_RELEASE);'
+    $suffix+='-independent'
+}
 if($ReverseObjects) { $suffix+='-reverse' }
 if($FreezeProducerPalette) {
     Replace-Checked 'unsigned int phase=__atomic_load_n(&job->phase,__ATOMIC_ACQUIRE);' 'unsigned int phase=1; /* negative control: ignore requested palette changes */'
@@ -215,6 +220,7 @@ $report | Add-Member BatchProducerRequests ([bool]$BatchProducerRequests)
 $report | Add-Member OutstandingProducerJobs $(if($BatchProducerRequests) { 2 } else { 1 })
 $report | Add-Member SharedTextureHalves ([bool]$SharedTextureHalves)
 $report | Add-Member SharedTextureColumns ([bool]$SharedTextureColumns)
+$report | Add-Member IndependentProducerPalettes ([bool]$IndependentProducerPalettes)
 $report | Add-Member SkipSecondHalfWrites ([bool]$SkipSecondHalfWrites)
 if($BatchProducerRequests) { $report.ProducerHandoff='two requests before wait; both-started and half-fill barriers; main waits both CPU completions; both GPU slots retired before refill' }
 if($sharedTexture) {

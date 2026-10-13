@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureGuestProducersBatch','TextureGuestProducersBatchReverse','TextureGuestProducersBatchFrozenStatic','TextureGuestProducersSharedHalves','TextureGuestProducersSharedHalvesReverse','TextureGuestProducersSharedHalvesMissing','TextureGuestProducersSharedColumns','TextureGuestProducersSharedColumnsReverse','TextureGuestProducersSharedColumnsMissing','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureGuestProducersBatch','TextureGuestProducersBatchReverse','TextureGuestProducersBatchFrozenStatic','TextureGuestProducersSharedHalves','TextureGuestProducersSharedHalvesReverse','TextureGuestProducersSharedHalvesMissing','TextureGuestProducersSharedColumns','TextureGuestProducersSharedColumnsReverse','TextureGuestProducersSharedColumnsMissing','TextureGuestProducersIndependentColumns','TextureGuestProducersIndependentColumnsReverse','TextureGuestProducersIndependentColumnsMissing','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
 $ErrorActionPreference='Stop'
 if($UseWriteWatch -and $DisableNativeCpuTracking) { throw 'Choose write-watch or disabled tracking' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -37,6 +37,9 @@ $inputName=switch($Profile) {
     'TextureGuestProducersSharedColumns' {'app-texture-guest-producers-batch-shared-columns.elf'}
     'TextureGuestProducersSharedColumnsReverse' {'app-texture-guest-producers-batch-shared-columns-reverse.elf'}
     'TextureGuestProducersSharedColumnsMissing' {'app-texture-guest-producers-batch-shared-columns-missing-half.elf'}
+    'TextureGuestProducersIndependentColumns' {'app-texture-guest-producers-batch-shared-columns-independent.elf'}
+    'TextureGuestProducersIndependentColumnsReverse' {'app-texture-guest-producers-batch-shared-columns-independent-reverse.elf'}
+    'TextureGuestProducersIndependentColumnsMissing' {'app-texture-guest-producers-batch-shared-columns-independent-missing-half.elf'}
     'TextureCubeSlots' {'app-texture-cube-slots.elf'}
     'TextureCubeSlotsPattern' {'app-texture-cube-slots-pattern.elf'}
     'TextureCubeSlotsPatternRedZone' {'app-texture-cube-slots-pattern-red-zone.elf'}
@@ -143,6 +146,7 @@ try {
         OutstandingProducerJobs=$buildReport.OutstandingProducerJobs
         SharedTextureHalves=$buildReport.SharedTextureHalves
         SharedTextureColumns=$buildReport.SharedTextureColumns
+        IndependentProducerPalettes=$buildReport.IndependentProducerPalettes
         SkipSecondHalfWrites=$buildReport.SkipSecondHalfWrites
         JobsPerProducer=$buildReport.JobsPerProducer
         ProducerHandoff=$buildReport.ProducerHandoff

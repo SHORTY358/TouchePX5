@@ -1253,3 +1253,36 @@ and all seven historical row-half whole-frame pairs remain byte-identical.
 Each run retains source, ELF, fixture metadata, linker metadata and patched linker
 source. This confirms these fixture rebuilds and image behavior; it does not
 claim every SDK build is reproducible or broaden emulator compatibility.
+
+
+### 2026-10-13: independent palette schedules in shared-page regions
+
+`-BatchProducerRequests -SharedTextureColumns -IndependentProducerPalettes`
+keeps the same disjoint row spans, barriers and consumer retirement, but main
+assigns palette changes every 150 frames to the left producer and every 100 to
+the right. Both start in phase 1. `Check-PS5LinkProducerRegions.py` specifies the
+expected RGB cell palettes independently of guest memory, requires all seven
+capture indices at interval 100, and checks 64 immutable plus 32 left/32 right
+cell centers against the source-frame schedule. It also identifies the complete
+palette pair among all nine alternatives, so a mixed or stale region cannot be
+accepted by merely observing a change somewhere in the image.
+
+Final positive outputs are
+`smoke-TextureGuestProducersIndependentColumns-20261013-181218` and
+`smoke-TextureGuestProducersIndependentColumnsReverse-20261013-181306`;
+negative is `smoke-TextureGuestProducersIndependentColumnsMissing-20261013-181407`.
+Each completes 600 submitted/retired frames, 598 reuses, max_pending=2, 300
+jobs/half checks per worker and both full-width joins. All positive cell checks
+pass for pairs [1,1], [1,1], [2,2], [2,0], [0,1], [1,2], [1,0]. All seven
+whole-frame forward/reverse pairs are identical. The missing-right control is
+correctly rejected: its right half stays phase 1 while its left half follows
+the expected schedule; immutable cells stay 64/64 and left stays 32/32.
+
+`guest-producer-independent-columns-comparison.json` records verified runtime
+hashes and comparisons. Each capture folder retains its source, ELF, fixture
+metadata and deterministic-linker provenance. These are fixture/tool changes;
+no runtime fix or fresh full library suite is claimed. The scope still requires
+both GPU consumers drained throughout writes and excludes overlapping-byte
+stores, active-writer dirty polling and concurrent AGC submissions. The next
+larger scene remains Gears, with compiler/foundation preflight documented in
+`docs/gears-build-preflight.md`.
