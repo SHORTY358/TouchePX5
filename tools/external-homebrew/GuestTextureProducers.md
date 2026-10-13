@@ -41,8 +41,28 @@ the second palette stays 1 in every capture. Successful execution alone is
 therefore not accepted as visible update correctness.
 
 Scope: two slot owners, semaphore handoff, native resumed-thread execution and
-CPU-authored sampled-texture updates in this scene. One CPU job is outstanding
-at a time; all GPU submission occurs on main. This does not demonstrate two
+CPU-authored sampled-texture updates in this scene. The default has one CPU job
+outstanding at a time; all GPU submission occurs on main. This does not demonstrate two
 simultaneous CPU writers, concurrent guest GPU submission, general image
 ownership or commercial PS5 compatibility. Write-watch is the selected runtime
 mode, not a proven prerequisite for sampled-texture updates in this fixture.
+
+## Paired producer jobs
+
+Build with `-BatchProducerRequests` and smoke profiles `TextureGuestProducersBatch`
+and `TextureGuestProducersBatchReverse` (the latter also needs `-ReverseObjects`).
+Main drains both GPU slots before issuing both requests. Workers advertise ready
+generations; main releases the start gate only when both have started. Halfway
+through filling, each worker waits for the peer's matching half-filled generation.
+Only after both completion signals may main submit the two frames. This repeats
+300 batches, verified by 300 ready/half checks per worker and both full-width joins.
+The capture checks and forward/reverse whole-frame comparison remain unchanged.
+Final captures also match the prior sequential producer fixture byte-for-byte.
+
+`-BatchProducerRequests -FreezeProducerPalette` and profile
+`TextureGuestProducersBatchFrozenStatic` repeat all batch/half-fill assertions but
+must fail the independent update checker with seven constant palette-1 captures.
+The paired variant validates two outstanding jobs and interleaved half-fill
+progress on disjoint texture allocations. The barriers do not measure simultaneous
+CPU instructions or throughput, and draining both GPU slots limits overlap with
+rendering. Concurrent guest GPU submission remains unvalidated.

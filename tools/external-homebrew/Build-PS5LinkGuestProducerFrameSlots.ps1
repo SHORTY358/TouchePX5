@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$ReverseObjects,[switch]$FreezeProducerPalette)
+param([switch]$ReverseObjects,[switch]$FreezeProducerPalette,[switch]$BatchProducerRequests)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -88,6 +88,85 @@ for (unsigned int slot=0; slot<2; slot++) {
     notify("mesh_test: fin");
 '@
 $suffix='texture-guest-producers'
+if($BatchProducerRequests) {
+    Replace-Checked 'static TextureProducer producers[2];' @'
+static TextureProducer producers[2];
+static unsigned int batch_ready[2], batch_start, half_ready[2], half_checks[2];
+static int wait_generation(unsigned int *value,unsigned int generation) {
+    unsigned long long begin=sceKernelGetProcessTime();
+    while (__atomic_load_n(value,__ATOMIC_ACQUIRE)<generation) {
+        if (sceKernelGetProcessTime()-begin>5000000ULL) return 0;
+        sceKernelUsleep(100);
+    }
+    return 1;
+}
+'@
+    Replace-Checked 'unsigned int phase=__atomic_load_n(&job->phase,__ATOMIC_ACQUIRE);' @'
+unsigned int phase=__atomic_load_n(&job->phase,__ATOMIC_ACQUIRE);
+        __atomic_store_n(&batch_ready[job->slot],frame+1,__ATOMIC_RELEASE);
+        if (!wait_generation(&batch_start,frame+1)) return (void*)0xBAD3;
+'@
+    Replace-Checked 'for (unsigned int i=0; i<64*64*4; i+=4) {' @'
+for (unsigned int i=0; i<64*64*4; i+=4) {
+            if (i==64*64*2) {
+                __atomic_store_n(&half_ready[job->slot],frame+1,__ATOMIC_RELEASE);
+                if (!wait_generation(&half_ready[job->slot^1],frame+1)) return (void*)0xBAD4;
+                __atomic_fetch_add(&half_checks[job->slot],1,__ATOMIC_RELEASE);
+            }
+'@
+    Replace-Checked 'for (int frame = 0; frame < FRAMES; frame++) {' @'
+for (int frame = 0; frame < FRAMES; frame++) {
+        if ((frame&1)==0) {
+            unsigned int generation=(unsigned int)(frame/2+1);
+            unsigned int batch_phase=(1u+(unsigned int)(frame/150))%3;
+            /* Neither producer may overwrite a texture still sampled by GPU. */
+            for (unsigned int owner=0; owner<2; owner++) {
+                if (occupied[owner]) {
+                    if (!retire_frame_slot(fences[owner])) {
+                        notify("mesh_test: batch GPU retirement timed out"); return 13;
+                    }
+                    occupied[owner]=0; retired++; reuses++;
+                }
+                __atomic_store_n(&producers[owner].phase,batch_phase,__ATOMIC_RELEASE);
+                if (sceKernelSignalSema(producers[owner].request,1)!=0) {
+                    notify("mesh_test: batch request failed"); return 14;
+                }
+            }
+            /* Both jobs must have started before either is allowed to fill. */
+            if (!wait_generation(&batch_ready[0],generation) ||
+                !wait_generation(&batch_ready[1],generation)) {
+                notify("mesh_test: batch ready timed out"); return 15;
+            }
+            __atomic_store_n(&batch_start,generation,__ATOMIC_RELEASE);
+            for (unsigned int owner=0; owner<2; owner++) {
+                unsigned int timeout=5000000;
+                if (sceKernelWaitSema(producers[owner].complete,1,&timeout)!=0 ||
+                    __atomic_load_n(&producers[owner].jobs,__ATOMIC_ACQUIRE)!=generation) {
+                    notify("mesh_test: batch completion failed"); return 16;
+                }
+            }
+        }
+'@
+    Replace-Checked @'
+        TextureProducer *job=&producers[slot];
+        __atomic_store_n(&job->phase,phase,__ATOMIC_RELEASE);
+        unsigned int producer_timeout=5000000;
+        if (sceKernelSignalSema(job->request,1)!=0 ||
+            sceKernelWaitSema(job->complete,1,&producer_timeout)!=0 ||
+            __atomic_load_n(&job->jobs,__ATOMIC_ACQUIRE)!=(unsigned int)(frame/2+1)) {
+            notify("mesh_test: producer handoff failed"); return 11;
+        }
+'@ '        /* Both slot textures were completed at the start of this frame pair. */'
+    Replace-Checked 'notify("guest_texture_producers: PASS workers=2 jobs=300,300 returns=12345678CAFE0001,12345678CAFE0002");' @'
+if (batch_ready[0]!=300 || batch_ready[1]!=300 || batch_start!=300 ||
+        half_ready[0]!=300 || half_ready[1]!=300 || half_checks[0]!=300 || half_checks[1]!=300) {
+        notify("mesh_test: batch producer accounting failed"); return 17;
+    }
+    notify("guest_texture_batch: PASS batches=300 outstanding=2 half_checks=300,300");
+    notify("guest_texture_producers: PASS workers=2 jobs=300,300 returns=12345678CAFE0001,12345678CAFE0002");
+'@
+    $suffix+='-batch'
+}
 if($ReverseObjects) { $suffix+='-reverse' }
 if($FreezeProducerPalette) {
     Replace-Checked 'unsigned int phase=__atomic_load_n(&job->phase,__ATOMIC_ACQUIRE);' 'unsigned int phase=1; /* negative control: ignore requested palette changes */'
@@ -103,6 +182,9 @@ $report | Add-Member JobsPerProducer 300
 $report | Add-Member ProducerHandoff 'per-slot request/complete semaphores; main waits CPU completion before submit; GPU retirement before slot reuse'
 $report | Add-Member ProducerNoRedZone $true
 $report | Add-Member FrozenProducerPalette ([bool]$FreezeProducerPalette)
+$report | Add-Member BatchProducerRequests ([bool]$BatchProducerRequests)
+$report | Add-Member OutstandingProducerJobs $(if($BatchProducerRequests) { 2 } else { 1 })
+if($BatchProducerRequests) { $report.ProducerHandoff='two requests before wait; both-started and half-fill barriers; main waits both CPU completions; both GPU slots retired before refill' }
 $report | Add-Member ParentSourceSha256 ((Get-FileHash $parentSource).Hash)
 $report | Add-Member StartupObjectSha256 ((Get-FileHash "$out/crt1.o").Hash)
 $report | Add-Member LinkerSha256 ((Get-FileHash "$out/link_real.exe").Hash)

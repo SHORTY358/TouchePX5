@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureFrameSlots','TextureFrameSlotsReverse','TextureGuestProducers','TextureGuestProducersReverse','TextureGuestProducersFrozenStatic','TextureGuestProducersBatch','TextureGuestProducersBatchReverse','TextureGuestProducersBatchFrozenStatic','TextureCubeSlots','TextureCubeSlotsPattern','TextureCubeSlotsPatternRedZone','TextureCubeSlotsPatternRedZoneGuarded','TextureCubeSlotsPatternStatic','TextureCubeSlotsReversePatternStatic','TextureCubeSlotsNoBackgroundStatic','TextureCubeSlotsStatic','TextureCubeSlotsReverseStatic','TextureCubeSlotsDisabledStatic','TextureCubeSlotsDisabledReverseStatic','TextureBindingsUpdatesFenced','TextureBindingsReverseUpdatesFenced','TextureBindingsUpdates','TextureBindingsReverseUpdates','TextureBindingsStatic','TextureBindingsReverseStatic','TextureBindingsSharedStatic','TexturePairOverlap','TexturePairOverlapStatic','TexturePairOverlapReverseStatic','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base',[switch]$SeedRegisteredDisplayBuffers,[switch]$DisableNativeCpuTracking,[switch]$UseWriteWatch,[ValidateRange(1,600)][int]$CaptureEvery=150)
 $ErrorActionPreference='Stop'
 if($UseWriteWatch -and $DisableNativeCpuTracking) { throw 'Choose write-watch or disabled tracking' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -28,6 +28,9 @@ $inputName=switch($Profile) {
     'TextureGuestProducers' {'app-texture-guest-producers.elf'}
     'TextureGuestProducersReverse' {'app-texture-guest-producers-reverse.elf'}
     'TextureGuestProducersFrozenStatic' {'app-texture-guest-producers-frozen-static.elf'}
+    'TextureGuestProducersBatch' {'app-texture-guest-producers-batch.elf'}
+    'TextureGuestProducersBatchReverse' {'app-texture-guest-producers-batch-reverse.elf'}
+    'TextureGuestProducersBatchFrozenStatic' {'app-texture-guest-producers-batch-frozen-static.elf'}
     'TextureCubeSlots' {'app-texture-cube-slots.elf'}
     'TextureCubeSlotsPattern' {'app-texture-cube-slots-pattern.elf'}
     'TextureCubeSlotsPatternRedZone' {'app-texture-cube-slots-pattern-red-zone.elf'}
@@ -115,6 +118,9 @@ try {
     if($buildReport.GuestTextureProducers -eq 2 -and -not $log.Contains('guest_texture_producers: PASS workers=2 jobs=300,300 returns=12345678CAFE0001,12345678CAFE0002')) {
         throw "Guest producer completion assertions missing: $capture"
     }
+    if($buildReport.BatchProducerRequests -and -not $log.Contains('guest_texture_batch: PASS batches=300 outstanding=2 half_checks=300,300')) {
+        throw "Guest batch producer barrier assertions missing: $capture"
+    }
     if($frames.Count -lt 1 -or (-not $staticView -and $hashes.Count -lt 2)) { throw 'Expected presented frame captures (and varying captures for animated inputs)' }
     @{
         Profile=$Profile; FrozenView=$staticView; Input=$elf; InputSha256=$inputHash
@@ -126,6 +132,8 @@ try {
         TextureCpuUpdates=$buildReport.TextureCpuUpdates
         GuestTextureProducers=$buildReport.GuestTextureProducers
         FrozenProducerPalette=$buildReport.FrozenProducerPalette
+        BatchProducerRequests=$buildReport.BatchProducerRequests
+        OutstandingProducerJobs=$buildReport.OutstandingProducerJobs
         JobsPerProducer=$buildReport.JobsPerProducer
         ProducerHandoff=$buildReport.ProducerHandoff
         CpuBackgroundWrites=$buildReport.CpuBackgroundWrites

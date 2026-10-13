@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Two outstanding guest producer jobs now have a bounded GPU checkpoint.**
+  Main issues both slot requests before waiting. Both workers must start before
+  either fills, and each must observe the peer's half-fill before completing.
+  All 300 batch generations, 300 half checks per worker, full-width joins and
+  600 retired frames pass. Seven captures per positive order pass all 64-cell
+  samples per object; seven forward/reverse and seven previous sequential
+  whole-frame pairs have zero pixel differences. The same-runtime frozen-palette
+  control passes all job/barrier accounting but correctly fails update checking.
+  This establishes the paired disjoint-allocation handoff, not throughput or
+  simultaneous GPU submission. Both GPU slots are drained before each batch.
+  Next: two workers writing disjoint halves of one shared texture, with both
+  GPU consumers retired before any refill.
+
 - **Guest-created workers now feed a real sampled-texture GPU scene.**
   Two native workers each fill their own mutable texture slot 300 times through
   request/completion semaphores. Main waits for CPU completion before drawing,

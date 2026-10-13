@@ -1133,3 +1133,31 @@ simultaneous guest writes, concurrent AGC submission, universal image ownership
 or commercial PS5 games. Write-watch is selected but its necessity for this
 sampled-texture path is not established. Next: two outstanding producer jobs
 with disjoint slot ownership before attempting shared-resource mutation.
+
+### 2026-10-13: paired guest texture jobs and bounded half-fill progress
+
+`-BatchProducerRequests` drains both prior GPU slots, sends both producer requests,
+waits for both ready generations, and releases an atomic start gate. Each worker
+fills half its own texture, then waits for the peer's half-filled generation before
+continuing. Main consumes both completion signals before submitting that frame
+pair. Generation counters and 300 half checks per worker are asserted after joins.
+These barriers demonstrate two outstanding jobs and interleaved progress, without
+claiming simultaneous CPU instruction execution or a performance improvement.
+
+Final captures: `smoke-TextureGuestProducersBatch-20261013-172002`, reverse
+`smoke-TextureGuestProducersBatchReverse-20261013-172028`, frozen control
+`smoke-TextureGuestProducersBatchFrozenStatic-20261013-172112`. All complete 600
+submissions/retirements, 598 slot reuses, max_pending=2 and 300 jobs per producer,
+with both native full-width returns preserved. Both positive orders have seven
+complete captures, 64/64 cell matches per object and phases [1,1,2,2,0,1,1]. All
+seven matched reverse pairs and all seven matched prior sequential-baseline pairs
+are byte-identical. The frozen control passes job/half-barrier/frame checks, keeps
+every palette at 1 and is correctly rejected (checker exit 1).
+
+`guest-producer-batch-comparison.json` verifies matched executable/Core/HLE/Libs
+hashes across the three variants and earlier sequential baseline. Input ELF,
+generated source and build report snapshots were retained after hash checks.
+No runtime code changed and no fresh library suite is claimed. This extends the
+fixture's disjoint-allocation handoff only; every GPU submission is on main and
+both GPU consumers are drained before each CPU batch. Next: disjoint native
+producer regions within one shared texture, preserving that consumer retirement.
