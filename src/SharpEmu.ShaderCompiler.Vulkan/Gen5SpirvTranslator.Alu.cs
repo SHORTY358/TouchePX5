@@ -343,6 +343,21 @@ public static partial class Gen5SpirvTranslator
                 case "VMulF32":
                     result = EmitFloatBinary(instruction, SpirvOp.FMul);
                     break;
+                case "VMulLegacyF32":
+                {
+                    // DX9 multiplication returns positive zero if either
+                    // operand is +/-zero, even when the other is NaN/Inf.
+                    var left = GetFloatSource(instruction, 0);
+                    var right = GetFloatSource(instruction, 1);
+                    var zero = Float(0);
+                    var leftZero = _module.AddInstruction(SpirvOp.FOrdEqual, _boolType, left, zero);
+                    var rightZero = _module.AddInstruction(SpirvOp.FOrdEqual, _boolType, right, zero);
+                    var eitherZero = _module.AddInstruction(SpirvOp.LogicalOr, _boolType, leftZero, rightZero);
+                    var product = _module.AddInstruction(SpirvOp.FMul, _floatType, left, right);
+                    result = EmitFloatResult(instruction,
+                        _module.AddInstruction(SpirvOp.Select, _floatType, eitherZero, zero, product));
+                    break;
+                }
                 case "VMinF32":
                     result = EmitFloatExtBinary(instruction, 37);
                     break;

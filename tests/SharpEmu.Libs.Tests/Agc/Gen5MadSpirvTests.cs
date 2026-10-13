@@ -20,6 +20,31 @@ public sealed class Gen5MadSpirvTests
     private const uint NoContraction = 42;
 
     [Theory]
+    [InlineData(0x0E060300u, 0u)] // V_MUL_LEGACY_F32 v3, v0, v1
+    [InlineData(0xD5070003u, 0x00020300u)] // same, VOP3 e64
+    public void LegacyMultiplySelectsPositiveZeroWhenEitherOperandIsZero(uint firstWord, uint secondWord)
+    {
+        var spirv = Compile(secondWord == 0 ? [firstWord] : [firstWord, secondWord]);
+        var instructions = EnumerateInstructions(spirv).ToArray();
+        var product = Assert.Single(instructions, i => i.Op == OpFMul);
+        var comparisons = instructions.Where(i => i.Op == 180).ToArray(); // OpFOrdEqual
+        Assert.Equal(2, comparisons.Length);
+        var eitherZero = Assert.Single(instructions, i => i.Op == 166); // OpLogicalOr
+        var comparisonIds = comparisons.Select(i => ReadWord(spirv, i.Offset + 8)).ToHashSet();
+        Assert.Equal(comparisonIds, new HashSet<uint>
+        {
+            ReadWord(spirv, eitherZero.Offset + 12), ReadWord(spirv, eitherZero.Offset + 16)
+        });
+        var selection = Assert.Single(instructions, i => i.Op == 169 &&
+            ReadWord(spirv, i.Offset + 12) == ReadWord(spirv, eitherZero.Offset + 8));
+        var zeroId = ReadWord(spirv, selection.Offset + 16);
+        Assert.All(comparisons, i => Assert.Equal(zeroId, ReadWord(spirv, i.Offset + 16)));
+        var constant = Assert.Single(instructions, i => i.Op == 43 && ReadWord(spirv, i.Offset + 8) == zeroId);
+        Assert.Equal(0u, ReadWord(spirv, constant.Offset + 12)); // +0, not -0
+        Assert.Equal(ReadWord(spirv, product.Offset + 8), ReadWord(spirv, selection.Offset + 20));
+    }
+
+    [Theory]
     [InlineData(0x3E080416u, 0u)] // V_MAC_F32 v4, s22, v2
     [InlineData(0xD5410003u, 0x041C3D02u)] // V_MAD_F32 v3, v2, s30, v7
     public void NonFusedMadInstructions_PreserveIntermediateRounding(

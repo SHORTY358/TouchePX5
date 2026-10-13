@@ -6,6 +6,43 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Actual Gears pixel shader now translates; swapchain output is still black.**
+  The unsupported GFX10 VOP2 0x07 is `V_MUL_LEGACY_F32`, confirmed against the
+  pinned LLVM `VOP2Instructions.td` (gfx10 opcode 0x007, e64 0x107) and LLVM
+  intrinsic semantics: either +/-zero operand produces +zero even with NaN/Inf.
+  Added distinct decoder opcode and Vulkan lowering using two ordered zero
+  comparisons, logical OR, multiplication and positive-zero selection; added
+  matching Metal expression (not executed on this Windows machine). Two encoding
+  tests inspect the actual generated SPIR-V operand graph and positive-zero
+  constant, rather than accepting ordinary multiply as equivalent.
+  Full library Release suite **1286/1286** passes; Windows CLI rebuild has zero
+  warnings/errors. Previously existing catalog warning remains on clean library
+  compilation; new test analyzer warnings were corrected.
+
+  Same diagnostic native SELF/runtime launch `20261013-125618-053` reaches actual
+  Vulkan offscreen draws, then parks with a frame-loop/ownership failure.
+  A separate diagnostic readback run `20261013-125704-323` reaches 36 submitted
+  flips without parking before its owned 20-second timeout. Timing differences
+  mean retirement is not proven stable. Captures are under
+  `gears-shader-aperture-windows/captures/20261013-125704-163`: 33 actual
+  1920x1061 BGRA swapchain frames; all have zero nonblack RGB pixels and the same
+  SHA256 `EEF1263E95A64BB1AE651AD6AC3B4180751727885F93E5A3A5A361B709A7EC80`.
+  `frame-0033.png` was independently inspected and is black.
+  `capture-report.json` retains scoped/restored environment settings and run;
+  `pixel-report.json` retains every frame hash/count. **No visible Gears geometry
+  or correct Gears frame is verified.** Real Vulkan work is not visual success.
+
+  Next graphics gate: typed buffer fetch interpretation. Actual shader GS uses
+  `TBufferLoadFormatXyzw`/`Xy` at pc 0x78/0x80, but generated vertex bindings
+  report one component (`fmt4/num4`). Current MTBUF decoder drops instruction
+  format bits from `Gen5BufferMemoryControl`, while vertex evaluator uses only
+  descriptor format (0x11014FAC -> unified format 20). Verify the instruction's
+  format encoding against pinned LLVM/PAL before extending control/evaluation;
+  preserve descriptor dst_sel and ordinary MUBUF behavior, test both encodings,
+  then repeat real pixel capture. Also isolate retirement callback failure
+  without bypassing ownership/fences or replacing `pause` with fake success.
+  Semantic reference: https://llvm.org/doxygen/AMDGPUInstCombineIntrinsic_8cpp_source.html
+
 - **Gears advances from the shader aperture gate to real command submission.**
   Separate `-ShaderAperture` native variant requests fixed direct-memory mapping
   at 0x200000000 (guest flag 0x10), and rejects a different returned address.

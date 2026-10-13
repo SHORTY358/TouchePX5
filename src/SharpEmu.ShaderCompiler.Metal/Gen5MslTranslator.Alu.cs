@@ -147,6 +147,8 @@ public static partial class Gen5MslTranslator
                 "VSubF32" => FloatResult(instruction, $"{F(instruction, 0)} - {F(instruction, 1)}"),
                 "VSubrevF32" => FloatResult(instruction, $"{F(instruction, 1)} - {F(instruction, 0)}"),
                 "VMulF32" => FloatResult(instruction, $"{F(instruction, 0)} * {F(instruction, 1)}"),
+                "VMulLegacyF32" => FloatResult(instruction,
+                    $"(({F(instruction, 0)} == 0.0f || {F(instruction, 1)} == 0.0f) ? 0.0f : ({F(instruction, 0)} * {F(instruction, 1)}))"),
                 "VMinF32" => FloatResult(instruction, $"fmin({F(instruction, 0)}, {F(instruction, 1)})"),
                 "VMaxF32" => FloatResult(instruction, $"fmax({F(instruction, 0)}, {F(instruction, 1)})"),
                 // The decoder normalizes mk/ak literal placement, so every MAD/FMA

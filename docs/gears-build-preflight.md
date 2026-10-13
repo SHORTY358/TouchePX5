@@ -10,6 +10,14 @@ the failed intermediate steps as provenance, not current blockers.
 
 ## Latest completed build
 
+GFX10 legacy multiplication decode/lowering now permits the actual pixel shader
+to translate (1286 library checks). Boot `20261013-125618-053` reaches Vulkan draws
+but parks; diagnostic readback boot `20261013-125704-323` submits 36 flips before
+the 20-second timeout. Its 33 swapchain captures are all black (RGB nonblack=0).
+See `docs/local-progress.md` for exact evidence and the next typed-buffer-fetch
+format investigation. Shader translation is no longer the active missing-opcode
+gate, but visible geometry and stable retirement remain unverified.
+
 The isolated `-ShaderAperture` variant now honors the descriptor's 0x2xxxxxxxx
 address requirement using a real fixed direct-memory mapping at 0x200000000.
 Use all four switches explicitly:
