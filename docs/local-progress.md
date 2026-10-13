@@ -6,6 +6,25 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Two overlapping textured objects preserve depth across separate draws.**
+  The adapted native scene owns separate constant buffers for both objects and
+  both frame slots, shares geometry/texture, and resets depth only once per frame.
+  Forward/reversed object submission produces exactly **0 differing pixels**
+  with depth enabled, **145274** with depth disabled, and **355811** between
+  enabled/disabled forward controls. Decoded four-way captures were visually
+  inspected. All four frozen probes and the animated probe finish 600 frames;
+  the animated run has four distinct presented captures. This verifies this
+  adapted scene, not general game compatibility.
+
+- **CPU updates to a reused linear texture reach sampled images.** The adapted
+  plane changes its 64x64 texture contents every 150 frames without replacing
+  the allocation or descriptor. Four captured palettes follow **0,1,2,0**;
+  all **64/64 cell centers in each capture** match exact expected colors.
+  Strict descriptors confirm real texture binding without fallback. The static
+  texture negative control is rejected. CPU image sync is enabled only for
+  these probes; this does not establish console cache/fence correctness,
+  streaming, tiled textures, mipmaps or concurrent texture writes.
+
 - **Texturing and depth now work together in an animated adapted cube.**
   `TextureDepth` submits the same public texture program and a real fullscreen
   depth-reset draw, then renders all six textured cube faces without back-face

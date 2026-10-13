@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touché PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth')][string]$Profile='Base')
+param([ValidateSet('Base','Depth','DepthDisabled','DepthStatic','DepthDisabledStatic','DepthCpuClear','DepthReverseStatic','DepthDisabledReverseStatic','TextureStatic','TextureDepth','TextureUpdates','TextureOverlap','TextureOverlapStatic','TextureOverlapReverseStatic','TextureOverlapDisabledStatic','TextureOverlapDisabledReverseStatic')][string]$Profile='Base')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
@@ -18,6 +18,12 @@ $inputName=switch($Profile) {
     'DepthDisabledReverseStatic' {'app-depth-disabled-reverse-static.elf'}
     'TextureStatic' {'app-texture-static.elf'}
     'TextureDepth' {'app-texture-depth.elf'}
+    'TextureUpdates' {'app-texture-updates.elf'}
+    'TextureOverlap' {'app-texture-overlap.elf'}
+    'TextureOverlapStatic' {'app-texture-overlap-static.elf'}
+    'TextureOverlapReverseStatic' {'app-texture-overlap-reverse-static.elf'}
+    'TextureOverlapDisabledStatic' {'app-texture-overlap-disabled-static.elf'}
+    'TextureOverlapDisabledReverseStatic' {'app-texture-overlap-disabled-reverse-static.elf'}
     default {'app-init-abi.elf'}
 }
 $elf=Join-Path $out $inputName
@@ -66,6 +72,8 @@ try {
         Profile=$Profile; FrozenView=$staticView; Input=$elf; InputSha256=$inputHash
         SourceModified=$buildReport.SourceModified; DepthClearMethod=$buildReport.DepthClearMethod
         ReversedFaceOrder=$buildReport.ReversedFaceOrder
+        ReversedObjectOrder=$buildReport.ReversedObjectOrder; ObjectCount=$buildReport.ObjectCount
+        TextureCpuUpdates=$buildReport.TextureCpuUpdates
         StrictShaderDescriptors=$Profile.StartsWith('Texture')
         InputHasInitAbiCorrection=$true; StartupModified=$false
         CpuFramebufferTracking=$true; HostExit=$p.ExitCode

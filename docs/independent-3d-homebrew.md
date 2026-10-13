@@ -321,7 +321,70 @@ cube; no automated whole-image or perspective-accuracy claim is made.
 & ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureDepth
 ```
 
-Next independent-scene work: multiple intersecting objects, perspective/UV
-reference checks, texture updates and guest CPU depth-image ownership. Gears
-still requires its separate pinned LLPC/native foundation. GTA VI has not
-been run.
+### Two overlapping textured objects
+
+`Build-PS5LinkOverlappingCubes.ps1` generates a separate two-object adaptation.
+It shares mesh, index buffer and texture, but allocates independent constants
+for each object in each of the two frame slots. It positions the cubes at
+different lateral offsets/depths and uses different rotations. Both draws
+share the frame's D32 attachment and occur after one GPU depth-reset draw.
+The reverse-order profile changes only object submission order, without
+rewriting a constant buffer already referenced by the first recorded draw.
+
+Verified captures on 2026-10-13:
+
+- Forward depth: `smoke-TextureOverlapStatic-20261013-123413`.
+- Reversed depth: `smoke-TextureOverlapReverseStatic-20261013-123425`.
+- Forward without depth: `smoke-TextureOverlapDisabledStatic-20261013-123438`.
+- Reversed without depth: `smoke-TextureOverlapDisabledReverseStatic-20261013-123450`.
+- Animated: `smoke-TextureOverlap-20261013-123511`.
+
+`overlap-order-comparison.json` records **0** depth-enabled order differences,
+**145274** depth-disabled order differences and **355811** enabled-versus-disabled
+forward differences. Enabled captures share SHA256
+`06f0a5227a6d3bd18b2f0683306689cc9419d3c9fae91e67b3a2d74aa4615f04`.
+The decoded four-way contact sheet was visually inspected: enabled geometry
+is consistent in both orders; disabled geometry visibly overwrites nearer
+surfaces. All five inputs finish 600 source frames with host exit 0. The
+animated run yields four distinct captures. These are adapted unsigned native
+ELFs, with the original source checkout and startup preserved.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkOverlappingCubes.ps1 -FreezeView
+& ./tools/external-homebrew/Build-PS5LinkOverlappingCubes.ps1 -FreezeView -ReverseObjects
+& ./tools/external-homebrew/Build-PS5LinkOverlappingCubes.ps1 -FreezeView -DisableDepth
+& ./tools/external-homebrew/Build-PS5LinkOverlappingCubes.ps1 -FreezeView -DisableDepth -ReverseObjects
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureOverlapStatic
+# Run the matching ReverseStatic, DisabledStatic, DisabledReverseStatic profiles.
+# Compare their actual capture folders using Compare-PS5LinkCubeDepth.py.
+& ./tools/external-homebrew/Build-PS5LinkOverlappingCubes.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureOverlap
+```
+
+### Reused texture with CPU palette updates
+
+`Build-PS5LinkTextureUpdates.ps1` adapts the flat plane to rotate RGB channels
+every 150 source frames. It reuses one 64x64 linear allocation and descriptor;
+the CPU changes its bytes before each submission. This probe retains the
+source's suspend/vblank boundaries and sample-scoped CPU image synchronization.
+It does not establish correctness for asynchronous guest writes, all console
+cache/fence semantics, tiled storage, mipmaps or texture streaming.
+
+`smoke-TextureUpdates-20261013-123620` finishes 600 frames with host exit 0.
+The real texture binding passes strict descriptor checks without fallback.
+`Check-PS5LinkTextureUpdates.py` checks exact expected colors at 64 cell centers
+in each capture: all four pass, with ordered palettes **0,1,2,0**. It requires
+the changed palettes and forward cyclic progression, rejecting stale images.
+The original static plane capture folder is a negative control and is rejected.
+One initial uniform-background readback may be skipped; subsequent invalid
+captures fail. This is a sampled color check, not whole-image certification.
+
+```powershell
+& ./tools/external-homebrew/Build-PS5LinkTextureUpdates.ps1
+& ./tools/external-homebrew/Invoke-PS5LinkCubeSmoke.ps1 -Profile TextureUpdates
+py -3 ./tools/external-homebrew/Check-PS5LinkTextureUpdates.py <capture-folder>
+```
+
+Next independent-scene work: perspective/UV reference checks, different textures
+per draw, resource lifetime and guest CPU depth-image ownership. Gears still
+requires its separate pinned LLPC/native foundation. GTA VI has not been run.
