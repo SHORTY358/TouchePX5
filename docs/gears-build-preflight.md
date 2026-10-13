@@ -3,7 +3,40 @@
 The shared-page producer scene now passes independently changing left/right
 regions, reverse order and missing-right controls. Further variations should
 serve a concrete failure. Resume the larger independent Gears scene instead.
-Gears has not been built or launched in TouchePX5.
+Gears is now built/packaged on Windows using actual GFX1013 PAL shaders;
+it has not launched in TouchePX5. The build scripts and checkpoint below retain
+the failed intermediate steps as provenance, not current blockers.
+
+## Latest completed build
+
+The final LLPC/llvm-readelf/llvm-objcopy build completes with exit 0 in 224.5 s.
+The remaining Windows configuration issues were LLPC's flat `vulkan.h` include,
+PAL's C++ standard macro check and POSIX `strcasecmp`. The wrapper adds the
+Vulkan header subdirectory and scoped MSVC `/Zc:__cplusplus`/`_stricmp` mapping;
+LLVM objects unrelated to those consumers and all upstream source pins are kept.
+`vkgcUtil.cpp`, previously failing, compiles in the successful full target build.
+
+`Build-GearsShadersWindows.ps1` uses that compiler and its own readelf/objcopy
+to compile the actual upstream pipe and inspect machine flags 0x42, PAL metadata,
+absence of relocations and symbol extents/hashes. The actual GS is 384 bytes,
+PS 160 bytes. The real metadata generator then produces the AGC header.
+`Build-GearsNativeWindows.ps1` compiles the previously pending main/assembly,
+links the real native source units/import stubs, converts and packages the title.
+Only assembly input paths are overlaid; no shader payload or metadata is invented.
+The converter overlay described below is used, and SELF integrity passes.
+
+```powershell
+& tools/external-homebrew/Build-GearsShadersWindows.ps1
+& tools/external-homebrew/Build-GearsNativeWindows.ps1
+```
+
+Artifacts: `gears-toolchain/gears-native-windows/shader-report.json`,
+`native-report.json`, logs and `app/PPSA99997/eboot.bin`. Native ELF SHA256:
+`FCFC7A3554524F571AEF32D069073B48DD70A199AA99C4F32750F14946FD78D3`;
+SELF SHA256: `1953898EAF1D49CC5CA369EA18D831ACAECD8F4C7496F92BEADC82E360013862`.
+The title has **not executed**. Resolve the remaining POSIX network host test,
+then perform a bounded native bootstrap with telemetry and independently checked
+frames. Do not promote build/metadata checks to game or renderer compatibility.
 
 ## Verified from the retained source
 

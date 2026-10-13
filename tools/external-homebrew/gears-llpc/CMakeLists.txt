@@ -31,8 +31,16 @@ set(LLVM_ENABLE_ZSTD OFF CACHE BOOL "No optional compression")
 set(LLVM_ENABLE_LIBXML2 OFF CACHE BOOL "No optional XML dependency")
 set(LLVM_ENABLE_DIA_SDK OFF CACHE BOOL "No Windows PDB/DIA support or ATL needed for PAL shader compilation" FORCE)
 add_library(khronos_vulkan_interface INTERFACE)
-target_include_directories(khronos_vulkan_interface INTERFACE "${GEARS_SOURCES}/Vulkan-Headers/include")
+target_include_directories(khronos_vulkan_interface INTERFACE
+  "${GEARS_SOURCES}/Vulkan-Headers/include"
+  "${GEARS_SOURCES}/Vulkan-Headers/include/vulkan")
 target_compile_definitions(khronos_vulkan_interface INTERFACE EXTERNAL_VULKAN_HEADERS=1)
+# PAL headers expect the actual C++ standard macro and POSIX's case-insensitive
+# string compare. Map only the LLPC Vulkan/PAL consumers to MSVC equivalents.
+target_compile_options(khronos_vulkan_interface INTERFACE
+  "$<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>")
+target_compile_definitions(khronos_vulkan_interface INTERFACE
+  "$<$<CXX_COMPILER_ID:MSVC>:strcasecmp=_stricmp>")
 add_subdirectory("${GEARS_SOURCES}/third_party/metrohash" metrohash)
 add_subdirectory("${GEARS_SOURCES}/third_party/cwpack" cwpack)
 add_subdirectory("${GEARS_SOURCES}/llpc" llpc)

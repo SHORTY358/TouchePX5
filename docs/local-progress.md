@@ -6,6 +6,25 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **The real Gears native application is now built on Windows.**
+  The pinned LLPC compiler and llvm-readelf/objcopy completed with exit 0
+  (`build-report.json`, 224.5-second final batch). Our host wrapper adds Vulkan
+  flat/header-root include paths and scoped MSVC `__cplusplus`/strcasecmp
+  compatibility for PAL consumers; upstream sources remain unchanged. The
+  previously failing `vkgcUtil.cpp` now compiles through the real build.
+  `Build-GearsShadersWindows.ps1` compiled the actual upstream GLSL pipeline to
+  GFX1013/0x42, relocation-free PAL NGG: 384-byte GS and 160-byte PS stages,
+  inspected metadata and derived the real AGC header. `Build-GearsNativeWindows.ps1`
+  compiled main/real shader assets, linked all native units and converted/packed
+  `gears-native-windows/app/PPSA99997/eboot.bin`; container integrity passes.
+  ELF SHA256 `FCFC7A3554524F571AEF32D069073B48DD70A199AA99C4F32750F14946FD78D3`;
+  SELF SHA256 `1953898EAF1D49CC5CA369EA18D831ACAECD8F4C7496F92BEADC82E360013862`.
+  All outputs/logs/reports remain under the isolated toolchain directory.
+  **Gears has not executed.** The POSIX network host test is still unexecuted,
+  so full upstream `make test` completion is not claimed. Next: resolve that
+  host-test environment, then a bounded native boot with retained telemetry;
+  passing builds/metadata do not certify guest execution or correct rendering.
+
 - **A complete upstream foundation example now builds/packages on Windows.**
   Four original source/CRT units link against the pinned SDK. The actual native
   converter failed because it required unused `.data.rel.ro`; a separate local
@@ -51,7 +70,7 @@ percentage or release-date estimate.
   Native Windows host contracts passed 26/27; the POSIX network test remains
   unexecuted. See `docs/gears-build-preflight.md` for exact scope and next gates.
 
-- **The pinned Gears compiler now has a real Windows build in progress.**
+- **Earlier pinned Gears compiler build history (superseded by completion above).**
   Thirteen source commits are fetched/verified; a separate MSVC/Ninja wrapper
   configures LLPC/LLVM successfully with bounded memory use. Official pinned
   DXC and isolated PyYAML supply missing host dependencies. Four Gears Python
