@@ -6,6 +6,34 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **The complete upstream Gears host gate now passes, and native bootstrap runs.**
+  Isolated Cygwin 2.937 setup was checked against Cygwin's published SHA512;
+  its normal signed repository/package verification stays enabled. No elevation,
+  Windows features, global PATH, shortcuts or installation-root registry entry.
+  `Test-GearsCygwin.ps1` rebuilds all 27 C tests with upstream warning/error flags
+  plus POSIX.1-2008 feature selection (`mkstemp` visibility), then executes
+  unchanged `make test` and `make audit`: all C tests including ps5log, four
+  Python contracts and the 122-file audit pass. Python uses the existing isolated
+  PyYAML 6.0.3 package via its pure-Python fallback, not obsolete Cygwin YAML.
+  Evidence: `gears-toolchain/cygwin-host/tests/20261013-111437-196` and
+  `host-verification-report.json`. This is Cygwin POSIX host validation, not Linux.
+
+  Bounded native boot `gears-native-windows/runs/20261013-111505-613` executes
+  the real title and companion runtime, but stops at unresolved internal module
+  load NID `39iV5E1HoCk`. The original PIE relocation at 0x10118 identifies
+  `sceSysmoduleLoadModuleInternal`, and local NID derivation agrees. Added the
+  no-argument load/unload variants using the existing HLE registry lifecycle;
+  neither interprets caller-scratch R8 as the WithArg output pointer nor loads
+  Sony firmware. The generated-dispatch lifecycle/memory regression passes;
+  full Release library suite 1276/1276 passes and Windows CLI build is clean.
+  Repeat boot `20261013-111806-723` passes this call and stops at `sceAgcInit`:
+  the pinned title sends (state pointer, 8) to public NID `kW3GLb7QfPg`, while
+  retained OpenAGC `game_compat.c` lines 588-621 and existing HLE regressions
+  distinguish public `(revision)` from internal `(state, revision)`.
+  **No Gears frame has rendered.** Next: resolve the title initializer ABI in a
+  separately documented native build variant; keep the original title/failure
+  and do not relax the correct public HLE ABI to accept arbitrary pointers.
+
 - **The real Gears native application is now built on Windows.**
   The pinned LLPC compiler and llvm-readelf/objcopy completed with exit 0
   (`build-report.json`, 224.5-second final batch). Our host wrapper adds Vulkan
@@ -20,10 +48,10 @@ percentage or release-date estimate.
   ELF SHA256 `FCFC7A3554524F571AEF32D069073B48DD70A199AA99C4F32750F14946FD78D3`;
   SELF SHA256 `1953898EAF1D49CC5CA369EA18D831ACAECD8F4C7496F92BEADC82E360013862`.
   All outputs/logs/reports remain under the isolated toolchain directory.
-  **Gears has not executed.** The POSIX network host test is still unexecuted,
-  so full upstream `make test` completion is not claimed. Next: resolve that
-  host-test environment, then a bounded native boot with retained telemetry;
-  passing builds/metadata do not certify guest execution or correct rendering.
+  The subsequent host verification and two bounded bootstrap results are recorded
+  above. These original build reports deliberately say `Executed=false` because
+  they describe packaging only; separate run reports describe execution.
+  Passing builds/metadata do not certify correct rendering.
 
 - **A complete upstream foundation example now builds/packages on Windows.**
   Four original source/CRT units link against the pinned SDK. The actual native

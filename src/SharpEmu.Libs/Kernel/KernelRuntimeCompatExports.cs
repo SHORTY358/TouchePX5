@@ -1458,6 +1458,20 @@ public static class KernelRuntimeCompatExports
     }
 
     [SysAbiExport(
+        Nid = "39iV5E1HoCk",
+        ExportName = "sceSysmoduleLoadModuleInternal",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceSysmodule")]
+    public static int SysmoduleLoadModuleInternal(CpuContext ctx)
+    {
+        // The no-argument internal variant takes only the 32-bit module ID.
+        // Reuse the existing HLE registry lifecycle, not the WithArg variant:
+        // R8 is caller scratch and must never be interpreted as an output pointer.
+        // This registers HLE state; it does not load a Sony firmware binary.
+        return SysmoduleLoadModule(ctx);
+    }
+
+    [SysAbiExport(
         Nid = "nu4a0-arQis",
         ExportName = "sceKernelAioInitializeParam",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -1638,6 +1652,13 @@ public static class KernelRuntimeCompatExports
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
+
+    [SysAbiExport(
+        Nid = "vXZhrtJxkGc",
+        ExportName = "sceSysmoduleUnloadModuleInternal",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceSysmodule")]
+    public static int SysmoduleUnloadModuleInternal(CpuContext ctx) => SysmoduleUnloadModule(ctx);
 
     [SysAbiExport(
         Nid = "hHrGoGoNf+s",

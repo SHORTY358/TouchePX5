@@ -4,7 +4,8 @@ The shared-page producer scene now passes independently changing left/right
 regions, reverse order and missing-right controls. Further variations should
 serve a concrete failure. Resume the larger independent Gears scene instead.
 Gears is now built/packaged on Windows using actual GFX1013 PAL shaders;
-it has not launched in TouchePX5. The build scripts and checkpoint below retain
+it now executes its startup code in TouchePX5 but has not rendered a frame.
+The build scripts and checkpoint below retain
 the failed intermediate steps as provenance, not current blockers.
 
 ## Latest completed build
@@ -34,9 +35,46 @@ Artifacts: `gears-toolchain/gears-native-windows/shader-report.json`,
 `native-report.json`, logs and `app/PPSA99997/eboot.bin`. Native ELF SHA256:
 `FCFC7A3554524F571AEF32D069073B48DD70A199AA99C4F32750F14946FD78D3`;
 SELF SHA256: `1953898EAF1D49CC5CA369EA18D831ACAECD8F4C7496F92BEADC82E360013862`.
-The title has **not executed**. Resolve the remaining POSIX network host test,
-then perform a bounded native bootstrap with telemetry and independently checked
-frames. Do not promote build/metadata checks to game or renderer compatibility.
+The subsequent full host gate and bounded bootstrap are recorded below.
+Do not promote build/metadata checks to game or renderer compatibility.
+
+## Complete host gate and first native boot
+
+`Setup-GearsCygwin.ps1` isolates the official setup/tools under artifacts, checks
+the published installer SHA512, keeps signed package checks, and avoids elevation,
+global PATH/shortcuts/installation-root registry changes. `Test-GearsCygwin.ps1`
+forces all 27 C tests to rebuild with the upstream flags and POSIX.1-2008 feature
+selection; this exposes `mkstemp` under strict C11 without suppressing warnings.
+Unchanged `make test` and `make audit` both exit 0: 27 C tests, four Python
+contracts, 122 allowlisted files. Cygwin Python uses the isolated PyYAML 6.0.3
+pure implementation. This validates Cygwin POSIX, not a Linux host.
+
+```powershell
+& tools/external-homebrew/Setup-GearsCygwin.ps1
+& tools/external-homebrew/Test-GearsCygwin.ps1
+& tools/external-homebrew/Invoke-GearsNative.ps1
+```
+
+The bounded launcher retains the app/runtime hashes, source state and logs, and
+terminates only its owned process tree at the deadline. The original title and
+companion runtime execute; first boot stops at missing internal sysmodule-load
+NID `39iV5E1HoCk`. The two internal no-argument load/unload exports now share the
+existing HLE registry lifecycle; the no-argument ABI ignores scratch R8 and
+does not imply loading Sony firmware. One dispatch/lifecycle/memory regression
+and full 1276-test Release library suite pass, with a clean CLI build.
+
+The next boot (`gears-native-windows/runs/20261013-111806-723`) passes that call
+but rejects the title's two-argument call to public `sceAgcInit` NID
+`kW3GLb7QfPg`. OpenAGC reference commit
+`3c7e8072f0d7684e930454794fd5c02056946d73`, `src/game_compat.c` lines 588-621,
+documents public `(revision)` and internal `(state, revision)` variants; current
+HLE tests preserve that distinction. Next build a separate, provenance-recorded
+title initializer ABI variant and preserve this original failure. No frame
+or hardware-rendering result is claimed; do not loosen public HLE validation.
+
+Official environment documentation: https://cygwin.com/install.html and
+https://cygwin.com/sha512.sum. Exact installed package database and logs are in
+`gears-toolchain/cygwin-host`; host evidence is `tests/20261013-111437-196`.
 
 ## Verified from the retained source
 
