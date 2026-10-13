@@ -91,3 +91,42 @@ shared sampled texture with explicitly retired consumers; shared-page writes,
 overlapping byte writes, arbitrary aliases and GPU reads during refill remain
 unvalidated. Its final positive captures also match the separate-allocation batch
 baseline byte-for-byte. The shader/startup and emulator runtime are unchanged.
+
+## Disjoint columns sharing OS pages
+
+Use `-BatchProducerRequests -SharedTextureColumns` (without `-SharedTextureHalves`).
+Worker 0 fills the left 32 pixels of every 64-pixel row; worker 1 fills the right
+32. Each owns 8192 bytes distributed as 64 disjoint 128-byte spans. Both writers
+touch every one of the shared texture's four 4-KiB pages, while writing no common
+bytes. The source/destination addressing advances by the full 256-byte row pitch.
+The half-fill barrier occurs after 32 rows per worker; consumer retirement and
+completion checks are unchanged.
+
+Profiles: `TextureGuestProducersSharedColumns`,
+`TextureGuestProducersSharedColumnsReverse` (also build with `-ReverseObjects`),
+and `TextureGuestProducersSharedColumnsMissing` (build with `-SkipSecondHalfWrites`).
+The missing control skips right-side stores but still completes every barrier,
+job and join. Independent phase-2 sampling must show only 32/64 matching cells
+on the second object and reject the run. Positive captures must match both the
+reverse order and the prior top/bottom-half baseline byte-for-byte.
+
+This covers shared-page native stores followed by correctly synchronized
+sampling. GPU consumers are drained during refill; dirty-page polling while
+writers are active and byte-overlapping stores are separate validation tasks.
+
+
+## Deterministic linker used by producer builds
+
+The builder invokes `Build-PS5LinkDeterministicLinker.ps1`. This compiles a local
+GPL-3.0 overlay of the unchanged pinned SDK linker: code/rodata/data alignment
+gaps use its existing zero-filling `buf_pad_to` instead of only advancing length.
+The old behavior copied uninitialized heap bytes into ELF padding, so even the
+same source could produce different hashes. The SDK checkout and historical
+`ps5link-cube/link_real.exe` are preserved. Original/patched source and linker
+hashes are recorded in `ps5link-deterministic-linker/build-report.json`, with a
+verified cache for unchanged inputs. Producer metadata records the new linker
+hash and `DeterministicAlignmentPadding=true`.
+
+The shared-column checkpoint includes two identical fresh source/ELF builds and
+three subsequent GPU runs with retained source, ELF and linker metadata. This
+is scoped rebuild evidence for that fixture, not universal SDK reproducibility.

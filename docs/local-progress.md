@@ -6,6 +6,28 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Guest producer builds now zero alignment gaps instead of leaking heap bytes.**
+  Rebuilding unchanged source exposed three varying ELF padding bytes in the
+  SDK linker. A local GPL-3.0 overlay fills code/rodata/data gaps with zeros;
+  the pinned SDK and historical linker are unchanged. Two fresh builds of the
+  same column fixture now have identical source/ELF hashes. Final positive,
+  reverse and missing-right GPU runs after the repair retain their inputs and
+  linker provenance; image checks and all fourteen baseline/order comparisons
+  pass, with the deliberate missing writes correctly rejected. Runtime code
+  is unchanged. Next remains independent region palettes below.
+
+- **Disjoint native column writers now share all four pages of one texture.**
+  Two workers each fill 64 row spans of 128 bytes, owning left/right columns
+  without overlapping bytes. Ready/half-fill barriers, 300 jobs/checks each,
+  full-width joins and 600 retired frames pass. Seven captures per order pass
+  every 64-cell sample; seven reverse and seven prior row-halves full-frame
+  pairs are byte-identical. The skipped-right-half control completes execution
+  but correctly fails update checking with 32/64 phase-2 matches. Input/source
+  provenance and matching runtime hashes are retained. GPU readers are drained
+  before every refill, so active-writer dirty polling and overlapping-byte
+  stores are not certified. Next: independently changing left/right palettes,
+  with separate image expectations for each producer's region.
+
 - **Two native producers now fill disjoint halves of one shared texture.**
   Each worker owns 8192 bytes; both GPU frame slots sample the same mutable
   allocation. Ready/half-fill barriers, 300 jobs/checks per worker, full-width

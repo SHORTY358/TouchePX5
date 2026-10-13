@@ -1,10 +1,12 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$ReverseObjects,[switch]$FreezeProducerPalette,[switch]$BatchProducerRequests,[switch]$SharedTextureHalves,[switch]$SkipSecondHalfWrites)
+param([switch]$ReverseObjects,[switch]$FreezeProducerPalette,[switch]$BatchProducerRequests,[switch]$SharedTextureHalves,[switch]$SkipSecondHalfWrites,[switch]$SharedTextureColumns)
 $ErrorActionPreference='Stop'
-if($SharedTextureHalves -and -not $BatchProducerRequests) { throw 'Shared texture requires paired requests and retirement of both GPU consumers' }
-if($SkipSecondHalfWrites -and (-not $SharedTextureHalves -or $FreezeProducerPalette)) { throw 'Missing-half control requires shared halves without a frozen palette' }
+$sharedTexture=$SharedTextureHalves -or $SharedTextureColumns
+if($SharedTextureHalves -and $SharedTextureColumns) { throw 'Choose rows or columns for shared ownership' }
+if($sharedTexture -and -not $BatchProducerRequests) { throw 'Shared texture requires paired requests and retirement of both GPU consumers' }
+if($SkipSecondHalfWrites -and (-not $sharedTexture -or $FreezeProducerPalette)) { throw 'Missing-half control requires shared texture without a frozen palette' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root 'artifacts/external-homebrew/ps5link-cube'
 $parent='texture-frame-slots'
@@ -169,18 +171,27 @@ if (batch_ready[0]!=300 || batch_ready[1]!=300 || batch_start!=300 ||
 '@
     $suffix+='-batch'
 }
-if($SharedTextureHalves) {
+if($sharedTexture) {
     Replace-Checked 'ALLOC_OR_FAIL(mutable_texture[1], 64 * 64 * 4, DIRECT_MEM_MIN_ALIGN, "texture-slot1");' 'mutable_texture[1]=mutable_texture[0]; /* both GPU slots sample one allocation */'
     Replace-Checked 'job->source=pixels; job->destination=mutable_texture[slot].ptr; job->slot=slot;' 'job->source=pixels+slot*64*64*2; job->destination=(unsigned char*)mutable_texture[slot].ptr+slot*64*64*2; job->slot=slot;'
     Replace-Checked 'for (unsigned int i=0; i<64*64*4; i+=4) {' 'for (unsigned int i=0; i<64*64*2; i+=4) {'
     Replace-Checked 'if (i==64*64*2)' 'if (i==64*64)'
-    if($SkipSecondHalfWrites) {
-        Replace-Checked 'for (unsigned int c=0; c<3; c++) job->destination[i+c]=job->source[i+(c+phase)%3];' @'
-if (job->slot==1) continue; /* negative control: joins/barriers succeed but lower half stays stale */
+    if($SharedTextureColumns) {
+        Replace-Checked 'job->source=pixels+slot*64*64*2; job->destination=(unsigned char*)mutable_texture[slot].ptr+slot*64*64*2; job->slot=slot;' 'job->source=pixels+slot*32*4; job->destination=(unsigned char*)mutable_texture[slot].ptr+slot*32*4; job->slot=slot;'
+        Replace-Checked @'
             for (unsigned int c=0; c<3; c++) job->destination[i+c]=job->source[i+(c+phase)%3];
+            job->destination[i+3]=255;
+'@ @'
+            unsigned int offset=(i/(32*4))*64*4+i%(32*4);
+            for (unsigned int c=0; c<3; c++) job->destination[offset+c]=job->source[offset+(c+phase)%3];
+            job->destination[offset+3]=255;
 '@
     }
-    $suffix+='-shared-halves'
+    if($SkipSecondHalfWrites) {
+        $fill=if($SharedTextureColumns) { 'for (unsigned int c=0; c<3; c++) job->destination[offset+c]=job->source[offset+(c+phase)%3];' } else { 'for (unsigned int c=0; c<3; c++) job->destination[i+c]=job->source[i+(c+phase)%3];' }
+        Replace-Checked $fill ('if (job->slot==1) continue; /* negative control: owned half stays stale */'+[Environment]::NewLine+'            '+$fill)
+    }
+    $suffix+=if($SharedTextureColumns) { '-shared-columns' } else { '-shared-halves' }
 }
 if($ReverseObjects) { $suffix+='-reverse' }
 if($FreezeProducerPalette) {
@@ -188,10 +199,12 @@ if($FreezeProducerPalette) {
     $suffix+='-frozen-static'
 }
 if($SkipSecondHalfWrites) { $suffix+='-missing-half' }
+& "$PSScriptRoot/Build-PS5LinkDeterministicLinker.ps1"
+$linker=Join-Path $root 'artifacts/external-homebrew/ps5link-deterministic-linker/link_real.exe'
 [IO.File]::WriteAllText("$out/main-$suffix.c",$text)
 & 'C:/BuildTools/VC/Tools/Llvm/x64/bin/clang.exe' --target=x86_64-sie-ps5 -O2 -fPIC -fno-stack-protector -mno-red-zone -I $out -I "$root/artifacts/external-homebrew/ps5link-texture-shaders" -c "$out/main-$suffix.c" -o "$out/main-$suffix.o"
 if($LASTEXITCODE) { throw 'Guest producer compilation failed' }
-& "$out/link_real.exe" "$out/app-$suffix.elf" "$out/crt1.o" "$out/main-$suffix.o"
+& $linker "$out/app-$suffix.elf" "$out/crt1.o" "$out/main-$suffix.o"
 if($LASTEXITCODE) { throw 'Guest producer ELF link failed' }
 $report | Add-Member GuestTextureProducers 2
 $report | Add-Member JobsPerProducer 300
@@ -201,15 +214,18 @@ $report | Add-Member FrozenProducerPalette ([bool]$FreezeProducerPalette)
 $report | Add-Member BatchProducerRequests ([bool]$BatchProducerRequests)
 $report | Add-Member OutstandingProducerJobs $(if($BatchProducerRequests) { 2 } else { 1 })
 $report | Add-Member SharedTextureHalves ([bool]$SharedTextureHalves)
+$report | Add-Member SharedTextureColumns ([bool]$SharedTextureColumns)
 $report | Add-Member SkipSecondHalfWrites ([bool]$SkipSecondHalfWrites)
 if($BatchProducerRequests) { $report.ProducerHandoff='two requests before wait; both-started and half-fill barriers; main waits both CPU completions; both GPU slots retired before refill' }
-if($SharedTextureHalves) {
+if($sharedTexture) {
     $report.MutableTexturePerSlot=$false
     $report.FrameOwnership='one shared texture; disjoint top/bottom 8192-byte producer ranges; both GPU consumers retired before refill'
+    if($SharedTextureColumns) { $report.FrameOwnership='one shared texture; disjoint left/right 128-byte row spans sharing four OS pages; both GPU consumers retired before refill' }
 }
 $report | Add-Member ParentSourceSha256 ((Get-FileHash $parentSource).Hash)
 $report | Add-Member StartupObjectSha256 ((Get-FileHash "$out/crt1.o").Hash)
-$report | Add-Member LinkerSha256 ((Get-FileHash "$out/link_real.exe").Hash)
+$report | Add-Member LinkerSha256 ((Get-FileHash $linker).Hash)
+$report | Add-Member DeterministicAlignmentPadding $true
 $report.GeneratedSourceSha256=(Get-FileHash "$out/main-$suffix.c").Hash
 $report.ElfSha256=(Get-FileHash "$out/app-$suffix.elf").Hash
 $report | ConvertTo-Json | Set-Content "$out/build-report-$suffix.json" -Encoding utf8

@@ -1195,3 +1195,61 @@ certify shared-page dirty tracking, byte-overlapping stores, arbitrary aliases,
 concurrent AGC submission or consumer reads during refill. No new library suite
 is claimed for fixture-only changes. Next: strided disjoint columns sharing OS
 pages, keeping the same consumer retirement and independent update oracle.
+
+### 2026-10-13: native column writers sharing image pages
+
+`-BatchProducerRequests -SharedTextureColumns` assigns 32 left/right pixels in
+each of 64 rows to the two workers. Each writes 8192 bytes in disjoint 128-byte
+row spans, using 256-byte row pitch. Both writers touch all four 4-KiB pages of
+the shared 16-KiB texture without sharing any byte. Ready and half-fill barriers
+are retained, now synchronizing after 32 rows per worker. Both GPU consumers
+remain retired during the entire refill and main waits for both completions.
+
+Final outputs after deterministic linker repair:
+`smoke-TextureGuestProducersSharedColumns-20261013-180013`,
+`smoke-TextureGuestProducersSharedColumnsReverse-20261013-180132`, negative
+`smoke-TextureGuestProducersSharedColumnsMissing-20261013-180610`. Each executes
+600 submitted/retired frames with 598 reuses, max_pending=2, 300 jobs/half checks
+per worker and two full-width joins. Positive runs pass every 64-cell center
+on both objects in all seven captures, with complete first frames and second
+palette sequence [1,1,2,2,0,1,1]. Seven forward/reverse pairs and seven matched
+top/bottom-half baseline pairs are byte-identical.
+
+The negative omits worker 1's right-side stores while preserving all semaphore,
+barrier, job and join checks. The first palette-1 captures remain complete, but
+both phase-2 captures match exactly 32/64 cells on the second object, while the
+first remains 64/64. Independent update validation exits 1 as expected.
+`guest-producer-shared-columns-comparison.json` verifies these checks, matching
+CLI/Core/HLE/Libs hashes and retained source/ELF/build snapshots. No runtime
+changes or fresh library-suite result is claimed for this fixture-only step.
+
+This validates the bounded shared-page native-store-to-sampled-image path with
+GPU consumers explicitly drained before writes. It does not establish active
+dirty-page polling during guest writes, overlapping byte stores, concurrent
+guest GPU submission or broader compatibility. Next: independent left/right
+palette evolution and separate region-specific image expectations.
+
+
+### 2026-10-13: deterministic guest ELF alignment padding
+
+Rebuilding the earlier row-half fixture preserved its exact generated source,
+but changed three bytes at ELF offsets 0x404a..0x404c inside alignment padding.
+The pinned SDK linker advanced code/rodata/data buffer lengths without filling
+new gaps. `buf_push` does not initialize those holes; they were copied from
+uninitialized host heap storage into the ELF.
+
+`Build-PS5LinkDeterministicLinker.ps1` creates a local GPL-3.0 source overlay of
+`dynwriter.c`, replacing the three length advances with the existing zero-filling
+`buf_pad_to`. It checks the clean SDK pin and exact replacement count, records
+original/patched source and executable hashes, and reuses only matching cached
+output. The SDK checkout and legacy linker are unchanged. Guest producer builds
+now use this linker and record `DeterministicAlignmentPadding` and its hash.
+
+Two fresh builds of the same shared-column fixture produced identical source
+and ELF hashes (`guest-producer-deterministic-build-check.json`). The three final
+GPU runs above were then rebuilt with this tool and rechecked: positive/reverse
+image samples pass, the missing-right control is rejected, and all seven reverse
+and all seven historical row-half whole-frame pairs remain byte-identical.
+Each run retains source, ELF, fixture metadata, linker metadata and patched linker
+source. This confirms these fixture rebuilds and image behavior; it does not
+claim every SDK build is reproducible or broaden emulator compatibility.
