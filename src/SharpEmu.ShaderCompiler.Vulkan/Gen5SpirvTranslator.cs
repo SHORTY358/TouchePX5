@@ -152,8 +152,19 @@ public static partial class Gen5SpirvTranslator
         Gen5ComputeExportOutput? exportOutput = null,
         Gen5ComputeTriangleOutput? triangleOutput = null,
         Gen5NggMergedGroup? nggCountInputs = null,
-        Gen5ComputeNggPassthroughInput? nggSourceInputs = null)
+        Gen5ComputeNggPassthroughInput? nggSourceInputs = null,
+        Gen5ComputeNggBatchInput? nggBatchInputs = null)
     {
+        if (nggBatchInputs is { } batch &&
+            (nggCountInputs is not null || nggSourceInputs is not null || localSizeX != batch.ThreadCount ||
+             localSizeY != 1 || localSizeZ != 1 || waveLaneCount != batch.WaveSize ||
+             !batch.Validate(evaluation, totalGlobalBufferCount, initialScalarBufferIndex,
+                 storageBufferOffsetAlignment, exportOutput, triangleOutput)))
+        {
+            shader = default!;
+            error = "invalid NGG batch input bindings, output capacities or execution layout";
+            return false;
+        }
         if (nggSourceInputs is { } source &&
             (nggCountInputs is null || source.BufferBinding < 0 || source.BufferBinding >= evaluation.GlobalMemoryBindings.Count ||
              (totalGlobalBufferCount >= 0 && source.BufferBinding >= totalGlobalBufferCount) ||
@@ -199,7 +210,7 @@ public static partial class Gen5SpirvTranslator
         }
         if (triangleOutput is { } triangle &&
             (localSizeX is 0 or > 1024 || localSizeY != 1 || localSizeZ != 1 ||
-             triangle.RecordCapacity == 0 || triangle.LiveVertexCount is 0 or > 512 ||
+             triangle.RecordCapacity == 0 || (nggBatchInputs is null ? triangle.LiveVertexCount is 0 or > 512 : triangle.LiveVertexCount != 0) ||
              triangle.BufferBinding < 0 || triangle.BufferBinding >= evaluation.GlobalMemoryBindings.Count ||
              (totalGlobalBufferCount >= 0 && triangle.BufferBinding >= totalGlobalBufferCount) ||
              triangle.BufferBinding == initialScalarBufferIndex ||
@@ -233,7 +244,8 @@ public static partial class Gen5SpirvTranslator
             exportOutput: exportOutput,
             triangleOutput: triangleOutput,
             nggCountInputs: nggCountInputs,
-            nggSourceInputs: nggSourceInputs);
+            nggSourceInputs: nggSourceInputs,
+            nggBatchInputs: nggBatchInputs);
         return context.TryCompile(out shader, out error);
     }
 
@@ -318,6 +330,7 @@ public static partial class Gen5SpirvTranslator
         private readonly Gen5ComputeTriangleOutput? _triangleOutput;
         private readonly Gen5NggMergedGroup? _nggCountInputs;
         private readonly Gen5ComputeNggPassthroughInput? _nggSourceInputs;
+        private readonly Gen5ComputeNggBatchInput? _nggBatchInputs;
         private readonly int _globalBufferBase;
         private readonly int _totalGlobalBufferCount;
         private readonly int _imageBindingBase;
@@ -455,12 +468,14 @@ public static partial class Gen5SpirvTranslator
             Gen5ComputeExportOutput? exportOutput = null,
             Gen5ComputeTriangleOutput? triangleOutput = null,
             Gen5NggMergedGroup? nggCountInputs = null,
-            Gen5ComputeNggPassthroughInput? nggSourceInputs = null)
+            Gen5ComputeNggPassthroughInput? nggSourceInputs = null,
+            Gen5ComputeNggBatchInput? nggBatchInputs = null)
         {
             _exportOutput = exportOutput;
             _triangleOutput = triangleOutput;
             _nggCountInputs = nggCountInputs;
             _nggSourceInputs = nggSourceInputs;
+            _nggBatchInputs = nggBatchInputs;
             _stage = stage;
             _requiredVertexOutputCount = requiredVertexOutputCount;
             _state = state;
@@ -1752,6 +1767,14 @@ public static partial class Gen5SpirvTranslator
                         active = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, active,
                             _module.AddInstruction(SpirvOp.IEqual, _boolType,
                                 _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, workGroupId, axis), UInt(0)));
+                    for (uint axis = 0; axis < 3; axis++)
+                    {
+                        var limitPointer = _module.AddInstruction(SpirvOp.AccessChain,
+                            _pushConstantUintPointer, _computeDispatchLimit, UInt(0), UInt(axis));
+                        active = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, active,
+                            _module.AddInstruction(SpirvOp.ULessThan, _boolType,
+                                UInt(axis == 0 ? _localSizeX - 1 : 0), Load(_uintType, limitPointer)));
+                    }
                     Store(_programActive, _module.AddInstruction(SpirvOp.LogicalAnd, _boolType,
                         Load(_boolType, _programActive), active));
                     // The dispatcher enters its first switch before testing
@@ -1768,6 +1791,7 @@ public static partial class Gen5SpirvTranslator
                             StoreV(register, LoadBufferWord(source.BufferBinding, IAdd(first, UInt(register))), guardWithExec: false);
                     });
                 }
+                if (_nggBatchInputs is { } batch) EmitNggBatchInputs(batch, localId, workGroupId);
             }
         }
 
@@ -4775,7 +4799,9 @@ public static partial class Gen5SpirvTranslator
                             BitwiseAnd(packed, UInt(Gen5TriangleConnectivity.NullMask)), UInt(0));
                         foreach (var index in indices)
                             valid = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, valid,
-                                _module.AddInstruction(SpirvOp.ULessThan, _boolType, index, UInt(triangle.LiveVertexCount)));
+                                _module.AddInstruction(SpirvOp.ULessThan, _boolType, index,
+                                    _nggBatchInputs is null ? UInt(triangle.LiveVertexCount) :
+                                        Load(_uintType, _nggBatchVertexCount)));
                         var firstWord = IAdd(UInt(triangle.FirstWord),
                             _module.AddInstruction(SpirvOp.IMul, _uintType, record, UInt(5)));
                         StoreBufferWord(triangle.BufferBinding, firstWord, packed);

@@ -6,6 +6,43 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Canonical per-group descriptors now execute in the Vulkan compute mode.**
+  Optional `Gen5ComputeNggBatchInput` validates retained descriptor/source ranges,
+  common wave/thread layout, full output reservation, scalar/input/output alias
+  and mode exclusivity. GPU initialization checks each complete descriptor and
+  source/output range uniformly, parses that group's counts/ordered ID into
+  s2/s3, then loads its explicit v0..v8 records. Source offsets and both output
+  bases must equal the canonical reserved-slot allocation; arbitrary borrowed
+  ranges reject before any guest block or barrier. Primitive validity uses a
+  private cached per-group vertex count, surviving guest overwrites of s2.
+  Triangle output LiveVertexCount=0 explicitly selects this descriptor mode.
+
+  The standalone Vulkan checker now declares and supplies the translator's
+  required 12-byte dispatch-limit push constants; earlier standalone checks
+  omitted them. Full-group limits are validated in both source modes so an
+  incomplete dispatch group exits uniformly before a barrier.
+
+  Ten hardware cases pass in `Test-NggSourceInputs.ps1` on GTX 1060: previous
+  single-group source/omission/truncation cases plus partial limits, two groups
+  with different counts/topology/IDs/ordered fields, bad source/output descriptor
+  offsets, oversized live count, truncated final source record and partial
+  final-group dispatch limits. The audit reads count/source words, exports raw
+  position/parameter/primitive records and executes a real barrier; invalid
+  group outputs remain sentinel while a valid earlier group still completes.
+  Guest s2 is deliberately cleared before primitive export to test cached bounds.
+  This probe deliberately exports idle degenerates too; it is not scene geometry.
+  Evidence: `artifacts/ngg-source-inputs/20261014-165927-675/execution-report.json`.
+  Existing count GPU suite `20261014-170135-425` and export/remap/arithmetic suite
+  `20261014-170135-436` also pass with initialized push constants.
+  Full Release library suite **1388/1388**; CLI builds zero warnings/errors.
+
+  This completes the independent canonical descriptor/count/source/export
+  foundation, **not original Gears rendering or scheduling**. Next audit the
+  original retained Gears GS in this compute path using original guest data and
+  user/fetch bindings, with numerical output checks and loud unsupported-op
+  failures, before routing its outputs to the indexed graphics bridge. Preserve
+  original shaders/geometry and separate frame-token ownership assertions.
+
 - **Multiple explicit subgroups now have an owned host transport plan.**
   `Gen5NggPassthroughBatch` snapshots caller source records and packs four-word
   host descriptors (GroupInfo, relative source-word offset, vertex output base,
@@ -21,10 +58,8 @@ percentage or release-date estimate.
   layouts are checked. Full Release suite **1375/1375**; CLI builds cleanly.
   Layout/next runtime gates are in `docs/ngg-dispatch-descriptors.md`.
 
-  This is a host packing plan only, not GPU descriptor loading or Gears. Next
-  add bounded descriptor reads, per-group count/source injection and output
-  bases to the Vulkan compute mode, then validate distinct groups/invalid tables
-  on hardware before integrating the indexed graphics bridge.
+  This host packing plan now feeds the explicit GPU descriptor mode above.
+  Original Gears and indexed graphics integration remain unverified.
 
 - **Bounded passthrough source records now reach guest VGPRs on GPU.**
   Optional `Gen5ComputeNggPassthroughInput` requires explicit matching count

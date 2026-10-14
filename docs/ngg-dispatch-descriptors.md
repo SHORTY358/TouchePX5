@@ -26,11 +26,26 @@ the transport plan. Arithmetic/allocation size calculations are checked.
 
 Current host checks cover different live counts and source IDs in two groups,
 independent source/output bases, topology remapping, empty groups, execution
-layout mismatches and caller-array ownership. **Descriptors have not yet been
-loaded by the Vulkan compiler.** Its existing source mode still accepts only
-one subgroup at workgroup (0,0,0).
+layout mismatches and caller-array ownership. The optional Vulkan compute
+`nggBatchInputs` mode now loads these canonical descriptors. Its older single
+source mode still accepts only subgroup (0,0,0). The two input modes are exclusive.
 
-Next implementation gates:
+GPU descriptor loading checks actual table/source/output lengths and count
+bounds uniformly for each entire group; bad groups select the default exit
+before guest blocks/barriers. Descriptor offsets/bases must match canonical
+reserved ranges. Cached vertex counts govern primitive validity even when the
+guest changes s2. Triangle LiveVertexCount=0 selects descriptor-derived counts.
+Dispatch limits must cover complete padded groups; partial groups reject.
+
+Independent GTX 1060 proof is in
+`artifacts/ngg-source-inputs/20261014-165927-675/execution-report.json`: different
+group identities/counts/ordered values/topology, raw export output and a barrier
+pass. Bad source/output offsets, oversized counts, truncated sources and partial
+dispatch limits preserve rejected output slots. The standalone checker now
+initializes the required 12-byte dispatch-limit push constants. Library suite:
+1388 tests. No original Gears shader or graphics draw was executed by this audit.
+
+Completed canonical transport gates and remaining integration:
 
 1. Add explicit retained descriptor/source bindings and bounded group count;
    reject overlap with writable outputs and scalar-register input storage.
@@ -45,6 +60,10 @@ Next implementation gates:
 6. Verify two groups with distinct topology, IDs, counts and ordered fields on
    real GPU. Missing/truncated/overlapping descriptors must fail or reject
    whole groups without writes, stale validity acceptance or barrier hangs.
+The independent audit passes gates 1-6 for this canonical allocation. Next run
+the original retained Gears shader/data through the compute path and inspect
+numeric outputs before the graphics bridge; fail loudly on unsupported behavior.
+
 7. Establish producer completion and descriptor ownership before consuming
    remapped indices. Only then combine with the indexed graphics bridge and
    original Gears shader; do not substitute host-produced scene geometry.

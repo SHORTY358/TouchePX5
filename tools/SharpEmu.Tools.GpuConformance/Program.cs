@@ -24,7 +24,7 @@
 // Creating the compute pipeline doubles as a driver-acceptance check for the
 // emitted SPIR-V; the dispatch then verifies the arithmetic numerically.
 //
-// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json] [actual-words.json] [initial-words.json]
+// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json] [actual-words.json] [initial-words.json] [dispatch-limits.json]
 // Explicit expected words select a buffer of that size and two X workgroups;
 // omitted expected words retain the original arithmetic probe and one group.
 
@@ -44,6 +44,9 @@ var initialWords = args.Length > 3 ? JsonSerializer.Deserialize<uint[]>(File.Rea
     ?? throw new InvalidOperationException("Missing initial words") : null;
 if (initialWords is not null && (ulong)initialWords.Length * 4 != BufferSize)
     throw new InvalidOperationException("Initial storage size must match the expected storage size");
+var dispatchLimits = args.Length > 4 ? JsonSerializer.Deserialize<uint[]>(File.ReadAllText(args[4]))
+    ?? throw new InvalidOperationException("Missing dispatch limits") : new uint[] { uint.MaxValue, 1, 1 };
+if (dispatchLimits.Length != 3) throw new InvalidOperationException("Dispatch limits require three uint words");
 
 var expectedFma = BitConverter.SingleToUInt32Bits(
     MathF.FusedMultiplyAdd(1.5f, 2.25f, 10.0f));
@@ -241,11 +244,14 @@ unsafe
         vk.CreateDescriptorSetLayout(device, in setLayoutInfo, null, out var setLayout),
         "vkCreateDescriptorSetLayout");
 
+    var pushRange = new PushConstantRange { StageFlags = ShaderStageFlags.ComputeBit, Offset = 0, Size = 12 };
     var pipelineLayoutInfo = new PipelineLayoutCreateInfo
     {
         SType = StructureType.PipelineLayoutCreateInfo,
         SetLayoutCount = 1,
         PSetLayouts = &setLayout,
+        PushConstantRangeCount = 1,
+        PPushConstantRanges = &pushRange,
     };
     Check(
         vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out var pipelineLayout),
@@ -341,6 +347,8 @@ unsafe
         in descriptorSet,
         0,
         null);
+    fixed (uint* limits = dispatchLimits)
+        vk.CmdPushConstants(commandBuffer, pipelineLayout, ShaderStageFlags.ComputeBit, 0, 12, limits);
     vk.CmdDispatch(commandBuffer, explicitExpected is null ? 1u : 2u, 1, 1);
     var barrier = new MemoryBarrier
     {

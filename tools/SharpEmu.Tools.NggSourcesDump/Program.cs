@@ -6,12 +6,19 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
-if (args.Length is < 1 or > 2 || (args.Length == 2 && args[1] is not "--omit-inputs" and not "--truncate"))
+if (args.Length == 2 && args[1] is "--batch" or "--batch-bad-descriptor" or "--batch-truncate" or "--batch-bad-output" or "--batch-bad-count" or "--batch-partial-limit")
+{
+    BatchProbe.Generate(Path.GetFullPath(args[0]), args[1]);
+    return;
+}
+
+if (args.Length is < 1 or > 2 || (args.Length == 2 && args[1] is not "--omit-inputs" and not "--truncate" and not "--partial-limit"))
     throw new ArgumentException("usage: NggSourcesDump <directory> [--omit-inputs|--truncate]");
 var directory = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(directory);
 var omitted = args.Contains("--omit-inputs");
 var truncated = args.Contains("--truncate");
+var partial = args.Contains("--partial-limit");
 var counts = new Gen5NggMergedGroup(4, 1, 32, 64, 17);
 var sources = Gen5NggPassthroughSources.Encode(counts,
     [new(42, 7), new(10, 8), new(900, 9), new(3, 10)], [new(1234, 0, 1, 3)]);
@@ -24,7 +31,7 @@ var actualWords = truncated ? firstWord + 64 * 9 - 1 : completeWords;
 var initial = Enumerable.Repeat(sentinel, actualWords).ToArray();
 Array.Copy(sources, 0, initial, firstWord, Math.Min(sources.Length, actualWords - firstWord));
 var expected = initial.ToArray();
-if (!truncated)
+if (!truncated && !partial)
     for (var local = 0; local < 64; local++)
     {
         // Independent source-read reference, including caller IDs different
@@ -50,6 +57,7 @@ File.WriteAllBytes(Path.Combine(directory, "sources.spv"), shader.Spirv);
 File.WriteAllBytes(Path.Combine(directory, "guest-shader.bin"), memory.Bytes);
 File.WriteAllText(Path.Combine(directory, "initial.json"), JsonSerializer.Serialize(initial));
 File.WriteAllText(Path.Combine(directory, "expected.json"), JsonSerializer.Serialize(expected));
+File.WriteAllText(Path.Combine(directory, "limits.json"), JsonSerializer.Serialize(new uint[] { partial ? 63u : uint.MaxValue, 1, 1 }));
 File.WriteAllText(Path.Combine(directory, "generation-report.json"), JsonSerializer.Serialize(new {
     Scope = "Independent explicit single-subgroup passthrough source reads and barrier; not Gears",
     GuestDecoded = true, GpuExecuted = false, Omitted = omitted, Truncated = truncated, ActualWords = actualWords

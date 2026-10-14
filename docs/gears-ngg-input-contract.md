@@ -261,6 +261,31 @@ This is an independent single-subgroup probe, not Gears. A variable per-group
 descriptor/dispatch adapter must establish actual counts, source IDs, ordered
 ownership and vertex bases before combining these outputs with indexed graphics.
 
+## Canonical multi-subgroup descriptor execution
+
+`nggBatchInputs` now supports the host four-word descriptors and separate retained
+source ranges, with a common wave/thread layout. Inputs cannot overlap writable
+outputs/scalar storage, and output capacities reserve every full group. GPU
+checks descriptor/source/output lengths, count fields, canonical group-owned
+source/output bases and complete dispatch limits uniformly before entering a
+guest block. Bad groups exit without exports or barriers. s2/s3 and v0..v8 derive
+from that group's own descriptor/source records. Primitive validity uses a
+private cached vertex count (triangle LiveVertexCount=0), not mutable guest s2.
+
+The standalone conformance runner now declares and initializes the translator's
+required dispatch-limit push constants. Revalidated count and export/arithmetic
+GPU suites pass. Two distinct descriptor groups, count/source reads, primitive
+exports after guest s2 clobber, and a barrier pass on GTX 1060; corrupted source/
+output offsets, oversized counts, truncated sources and partial limits preserve
+rejected groups' outputs while earlier valid groups complete. Evidence:
+`artifacts/ngg-source-inputs/20261014-165927-675/execution-report.json`.
+Full library suite is 1388 tests and CLI builds cleanly.
+
+These raw-output audit records are not original Gears geometry and no indexed
+draw is submitted. Next use retained original Gears shader/data/user/fetch
+bindings in a bounded numerical compute audit before graphics integration;
+preserve unsupported-op failures and independent frame-token assertions.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.
