@@ -24,7 +24,7 @@
 // Creating the compute pipeline doubles as a driver-acceptance check for the
 // emitted SPIR-V; the dispatch then verifies the arithmetic numerically.
 //
-// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json] [actual-words.json]
+// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json] [actual-words.json] [initial-words.json]
 // Explicit expected words select a buffer of that size and two X workgroups;
 // omitted expected words retain the original arithmetic probe and one group.
 
@@ -40,6 +40,10 @@ var explicitExpected = args.Length > 1 ? JsonSerializer.Deserialize<uint[]>(File
     ?? throw new InvalidOperationException("Missing expected words") : null;
 if (explicitExpected is { Length: 0 or > 16384 }) throw new InvalidOperationException("Invalid bounded output size");
 var BufferSize = explicitExpected is null ? 64UL : (ulong)explicitExpected.Length * sizeof(uint);
+var initialWords = args.Length > 3 ? JsonSerializer.Deserialize<uint[]>(File.ReadAllText(args[3]))
+    ?? throw new InvalidOperationException("Missing initial words") : null;
+if (initialWords is not null && (ulong)initialWords.Length * 4 != BufferSize)
+    throw new InvalidOperationException("Initial storage size must match the expected storage size");
 
 var expectedFma = BitConverter.SingleToUInt32Bits(
     MathF.FusedMultiplyAdd(1.5f, 2.25f, 10.0f));
@@ -203,7 +207,7 @@ unsafe
     var words = (uint*)mapped;
     for (var index = 0; index < (int)(BufferSize / sizeof(uint)); index++)
     {
-        words[index] = Sentinel;
+        words[index] = initialWords is null ? Sentinel : initialWords[index];
     }
 
     // SharpEmu emits all guest buffers as one descriptor array at set 0,

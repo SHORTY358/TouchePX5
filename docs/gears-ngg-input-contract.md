@@ -233,9 +233,33 @@ GFX1013 stages, not the 16-bit relative-index culling input contract. New host
 triangle, v2 explicit primitive ID, v5 caller vertex ID, v8 caller instance ID.
 Source array counts match subgroup counts and each triangle index is checked;
 idle lanes remain zero and require guest predicates. Three regression cases
-pass in the 1365-test library suite. This is not yet loaded into guest VGPRs.
-Next validate bounded source-buffer injection on GPU before combining count
-inputs, variable per-group descriptors and indexed graphics consumption.
+pass in the 1365-test library suite. The explicit source-buffer loading mode
+below now consumes these records; variable per-group descriptors and indexed
+graphics consumption remain missing.
+
+## Verified single-subgroup source loading
+
+Optional `Gen5ComputeNggPassthroughInput` requires matching explicit counts and
+retained source backing. Nine words per local thread load into v0..v8 after
+generic initialization; source position/primitive-output overlap and scalar
+input alias reject. Only workgroup (0,0,0) is active. Entire table's actual
+array length is checked group-uniformly; rejected groups enter the dispatcher's
+default exit, avoiding its otherwise unconditional first guest block and any
+barrier divergence caused by partial source loading.
+
+Actual GTX 1060 evidence:
+`artifacts/ngg-source-inputs/20261014-155346-948/execution-report.json`.
+Hand-assembled EXP words read all nine registers and execute a real barrier.
+Non-local vertex/instance/primitive identity and untouched source/guard bytes
+pass. Output has capacity for two groups; the second group's 768 output words
+remain sentinel, demonstrating actual rejection rather than output masking.
+Omitted injection fails 853 values; a table truncated by one word uniformly
+rejects and preserves output sentinels. Earlier failure (768 output overwrites)
+is retained in `20261014-154855-024`. Library suite: 1372; CLI builds cleanly.
+
+This is an independent single-subgroup probe, not Gears. A variable per-group
+descriptor/dispatch adapter must establish actual counts, source IDs, ordered
+ownership and vertex bases before combining these outputs with indexed graphics.
 
 ## Independent ownership failure
 

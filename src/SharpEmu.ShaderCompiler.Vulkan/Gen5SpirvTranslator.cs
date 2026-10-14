@@ -151,8 +151,28 @@ public static partial class Gen5SpirvTranslator
         ulong storageBufferOffsetAlignment = 1,
         Gen5ComputeExportOutput? exportOutput = null,
         Gen5ComputeTriangleOutput? triangleOutput = null,
-        Gen5NggMergedGroup? nggCountInputs = null)
+        Gen5NggMergedGroup? nggCountInputs = null,
+        Gen5ComputeNggPassthroughInput? nggSourceInputs = null)
     {
+        if (nggSourceInputs is { } source &&
+            (nggCountInputs is null || source.BufferBinding < 0 || source.BufferBinding >= evaluation.GlobalMemoryBindings.Count ||
+             (totalGlobalBufferCount >= 0 && source.BufferBinding >= totalGlobalBufferCount) ||
+             source.BufferBinding == initialScalarBufferIndex ||
+             evaluation.GlobalMemoryBindings[source.BufferBinding].DataLength <= 0 ||
+             evaluation.GlobalMemoryBindings[source.BufferBinding].DataLength > evaluation.GlobalMemoryBindings[source.BufferBinding].Data.Length ||
+             evaluation.GlobalMemoryBindings[source.BufferBinding].ScalarAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
+             ((ulong)source.FirstWord + (ulong)nggCountInputs.ThreadCount * 9) * 4 >
+                 (ulong)evaluation.GlobalMemoryBindings[source.BufferBinding].DataLength ||
+             (exportOutput is { } position && position.BufferBinding == source.BufferBinding &&
+              source.FirstWord < (ulong)position.RecordCapacity * (position.ParameterCount + 1) * 4) ||
+             (triangleOutput is { } primitive && primitive.BufferBinding == source.BufferBinding &&
+              (ulong)source.FirstWord < (ulong)primitive.FirstWord + (ulong)primitive.RecordCapacity * 5 &&
+              (ulong)primitive.FirstWord < (ulong)source.FirstWord + (ulong)nggCountInputs.ThreadCount * 9)))
+        {
+            shader = default!;
+            error = "invalid NGG source input binding, extent or output overlap";
+            return false;
+        }
         if (nggCountInputs is { } counts &&
             (localSizeX != counts.ThreadCount || localSizeY != 1 || localSizeZ != 1 || waveLaneCount != counts.WaveSize ||
              (triangleOutput is { } triangleCounts && triangleCounts.LiveVertexCount != counts.VertexCount)))
@@ -212,7 +232,8 @@ public static partial class Gen5SpirvTranslator
             storageBufferOffsetAlignment: storageBufferOffsetAlignment,
             exportOutput: exportOutput,
             triangleOutput: triangleOutput,
-            nggCountInputs: nggCountInputs);
+            nggCountInputs: nggCountInputs,
+            nggSourceInputs: nggSourceInputs);
         return context.TryCompile(out shader, out error);
     }
 
@@ -296,6 +317,7 @@ public static partial class Gen5SpirvTranslator
         private readonly Gen5ComputeExportOutput? _exportOutput;
         private readonly Gen5ComputeTriangleOutput? _triangleOutput;
         private readonly Gen5NggMergedGroup? _nggCountInputs;
+        private readonly Gen5ComputeNggPassthroughInput? _nggSourceInputs;
         private readonly int _globalBufferBase;
         private readonly int _totalGlobalBufferCount;
         private readonly int _imageBindingBase;
@@ -432,11 +454,13 @@ public static partial class Gen5SpirvTranslator
             ulong storageBufferOffsetAlignment = 1,
             Gen5ComputeExportOutput? exportOutput = null,
             Gen5ComputeTriangleOutput? triangleOutput = null,
-            Gen5NggMergedGroup? nggCountInputs = null)
+            Gen5NggMergedGroup? nggCountInputs = null,
+            Gen5ComputeNggPassthroughInput? nggSourceInputs = null)
         {
             _exportOutput = exportOutput;
             _triangleOutput = triangleOutput;
             _nggCountInputs = nggCountInputs;
+            _nggSourceInputs = nggSourceInputs;
             _stage = stage;
             _requiredVertexOutputCount = requiredVertexOutputCount;
             _state = state;
@@ -1716,6 +1740,33 @@ public static partial class Gen5SpirvTranslator
                     StoreS(2, UInt(counts.GroupInfo));
                     StoreS(3, BitwiseOr(ShiftLeftLogical(wave, UInt(24)),
                         BitwiseOr(ShiftLeftLogical(Tail(counts.PrimitiveCount), UInt(8)), Tail(counts.VertexCount))));
+                }
+                if (_nggSourceInputs is { } source)
+                {
+                    // A complete single subgroup is required. The actual
+                    // array-length check is group-uniform, so truncation never
+                    // sends only part of a group past a guest workgroup barrier.
+                    var end = checked(source.FirstWord + _localSizeX * 9 - 1);
+                    var active = IsBufferWordInRange(source.BufferBinding, UInt(end));
+                    for (uint axis = 0; axis < 3; axis++)
+                        active = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, active,
+                            _module.AddInstruction(SpirvOp.IEqual, _boolType,
+                                _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, workGroupId, axis), UInt(0)));
+                    Store(_programActive, _module.AddInstruction(SpirvOp.LogicalAnd, _boolType,
+                        Load(_boolType, _programActive), active));
+                    // The dispatcher enters its first switch before testing
+                    // programActive. Select its default exit block for an
+                    // invalid whole group, so it cannot execute any first-block
+                    // exports or barriers with absent source data.
+                    Store(_programCounter, _module.AddInstruction(SpirvOp.Select, _uintType,
+                        active, UInt(0), UInt(uint.MaxValue)));
+                    EmitConditional(active, () =>
+                    {
+                        var local = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, localId, 0);
+                        var first = IAdd(UInt(source.FirstWord), _module.AddInstruction(SpirvOp.IMul, _uintType, local, UInt(9)));
+                        for (uint register = 0; register < 9; register++)
+                            StoreV(register, LoadBufferWord(source.BufferBinding, IAdd(first, UInt(register))), guardWithExec: false);
+                    });
                 }
             }
         }

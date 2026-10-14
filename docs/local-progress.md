@@ -6,6 +6,39 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Bounded passthrough source records now reach guest VGPRs on GPU.**
+  Optional `Gen5ComputeNggPassthroughInput` requires explicit matching count
+  inputs and loads one complete subgroup's nine-word records from an existing
+  binding after generic initialization. Source IDs and primitive connectivity
+  replace generic local IDs in v0..v8; s8+ user data is unaffected. Retained
+  backing/alignment, scalar-buffer alias and position/primitive-output overlap
+  are checked before compilation. Read-only source storage is supported.
+
+  Only dispatched group (0,0,0) is accepted in this first single-group mode.
+  Actual source-array length is checked uniformly for the full subgroup before
+  loading, so a truncated record table cannot leave only part of the group
+  executing barriers. An invalid group selects the dispatcher's default exit:
+  programActive alone was insufficient because the first switch precedes its
+  loop-continuation test. Initial failed truncated run is retained at
+  `artifacts/ngg-source-inputs/20261014-154855-024` (768 wrong output words).
+
+  `Test-NggSourceInputs.ps1` now passes actual guest EXP decode, source-buffer
+  loads and a real compute barrier on GTX 1060. All nine input VGPRs are read,
+  including non-local vertex IDs 42/10/900/3, instances 7/8/9/10 and primitive
+  ID 1234; source storage and trailing guards stay unchanged. Output has room
+  for both dispatched groups, so preserving the second group's entire 768-word
+  output proves rejection rather than merely hiding it behind output bounds.
+  Omitting source injection deliberately fails 853 values. Removing one final source word causes
+  uniform group rejection, leaving all output sentinels unchanged without a
+  hang. Evidence/data/SPIR-V/guest/source hashes:
+  `artifacts/ngg-source-inputs/20261014-155346-948/execution-report.json`.
+  Full Release library suite **1372/1372**; CLI builds zero warnings/errors.
+
+  This executes an independent probe, not original Gears. Source mode currently
+  owns one explicit subgroup only; per-group varying counts/ordered IDs, source
+  topology, vertex bases and ownership remain to implement before graphics
+  integration. Gears graphics barrier rejection and flip-token issue remain.
+
 - **Actual Gears passthrough mode is now proven against retained shader bytes.**
   `Test-GearsNggMode.ps1` compiles the clean pinned original pipe with the same
   pinned compiler and diagnostic output, in an isolated artifact directory.
@@ -26,10 +59,9 @@ percentage or release-date estimate.
   source-count/index bounds and empty/degenerate cases. Full Release library
   suite **1365/1365**; CLI builds with zero warnings/errors.
 
-  This is a host source-record encoder, not injected VGPRs or Gears rendering.
-  Next load these explicit records into compute v0/v2/v5/v8 from a bounded source
-  binding and verify actual guest reads on GPU, then add variable per-group
-  descriptors/ownership and connect produced vertices/indices to graphics.
+  This host source-record encoder now feeds the explicit single-group injection
+  described above; it does not establish Gears rendering. Variable per-group
+  descriptors/ownership and indexed graphics integration remain missing.
 
 - **Produced triangle records now have checked group-to-host remapping.**
   `Gen5NggTriangleRemap` consumes exactly the explicit five-word GPU record:
