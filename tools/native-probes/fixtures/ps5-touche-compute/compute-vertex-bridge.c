@@ -18,12 +18,20 @@ static u64 addresses[1];
 #else
 #define RECORD_WORDS 4
 #endif
-static volatile u32 output[3*RECORD_WORDS+16] __attribute__((aligned(256)));
+#ifdef BRIDGE_CONNECTIVITY
+#define VERTEX_RECORDS 4
+static const u32 index_input[3] __attribute__((aligned(256))) = {0,1,3};
+static const u32 wrong_indices[3] __attribute__((aligned(256))) = {0,1,2};
+static volatile u32 index_output[19] __attribute__((aligned(256)));
+#else
+#define VERTEX_RECORDS 3
+#endif
+static volatile u32 output[VERTEX_RECORDS*RECORD_WORDS+16] __attribute__((aligned(256)));
 static volatile u32 completed;
 static u32 commands[256];
 static int n;
 static struct {u64 address;u32 count;u32 reserved;} submission;
-static const u32 input[3*RECORD_WORDS] __attribute__((aligned(256))) = {
+static const u32 input[VERTEX_RECORDS*RECORD_WORDS] __attribute__((aligned(256))) = {
     0xbf400000,0xbf400000,0,0x3f800000,
 #ifdef BRIDGE_PARAMETERS
     0x3f800000,0,0,0x3f800000,
@@ -31,6 +39,12 @@ static const u32 input[3*RECORD_WORDS] __attribute__((aligned(256))) = {
     0x3f400000,0xbf400000,0,0x3f800000,
 #ifdef BRIDGE_PARAMETERS
     0,0x3f800000,0,0x3f800000,
+#endif
+#ifdef BRIDGE_CONNECTIVITY
+    0xbf400000,0xbf400000,0,0x3f800000, // trap: consuming 0,1,2 is degenerate
+#ifdef BRIDGE_PARAMETERS
+    0x3f800000,0x3f800000,0x3f800000,0x3f800000,
+#endif
 #endif
     0xbf400000,0x3f400000,0,0x3f800000,
 #ifdef BRIDGE_PARAMETERS
@@ -45,6 +59,11 @@ static const u32 producer[] __attribute__((aligned(256))) = {
 #ifdef BRIDGE_PARAMETERS
     0xe0382010,0x80020006,0xbf8c0f70,
     0xe0782010,0x80030006, // same source index, separate four-word parameter
+#endif
+#ifdef BRIDGE_CONNECTIVITY
+    0xbefe04c1,0x7d880c01,0xbefe046a, // three live connectivity words, count s1
+    0xe0302000,0x80040706,0xbf8c0f70, // raw index from s16..19 -> v7
+    0xe0702000,0x80050706, // explicit index output s20..23
 #endif
     0xbefe04c1,0xbf8a0000,0xbf810000 // restore all participants, barrier
 };
@@ -98,21 +117,32 @@ int _start(void) {
     for(u32 i=0;i<320*180;i++) pixels[i]=0xff202020;
     if(flip_slot(video,0,1,0)) return 63;
     sleep_slot(300000);
-    for(u32 i=0;i<3*RECORD_WORDS+16;i++) output[i]=0xdeadbeef;
+    for(u32 i=0;i<VERTEX_RECORDS*RECORD_WORDS+16;i++) output[i]=0xdeadbeef;
+#ifdef BRIDGE_CONNECTIVITY
+    for(u32 i=0;i<19;i++) index_output[i]=0xdeadbeef;
+#endif
     u64 cs=(u64)producer;
     n=0;reg(0x76,0x20c,(u32)(cs>>8));reg(0x76,0x20d,(u32)(cs>>40));
-    reg(0x76,0x213,16<<1);reg(0x76,0x207,64);reg(0x76,0x208,1);reg(0x76,0x209,1);
-    reg(0x76,0x240,3);descriptor(0x248,(u64)input,RECORD_WORDS*4,3,77);
-    descriptor(0x24c,(u64)output,RECORD_WORDS*4,3,77);
+    reg(0x76,0x213,24<<1);reg(0x76,0x207,64);reg(0x76,0x208,1);reg(0x76,0x209,1);
+    reg(0x76,0x240,VERTEX_RECORDS);descriptor(0x248,(u64)input,RECORD_WORDS*4,VERTEX_RECORDS,77);
+    descriptor(0x24c,(u64)output,RECORD_WORDS*4,VERTEX_RECORDS,77);
+#ifdef BRIDGE_CONNECTIVITY
+    reg(0x76,0x241,3);descriptor(0x250,(u64)index_input,4,3,20);
+    descriptor(0x254,(u64)index_output,4,3,20);
+#endif
 #ifndef BRIDGE_SKIP_PRODUCER
     commands[n++]=0xc0031502;commands[n++]=1;commands[n++]=1;commands[n++]=1;commands[n++]=5|(1<<15);
 #endif
     int result=finish(1);if(result) return result;
-    for(u32 i=0;i<3*RECORD_WORDS;i++) if(output[i]!=input[i]) return 66;
-    for(u32 i=3*RECORD_WORDS;i<3*RECORD_WORDS+16;i++) if(output[i]!=0xdeadbeef) return 67;
+    for(u32 i=0;i<VERTEX_RECORDS*RECORD_WORDS;i++) if(output[i]!=input[i]) return 66;
+    for(u32 i=VERTEX_RECORDS*RECORD_WORDS;i<VERTEX_RECORDS*RECORD_WORDS+16;i++) if(output[i]!=0xdeadbeef) return 67;
+#ifdef BRIDGE_CONNECTIVITY
+    for(u32 i=0;i<3;i++) if(index_output[i]!=index_input[i]) return 69;
+    for(u32 i=3;i<19;i++) if(index_output[i]!=0xdeadbeef) return 70;
+#endif
     n=0;u64 vs=(u64)vertex,ps=(u64)pixel,target=(u64)pixels;
     reg(0x76,0xc8,(u32)(vs>>8));reg(0x76,0xc9,(u32)(vs>>40));reg(0x76,0xcb,4<<1);
-    descriptor(0xcc,(u64)output,RECORD_WORDS*4,3,77);
+    descriptor(0xcc,(u64)output,RECORD_WORDS*4,VERTEX_RECORDS,77);
     reg(0x76,0x8,(u32)(ps>>8));reg(0x76,0x9,(u32)(ps>>40));reg(0x76,0xb,0);
     reg(0x69,0x1b3,0);reg(0x69,0x1b4,0);
 #ifdef BRIDGE_PARAMETERS
@@ -122,7 +152,19 @@ int _start(void) {
     reg(0x69,0x3b0,(319<<14)|179);reg(0x69,0x3b8,0);reg(0x69,0x31c,10<<2);reg(0x69,0x8e,0xf);
     reg(0x69,0x10f,0x43200000);reg(0x69,0x110,0x43200000);
     reg(0x69,0x111,0x42b40000);reg(0x69,0x112,0x42b40000);reg(0x79,0x242,4);
+#ifdef BRIDGE_CONNECTIVITY
+    commands[n++]=0xc0002a00;commands[n++]=1; // INDEX_TYPE = 32-bit
+    u64 index_address=(u64)index_output;
+#ifdef BRIDGE_WRONG_CONNECTIVITY
+    index_address=(u64)wrong_indices;
+#else
+    (void)wrong_indices;
+#endif
+    commands[n++]=0xc0042700;commands[n++]=3;commands[n++]=(u32)index_address;
+    commands[n++]=(u32)(index_address>>32);commands[n++]=3;commands[n++]=0;
+#else
     commands[n++]=0xc0012d00;commands[n++]=3;commands[n++]=2;
+#endif
     result=finish(2);if(result) return result;
     if(flip_slot(video,0,1,1)) return 68;
     sleep_slot(800000);close_slot(video);return 0;

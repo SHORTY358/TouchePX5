@@ -6,6 +6,36 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Independent GPU output bridge now carries primitive connectivity.**
+  Optional `Test-ComputeVertexBridge.ps1 -Connectivity` generates four position+
+  parameter records and a separate three-word 32-bit index output (0,1,3) on GPU.
+  Record 2 deliberately duplicates record 0's position; ignoring the generated
+  indices (drawing 0,1,2) is degenerate and cannot reproduce the expected triangle.
+  GPU producer uses separate live masks: four vertices, three connectivity words;
+  native assertions check every generated word and both buffers' trailing guards.
+  Graphics uses DRAW_INDEX_2 with explicitly selected 32-bit index type. Runner
+  requires the actual indexed draw trace and exact consumed index bytes in
+  addition to the independent pixel oracle; no CPU copy into output buffers.
+
+  Positive `artifacts/native-vertex-bridge/20261014-024323-076` passes native
+  checks, actual compute/indexed rasterization and analytic RGB interpolation:
+  443981 interior and 1320232 exterior pixels. Wrong-connectivity control
+  `20261014-024251-311` retains correct generated GPU data but deliberately
+  consumes 0,1,2; native checks pass, pixel oracle rejects it. Color-only baseline
+  `20261014-024255-989` still passes. Initial index-type packet shape was wrong
+  (three instead of two words), caught in retained `20261014-024218-250`
+  failed run; current fixture uses exact C0002A00/1 two-word packet.
+  Runtime unchanged; latest library suite remains 1296.
+
+  This completes the independent position/parameter/index transport foundation,
+  **not original NGG translation, group amplification/culling or Gears rendering**.
+  Next real runtime work: an explicit NGG compute-expansion mode that converts
+  original position/parameter/primitive exports into this bounded output layout,
+  with real group system inputs, source IDs, shared LDS/EXEC/barriers, invalid
+  primitive handling and ownership. Use numerical output checks before wiring
+  that mode to Gears. Do not continue endless transport variants without a
+  concrete runtime blocker; current Gears still rejects its graphics barrier.
+
 - **Independent output bridge now carries parameters with verified interpolation.**
   `Test-ComputeVertexBridge.ps1 -ColorParameters` selects an explicit eight-word
   record: four position words plus four parameter words, stride 32. GPU wave32

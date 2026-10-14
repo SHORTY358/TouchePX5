@@ -88,9 +88,17 @@ fragment interpolation passes an independent barycentric RGB pixel oracle and
 visual inspection. Deliberately swapped parameter export channels fail the pixel
 oracle while buffer checks still pass. Position-only mode remains validated.
 
-This still does not expand original NGG exports, carry primitive connectivity,
-or solve Gears retirement. Extend topology/output layout and translation stage
-before routing Gears through it.
+The optional `-Connectivity` variant now produces separate GPU index words
+0,1,3 alongside four position/parameter records. A decoy at record 2 makes ignoring
+the generated topology visibly wrong. Actual indexed draw trace, consumed index
+bytes, native buffer/guard checks and analytic interpolated pixels all pass.
+Deliberately consuming 0,1,2 fails the pixel oracle despite correct GPU outputs.
+
+The transport foundation is complete for this independent triangle. Next work
+must address original NGG compute-expansion translation and system inputs, not
+more transport variants without a failure to resolve. Gears and its retirement
+remain unverified; original NGG primitive export is not yet decoded into this
+host index output, and culling/amplification modes are not implemented.
 
 ## Independent ownership failure
 

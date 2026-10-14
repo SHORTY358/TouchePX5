@@ -1,8 +1,10 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([switch]$SkipProducer,[switch]$ColorParameters,[switch]$WrongParameterMapping)
+param([switch]$SkipProducer,[switch]$ColorParameters,[switch]$WrongParameterMapping,[switch]$Connectivity,[switch]$WrongConnectivity)
 $ErrorActionPreference='Stop'
+if($WrongConnectivity -and -not $Connectivity) { throw 'Wrong connectivity requires the indexed bridge scenario' }
+if($Connectivity) { $ColorParameters=$true }
 if($WrongParameterMapping -and -not $ColorParameters) { throw 'Wrong parameter control requires the color parameter scenario' }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out=Join-Path $root ('artifacts/native-vertex-bridge/'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
@@ -15,6 +17,8 @@ $options=@()
 if($SkipProducer) { $options+='-DBRIDGE_SKIP_PRODUCER=1' }
 if($ColorParameters) { $options+='-DBRIDGE_PARAMETERS=1' }
 if($WrongParameterMapping) { $options+='-DBRIDGE_WRONG_PARAMETER=1' }
+if($Connectivity) { $options+='-DBRIDGE_CONNECTIVITY=1' }
+if($WrongConnectivity) { $options+='-DBRIDGE_WRONG_CONNECTIVITY=1' }
 & $clang --target=x86_64-pc-linux-gnu -O1 -ffreestanding -fno-builtin -fno-stack-protector -fpie -mno-sse @options -c $source -o "$out/bridge.o"
 if($LASTEXITCODE) { throw 'Bridge compile failed' }
 & $clang --target=x86_64-pc-linux-gnu -c $imports -o "$out/imports.o"
@@ -30,7 +34,7 @@ $settings=@{SHARPEMU_LOG_AGC='1';SHARPEMU_TRACE_GUEST_IMAGES='present';SHARPEMU_
 $report=[ordered]@{Scope='Independent compute output to graphics vertex fetch; not original NGG execution';
  SourceSha256=(Get-FileHash $source).Hash;ImportsSha256=(Get-FileHash $imports).Hash;LayoutSha256=(Get-FileHash $layout).Hash;
  ElfSha256=(Get-FileHash "$out/bridge.elf").Hash;RuntimeFiles=@(Get-ToucheRuntimeManifest -Directory (Split-Path $exe));Settings=$settings;
- NativeAssertionsPassed=$false;RenderingVerified=$false;HostExit=$null;SkipProducer=[bool]$SkipProducer;ColorParameters=[bool]$ColorParameters;WrongParameterMapping=[bool]$WrongParameterMapping}
+ NativeAssertionsPassed=$false;RenderingVerified=$false;HostExit=$null;SkipProducer=[bool]$SkipProducer;ColorParameters=[bool]$ColorParameters;WrongParameterMapping=[bool]$WrongParameterMapping;Connectivity=[bool]$Connectivity;WrongConnectivity=[bool]$WrongConnectivity}
 $old=@{};$process=$null
 try {
  foreach($key in $settings.Keys) { $old[$key]=[Environment]::GetEnvironmentVariable($key);[Environment]::SetEnvironmentVariable($key,$settings[$key]) }
@@ -43,6 +47,12 @@ try {
  if([regex]::Matches($log,'vk.compute_dispatch groups=').Count -ne 1 -or
     [regex]::Matches($log,'vk.offscreen_draw mrt=1 size=320x180 textures=0').Count -ne 1 -or
     $log.Contains('agc.compute_semantic_fast_path')) { throw 'Expected actual GPU compute and graphics draw without CPU replacement' }
+ if($Connectivity) {
+    $expectedIndices=if($WrongConnectivity) { 'indices=[32:000000000100000002000000]' } else { 'indices=[32:000000000100000003000000]' }
+    if(-not $log.Contains('agc.draw_packet op=0x27 count=3') -or -not $log.Contains($expectedIndices)) {
+        throw 'Expected actual indexed graphics consumption of the retained three-word connectivity'
+    }
+ }
  & "$PSScriptRoot/Verify-VertexBridgePixels.ps1" -Directory $out -ColorParameters:$ColorParameters
  $report.RenderingVerified=$true
  Write-Output "Native bridge assertions pass; inspect pixels: $out"
