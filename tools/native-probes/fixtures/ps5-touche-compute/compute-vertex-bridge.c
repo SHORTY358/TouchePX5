@@ -13,29 +13,63 @@ extern int (*submit_slot)(void*);
 static u32 pixels[320*180] __attribute__((aligned(256)));
 static unsigned char attribute[40];
 static u64 addresses[1];
-static volatile u32 output[28] __attribute__((aligned(256)));
+#ifdef BRIDGE_PARAMETERS
+#define RECORD_WORDS 8
+#else
+#define RECORD_WORDS 4
+#endif
+static volatile u32 output[3*RECORD_WORDS+16] __attribute__((aligned(256)));
 static volatile u32 completed;
 static u32 commands[256];
 static int n;
 static struct {u64 address;u32 count;u32 reserved;} submission;
-static const u32 input[12] __attribute__((aligned(256))) = {
+static const u32 input[3*RECORD_WORDS] __attribute__((aligned(256))) = {
     0xbf400000,0xbf400000,0,0x3f800000,
+#ifdef BRIDGE_PARAMETERS
+    0x3f800000,0,0,0x3f800000,
+#endif
     0x3f400000,0xbf400000,0,0x3f800000,
-    0xbf400000,0x3f400000,0,0x3f800000
+#ifdef BRIDGE_PARAMETERS
+    0,0x3f800000,0,0x3f800000,
+#endif
+    0xbf400000,0x3f400000,0,0x3f800000,
+#ifdef BRIDGE_PARAMETERS
+    0,0,0x3f800000,0x3f800000,
+#endif
 };
 static const u32 producer[] __attribute__((aligned(256))) = {
     0x7e0c0300, // preserve local invocation index in v6
     0x7d880c00,0xbefe046a, // live count s0 > index; exact tail mask
     0xe0382000,0x80020006,0xbf8c0f70, // load four raw position words from s8..11
     0xe0782000,0x80030006, // write explicit position record to s12..15
+#ifdef BRIDGE_PARAMETERS
+    0xe0382010,0x80020006,0xbf8c0f70,
+    0xe0782010,0x80030006, // same source index, separate four-word parameter
+#endif
     0xbefe04c1,0xbf8a0000,0xbf810000 // restore all participants, barrier
 };
 static const u32 vertex[] __attribute__((aligned(256))) = {
     0xe00c2000,0x80020005,0xbf8c0f70, // typed XYZW from s8..11, source ID v5
+#ifdef BRIDGE_PARAMETERS
+    0xe00c2010,0x80020405,0xbf8c0f70,
+    0xf800020f,
+#ifdef BRIDGE_WRONG_PARAMETER
+    0x07040506, // deliberate negative control: swap red/blue parameter channels
+#else
+    0x07060504, // param0 comes from produced buffer, not fixed shader color
+#endif
+#endif
     0xf80008cf,0x03020100,0xbf810000
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
+#ifdef BRIDGE_PARAMETERS
+    0xc8000000,0xc8010001, // attr0.x -> v0
+    0xc8040100,0xc8050101, // attr0.y -> v1
+    0xc8080200,0xc8090201, // attr0.z -> v2
+    0x7e0602f2,
+#else
     0x7e0002f2,0x7e020280,0x7e040280,0x7e0602f2,
+#endif
     0xf800180f,0x03020100,0xbf810000
 };
 static void reg(u32 op,u32 index,u32 value) {
@@ -64,23 +98,26 @@ int _start(void) {
     for(u32 i=0;i<320*180;i++) pixels[i]=0xff202020;
     if(flip_slot(video,0,1,0)) return 63;
     sleep_slot(300000);
-    for(u32 i=0;i<28;i++) output[i]=0xdeadbeef;
+    for(u32 i=0;i<3*RECORD_WORDS+16;i++) output[i]=0xdeadbeef;
     u64 cs=(u64)producer;
     n=0;reg(0x76,0x20c,(u32)(cs>>8));reg(0x76,0x20d,(u32)(cs>>40));
     reg(0x76,0x213,16<<1);reg(0x76,0x207,64);reg(0x76,0x208,1);reg(0x76,0x209,1);
-    reg(0x76,0x240,3);descriptor(0x248,(u64)input,16,3,77);
-    descriptor(0x24c,(u64)output,16,3,77);
+    reg(0x76,0x240,3);descriptor(0x248,(u64)input,RECORD_WORDS*4,3,77);
+    descriptor(0x24c,(u64)output,RECORD_WORDS*4,3,77);
 #ifndef BRIDGE_SKIP_PRODUCER
     commands[n++]=0xc0031502;commands[n++]=1;commands[n++]=1;commands[n++]=1;commands[n++]=5|(1<<15);
 #endif
     int result=finish(1);if(result) return result;
-    for(u32 i=0;i<12;i++) if(output[i]!=input[i]) return 66;
-    for(u32 i=12;i<28;i++) if(output[i]!=0xdeadbeef) return 67;
+    for(u32 i=0;i<3*RECORD_WORDS;i++) if(output[i]!=input[i]) return 66;
+    for(u32 i=3*RECORD_WORDS;i<3*RECORD_WORDS+16;i++) if(output[i]!=0xdeadbeef) return 67;
     n=0;u64 vs=(u64)vertex,ps=(u64)pixel,target=(u64)pixels;
     reg(0x76,0xc8,(u32)(vs>>8));reg(0x76,0xc9,(u32)(vs>>40));reg(0x76,0xcb,4<<1);
-    descriptor(0xcc,(u64)output,16,3,77);
+    descriptor(0xcc,(u64)output,RECORD_WORDS*4,3,77);
     reg(0x76,0x8,(u32)(ps>>8));reg(0x76,0x9,(u32)(ps>>40));reg(0x76,0xb,0);
     reg(0x69,0x1b3,0);reg(0x69,0x1b4,0);
+#ifdef BRIDGE_PARAMETERS
+    reg(0x69,0x1b3,1);reg(0x69,0x1b4,1);reg(0x69,0x191,0);
+#endif
     reg(0x69,0x318,(u32)(target>>8));reg(0x69,0x390,(u32)(target>>40));
     reg(0x69,0x3b0,(319<<14)|179);reg(0x69,0x3b8,0);reg(0x69,0x31c,10<<2);reg(0x69,0x8e,0xf);
     reg(0x69,0x10f,0x43200000);reg(0x69,0x110,0x43200000);

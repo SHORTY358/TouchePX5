@@ -82,9 +82,15 @@ interior/exterior oracle; the image was also visually inspected. Omitting the
 producer intentionally fails native output checking (66), so zero/untouched
 buffers are not accepted. Source fixture is `compute-vertex-bridge.c`.
 
-This bridge carries position only. It does not yet expand original NGG exports,
-carry parameters/primitive connectivity, or solve Gears retirement. Extend the
-layout and translation stage before routing Gears through it.
+The optional `-ColorParameters` variant now carries position plus param0 (eight
+words, stride 32). Compute output words and guards pass native checks; actual
+fragment interpolation passes an independent barycentric RGB pixel oracle and
+visual inspection. Deliberately swapped parameter export channels fail the pixel
+oracle while buffer checks still pass. Position-only mode remains validated.
+
+This still does not expand original NGG exports, carry primitive connectivity,
+or solve Gears retirement. Extend topology/output layout and translation stage
+before routing Gears through it.
 
 ## Independent ownership failure
 

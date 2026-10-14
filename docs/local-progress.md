@@ -6,6 +6,34 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Independent output bridge now carries parameters with verified interpolation.**
+  `Test-ComputeVertexBridge.ps1 -ColorParameters` selects an explicit eight-word
+  record: four position words plus four parameter words, stride 32. GPU wave32
+  producer copies both spans for exactly three live vertices; native assertions
+  compare all 24 words and trailing guards before graphics reads them. Vertex
+  shader exports produced color as param0; fragment shader interpolates RGB.
+  CPU initializes only sentinels in the output; shader color is not replaced by
+  a fixed color or host-generated gradient. Original position-only mode remains.
+
+  Actual run `artifacts/native-vertex-bridge/20261014-021218-531` passes native
+  output checks, GPU-path counts and an independent barycentric gradient oracle:
+  443981 interior pixels (all RGB channels within 5/255 of analytic interpolation)
+  and 1320232 black exterior pixels, excluding the documented edge band.
+  Actual captured `frame.png` was visually inspected: correct red/green/blue
+  corner gradient. Final BGRA SHA256:
+  `02C571EE40087D28382ADA6B259EB168D849F196CCCBCB8B91372E8079270B64`.
+  Deliberate `-WrongParameterMapping` swaps red/blue at the vertex export: native
+  buffer assertions still pass but pixel oracle correctly fails. Retained run
+  `20261014-021250-600` reports numerical success and rendering failure separately.
+  Position-only baseline `20261014-021255-276` still passes unchanged red oracle.
+
+  This is a validated independent position+parameter transport path, **not original
+  Gears/NGG execution**. No emulator runtime changes, latest library suite remains
+  1296. Next: explicit primitive connectivity/output layout and original NGG
+  compute expansion with real system inputs; handle allocation/topology/tails
+  and synchronization before routing Gears. Gears is still rejected at graphics
+  workgroup barrier, and flip-token retirement remains independently unresolved.
+
 - **Independent compute-to-vertex bridge now produces verified GPU pixels.**
   New original native `compute-vertex-bridge.c` dispatches wave32 compute with
   64 local participants and an exact three-record tail mask. GPU loads raw
