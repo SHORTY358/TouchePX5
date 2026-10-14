@@ -6,6 +6,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original GS replay now includes the actual submitted draw context.**
+  Captured before either stage compilation can fail, with count, instance count,
+  topology, base vertex and indexed state. Indexed diagnostics retain original
+  guest-width bytes and offsets; unreadable or oversized ranges remain explicit
+  failures rather than fabricated indices. Backend-only callers remain supported.
+  Bounded native run `gears-shader-aperture-windows/runs/20261014-075029-873`
+  produced `artifacts/gears-shader-replay/20261014-075029-729/0000000200001000.replay.json`:
+  **3 vertices, 1 instance, primitive type 4, base vertex 0, nonindexed**.
+  These are command-state observations, not inferred from the 72-byte views.
+  Library suite remains **1395/1395**; CLI builds with the existing SHEM006
+  catalog warning only. Rendering remains blocked. Next use this matched context
+  for nonempty original-shader GPU execution with separate storage bindings.
+
 - **Original retained Gears GS now passes compute compiler coverage with captured inputs.**
   Added opt-in pre-compilation vertex-backend replay snapshots: original decoded
   instruction words/PCs, user data, initial/final scalar state, metadata, image

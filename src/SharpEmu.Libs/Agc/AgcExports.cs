@@ -6,6 +6,7 @@ using SharpEmu.HLE;
 using SharpEmu.Libs.Bink;
 using SharpEmu.Libs.Gpu;
 using SharpEmu.ShaderCompiler;
+using SharpEmu.ShaderCompiler.Vulkan;
 using SharpEmu.Libs.Kernel;
 using SharpEmu.Libs.VideoOut;
 using System.Buffers.Binary;
@@ -7754,6 +7755,9 @@ public static partial class AgcExports
             var totalGlobalBufferCount = _bakeScalars
                 ? guestGlobalBufferCount
                 : guestGlobalBufferCount + 2;
+            CaptureShaderReplayDraw(ctx, state, vertexCount, indexed, exportState, exportEvaluation,
+                new(0, totalGlobalBufferCount, 0, _bakeScalars ? -1 : guestGlobalBufferCount + 1,
+                    0, _storageBufferOffsetAlignment));
             if (!GuestGpu.Current.TryCompileVertexShader(
                     exportState,
                     exportEvaluation,
@@ -8298,6 +8302,10 @@ public static partial class AgcExports
                         GetRenderTargetComponentMapping(renderTargets[location]));
                 }
 
+                CaptureShaderReplayDraw(ctx, state, vertexCount, indexed, exportState, exportEvaluation,
+                    new(pixelEvaluation.GlobalMemoryBindings.Count, totalGlobalBuffers,
+                        pixelEvaluation.ImageBindings.Count, _bakeScalars ? -1 : guestGlobalBuffers + 1,
+                        checked((int)requiredVertexOutputCount), _storageBufferOffsetAlignment));
                 if (!GuestGpu.Current.TryCompilePixelShader(
                         pixelState,
                         pixelEvaluation,
@@ -8957,6 +8965,42 @@ public static partial class AgcExports
         state.UcRegisters.TryGetValue(GeIndxOffset, out var indexOffset)
             ? unchecked((int)indexOffset)
             : 0;
+
+    private static void CaptureShaderReplayDraw(CpuContext ctx, SubmittedDcbState state,
+        uint drawCount, bool indexed, Gen5ShaderState shader, Gen5ShaderEvaluation evaluation,
+        Gen5ShaderReplayLayout layout)
+    {
+        if (!Gen5ShaderReplayCapture.IsEnabled) return;
+        state.UcRegisters.TryGetValue(VgtPrimitiveType, out var primitiveType);
+        var stride = indexed ? AgcIndexHelpers.GetGuestStrideBytes(GetProsperoIndexType(state)) : 0;
+        byte[]? indices = null;
+        var status = indexed ? "unreadable" : "not-indexed";
+        if (indexed)
+        {
+            var offset = (ulong)state.DrawIndexOffset * (uint)stride;
+            var length = (ulong)drawCount * (uint)stride;
+            // Diagnostic reads retain original guest widths, never expanded host indices.
+            // Explicitly report oversized/unreadable ranges instead of inventing topology.
+            if (length > 16 * 1024 * 1024) status = "exceeds-16MiB-capture-limit";
+            else if (state.IndexBufferAddress != 0 &&
+                     offset <= ulong.MaxValue - state.IndexBufferAddress &&
+                     length <= ulong.MaxValue - (state.IndexBufferAddress + offset))
+            {
+                var data = new byte[(int)length];
+                var address = state.IndexBufferAddress + offset;
+                if (ctx.Memory.TryRead(address, data) ||
+                    KernelMemoryCompatExports.TryReadTrackedLibcHeap(address, data))
+                {
+                    indices = data;
+                    status = "captured";
+                }
+            }
+        }
+        Gen5ShaderReplayCapture.TryWrite(shader, evaluation, layout,
+            new(drawCount, state.InstanceCount, primitiveType, GetBaseVertex(state), indexed,
+                indexed ? state.IndexBufferAddress : 0, indexed ? state.DrawIndexOffset : 0,
+                stride, indices, status));
+    }
 
     private static GuestIndexBuffer? CreateGuestIndexBuffer(
         CpuContext ctx,

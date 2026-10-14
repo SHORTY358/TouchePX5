@@ -8,10 +8,18 @@ namespace SharpEmu.ShaderCompiler.Vulkan;
 public sealed record Gen5ShaderReplayLayout(int GlobalBufferBase, int TotalGlobalBufferCount,
     int ImageBindingBase, int ScalarRegisterBufferIndex, int RequiredVertexOutputCount, ulong StorageBufferOffsetAlignment);
 
+public sealed record Gen5ShaderReplayDrawContext(uint DrawCount, uint InstanceCount,
+    uint PrimitiveType, int BaseVertex, bool Indexed, ulong IndexBufferAddress,
+    uint IndexOffset, int IndexStrideBytes, byte[]? IndexData, string IndexCaptureStatus);
+
 public static class Gen5ShaderReplayCapture
 {
     private static readonly ConcurrentDictionary<string, byte> Captured = new();
-    public static void TryWrite(Gen5ShaderState state, Gen5ShaderEvaluation evaluation, Gen5ShaderReplayLayout layout)
+    public static bool IsEnabled => !string.IsNullOrWhiteSpace(
+        Environment.GetEnvironmentVariable("TOUCHEPX5_SHADER_REPLAY_DIR"));
+
+    public static void TryWrite(Gen5ShaderState state, Gen5ShaderEvaluation evaluation,
+        Gen5ShaderReplayLayout layout, Gen5ShaderReplayDrawContext? drawContext = null)
     {
         var directory = Environment.GetEnvironmentVariable("TOUCHEPX5_SHADER_REPLAY_DIR");
         if (string.IsNullOrWhiteSpace(directory)) return;
@@ -28,7 +36,7 @@ public static class Gen5ShaderReplayCapture
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, $"{state.Program.Address:X16}.replay.json"),
                 JsonSerializer.Serialize(new { Scope = "Owned vertex backend inputs before compilation; no replay or GPU execution implied",
-                    Snapshot = snapshot, BackendLayout = layout }, new JsonSerializerOptions { WriteIndented = true }));
+                    Snapshot = snapshot, BackendLayout = layout, DrawContext = drawContext }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
