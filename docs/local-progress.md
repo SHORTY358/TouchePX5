@@ -6,6 +6,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Multiple explicit subgroups now have an owned host transport plan.**
+  `Gen5NggPassthroughBatch` snapshots caller source records and packs four-word
+  host descriptors (GroupInfo, relative source-word offset, vertex output base,
+  primitive output base). Wave size/thread extent must be common; each group
+  reserves full thread-slot ranges even with shorter/empty live counts. Output
+  slot identity remains separate from guest source IDs. Checked arithmetic and
+  existing source-count/index validation apply. Ordered IDs remain caller
+  supplied; no hardware schedule or vertex compaction is invented.
+
+  Two-group regression checks prove distinct live counts/topology/source IDs,
+  disjoint reserved output bases, correct local-to-host index remapping and no
+  retained mutable caller-array alias. Empty subgroup and mixed/empty execution
+  layouts are checked. Full Release suite **1375/1375**; CLI builds cleanly.
+  Layout/next runtime gates are in `docs/ngg-dispatch-descriptors.md`.
+
+  This is a host packing plan only, not GPU descriptor loading or Gears. Next
+  add bounded descriptor reads, per-group count/source injection and output
+  bases to the Vulkan compute mode, then validate distinct groups/invalid tables
+  on hardware before integrating the indexed graphics bridge.
+
 - **Bounded passthrough source records now reach guest VGPRs on GPU.**
   Optional `Gen5ComputeNggPassthroughInput` requires explicit matching count
   inputs and loads one complete subgroup's nine-word records from an existing
