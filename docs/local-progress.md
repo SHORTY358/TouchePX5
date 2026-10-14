@@ -26,11 +26,20 @@ percentage or release-date estimate.
   **1304/1304** passes; CLI rebuild zero warnings/errors. Existing independent
   GPU indexed transport probe still passes in `20261014-031613-360`.
 
-  **New export-lowering mode has not yet been executed on GPU or routed to Gears.**
-  Existing native probe uses ordinary buffer stores; its pixels validate the
-  preceding transport path, not this new lowering. Next: run generated position+
-  parameter EXP compute on real GPU, inspect numeric writes/disabled channels,
-  inactive EXEC and tail guards; then implement primitive output and actual
+  **New export lowering now passes a real GTX 1060 Vulkan dispatch.**
+  `tools/native-probes/Test-ComputeExports.ps1` generates synthetic IR through
+  the actual translator and checks every one of 40 output words: three live
+  position/parameter records, inactive EXEC, disabled components, zero enable
+  mask and 16 trailing guard words. Two groups of 64 are dispatched; excess
+  invocations cannot write past logical capacity. Negative capacity control
+  deliberately permits a fourth record; the same oracle detects exactly six
+  clobbered words and requires exit 1. The original arithmetic/EXEC/f16 GPU
+  baseline also passes. ShaderDump now explicitly expects missing-transport
+  rejection for compute exports, while retaining vertex/pixel checks.
+  Reproducible evidence and source/SPIR-V/log hashes:
+  `artifacts/compute-export-gpu/20261014-132943-696/execution-report.json`.
+  This is synthetic IR, not guest EXP decoding or Gears; no NGG system inputs
+  or primitive decoding are validated. Next implement primitive output and actual
   merged group/wave inputs. Do not enable original Gears until those gates pass.
   Gears still lacks verified geometry and retains the separate token-loss issue.
 

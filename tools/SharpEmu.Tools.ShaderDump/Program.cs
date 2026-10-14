@@ -254,11 +254,22 @@ foreach (var (name, expectTranslate, words) in testPrograms)
         Console.WriteLine($"[{name}] emit: FAILED ({vertexError})");
     }
 
+    var requiresExportTransport = program.Instructions.Any(instruction => instruction.Encoding == Gen5ShaderEncoding.Exp);
     if (Gen5SpirvTranslator.TryCompileComputeShader(state, evaluation, 1, 1, 1, out var computeShader, out var computeError))
     {
+        if (requiresExportTransport)
+        {
+            failures++;
+            Console.WriteLine($"[{name}] compute emit: FAILED (exports accepted without explicit transport)");
+        }
         var path = Path.Combine(outputDirectory, $"{name}-cs.spv");
         File.WriteAllBytes(path, computeShader.Spirv);
         Console.WriteLine($"[{name}] compute emit: success, {computeShader.Spirv.Length} bytes -> {path}");
+    }
+    else if (requiresExportTransport && computeError is not null &&
+        computeError.Contains("compute export requires explicit output transport", StringComparison.Ordinal))
+    {
+        Console.WriteLine($"[{name}] compute emit: expected missing-transport rejection");
     }
     else
     {

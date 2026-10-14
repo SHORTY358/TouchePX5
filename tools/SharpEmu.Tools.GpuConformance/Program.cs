@@ -24,16 +24,22 @@
 // Creating the compute pipeline doubles as a driver-acceptance check for the
 // emitted SPIR-V; the dispatch then verifies the arithmetic numerically.
 //
-// Usage: SharpEmu.Tools.GpuConformance <path-to-exec-cs.spv>
+// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json]
+// Explicit expected words select a buffer of that size and two X workgroups;
+// omitted expected words retain the original arithmetic probe and one group.
 
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
+using System.Text.Json;
 
 const uint Sentinel = 0xCAFEBABE;
 
 // Must match the 64-byte global-memory binding ShaderDump constructs for the
 // exec program.
-const ulong BufferSize = 64;
+var explicitExpected = args.Length > 1 ? JsonSerializer.Deserialize<uint[]>(File.ReadAllText(args[1]))
+    ?? throw new InvalidOperationException("Missing expected words") : null;
+if (explicitExpected is { Length: 0 or > 16384 }) throw new InvalidOperationException("Invalid bounded output size");
+var BufferSize = explicitExpected is null ? 64UL : (ulong)explicitExpected.Length * sizeof(uint);
 
 var expectedFma = BitConverter.SingleToUInt32Bits(
     MathF.FusedMultiplyAdd(1.5f, 2.25f, 10.0f));
@@ -79,8 +85,7 @@ unsafe
     vk.EnumeratePhysicalDevices(instance, &deviceCount, null);
     if (deviceCount == 0)
     {
-        Console.WriteLine("no Vulkan devices found");
-        return;
+        throw new InvalidOperationException("no Vulkan devices found; conformance was not executed");
     }
 
     var physicalDevices = new PhysicalDevice[deviceCount];
@@ -332,7 +337,7 @@ unsafe
         in descriptorSet,
         0,
         null);
-    vk.CmdDispatch(commandBuffer, 1, 1, 1);
+    vk.CmdDispatch(commandBuffer, explicitExpected is null ? 1u : 2u, 1, 1);
     var barrier = new MemoryBarrier
     {
         SType = StructureType.MemoryBarrier,
@@ -372,6 +377,12 @@ unsafe
         ("v_pk_fma_f16 neg addend rounds down", words[6], ExpectedPkFmaNeg),
         ("v_pk_fma_f16 clamp saturates to 1.0", words[7], ExpectedPkFmaClamp),
     };
+    if (explicitExpected is not null)
+    {
+        results = new (string Name, uint Actual, uint Expected)[explicitExpected.Length];
+        for (var index = 0; index < results.Length; index++)
+            results[index] = ($"bounded export word {index}", words[index], explicitExpected[index]);
+    }
     var failures = 0;
     foreach (var (name, actual, expected) in results)
     {
@@ -397,7 +408,7 @@ unsafe
     }
 
     failures += trailingClobbered;
-    if (trailingClobbered == 0)
+    if (trailingClobbered == 0 && results.Length < totalWords)
     {
         Console.WriteLine(
             $"PASS  trailing words [{results.Length}..{totalWords - 1}] intact (sentinel)");

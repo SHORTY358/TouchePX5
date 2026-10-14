@@ -110,10 +110,16 @@ Compressed and primitive exports fail explicitly; ordinary compute exports
 without this transport fail instead of disappearing. Local Y/Z must be one;
 nonzero dispatched group Y/Z rows are suppressed to avoid output aliasing.
 
-Compilation/regression checks pass, but this new lowering has not been exercised
-on GPU. Next validate generated EXP writes numerically on hardware, including
-tail/EXEC/enable-mask controls, then add primitive decoding and the actual NGG
-system-input/dispatch adapter. Prior transport pixels do not validate this mode.
+The lowering now passes actual GTX 1060 Vulkan execution through
+`Test-ComputeExports.ps1`: all 40 words match, including disabled parameter
+channels, inactive EXEC, zero enable mask and 16 tail guards. Two 64-local groups
+exercise a three-record capacity. Deliberately compiling capacity four against
+the same expected three-record output fails at exactly six guard words.
+Original arithmetic GPU conformance remains passing. Evidence:
+`artifacts/compute-export-gpu/20261014-132943-696/execution-report.json`.
+Input is synthetic IR through the real translator, not original Gears or guest
+EXP decoding. Next add primitive decoding and the actual NGG system-input/
+dispatch adapter. Prior transport pixels do not validate original Gears.
 
 ## Independent ownership failure
 
