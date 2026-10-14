@@ -87,7 +87,10 @@ public static partial class AgcExports
             bindings.Add(new(0, scratch.Address, [], auxiliary, auxiliary.Length, false) { Writable = true, WriteBackToGuest = true });
             var evaluation = new Gen5ShaderEvaluation(snapshot.InitialScalarRegisters, snapshot.ScalarRegisters, snapshot.ImageBindings,
                 bindings, snapshot.EvaluationComputeSystemRegisters, snapshot.RuntimeScalarRegisters?.ToHashSet(), snapshot.VertexInputs);
+            var runtimeScalars = Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_RUNTIME_SCALARS") == "1";
             if (!Gen5SpirvTranslator.TryCompileComputeShader(exportState, evaluation, 128, 1, 1, out var compute, out error,
+                totalGlobalBufferCount: bindings.Count + (runtimeScalars ? 1 : 0),
+                initialScalarBufferIndex: runtimeScalars ? bindings.Count : -1,
                 exportOutput: new(outputBinding, slots, 2), triangleOutput: new(outputBinding, (uint)primitiveFirst, slots, 0),
                 nggBatchInputs: new(outputBinding, (uint)descriptorFirst, outputBinding, (uint)sourceFirst, (uint)batch.GroupCount, 128, 32),
                 storageBufferOffsetAlignment: _storageBufferOffsetAlignment)) return false;
@@ -120,8 +123,14 @@ public static partial class AgcExports
             for (var word = 0; word < pixelSnapshot.InitialScalarRegisters.Length; word++) BinaryPrimitives.WriteUInt32LittleEndian(scalarBytes.AsSpan(word * 4), pixelSnapshot.InitialScalarRegisters[word]);
             if (!ctx.Memory.TryWrite(scratch.Address + 0x3FC00, scalarBytes)) { error = "gears-ngg scalar initialization failed"; return false; }
             var drawSequence = state.ReplayDrawSequence;
+            var computeBuffers = bindings.Select(b => new GuestMemoryBuffer(b.BaseAddress, b.Data, b.DataLength, false, b.Writable, b.WriteBackToGuest)).ToList();
+            if (runtimeScalars)
+            {
+                var runtimeBytes = PackRuntimeScalarStateUnpooled(snapshot.InitialScalarRegisters, bindings);
+                computeBuffers.Add(new(0, runtimeBytes, runtimeBytes.Length, false));
+            }
             var computeSequence = gpu.SubmitComputeDispatch(exportState.Program.Address, new VulkanCompiledGuestShader(compute.Spirv), [],
-                bindings.Select(b => new GuestMemoryBuffer(b.BaseAddress, b.Data, b.DataLength, false, b.Writable, b.WriteBackToGuest)).ToArray(),
+                computeBuffers,
                 (uint)batch.GroupCount, 1, 1, 0, 0, 0, 128, 1, 1, false, true, slots, 1, 1);
             if (computeSequence <= 0) { error = "gears-ngg compute enqueue failed"; return false; }
             submitted = true; // From here, never recycle scratch on enqueue failure.

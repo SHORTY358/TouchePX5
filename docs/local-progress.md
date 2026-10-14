@@ -62,6 +62,19 @@ percentage or release-date estimate.
   Next: longer native stability checks, independent late-frame fidelity checks,
   then reuse shader pipelines without baking changing matrix scalars.
 
+  Follow-up diagnostic: `Test-GearsNativeNgg.ps1 -RuntimeScalars` supplies original
+  initial GS scalars and aligned-buffer biases as a runtime storage buffer using
+  the existing compiler contract. It remains OFF by default behind
+  `TOUCHEPX5_GEARS_RUNTIME_SCALARS=1`; it is NOT a passing optimization yet.
+  Run `gears-shader-aperture-windows/runs/20261014-113925-070` reached seven
+  completed native frames but failed at frame 7: expected flip token
+  72567767433224, observed 72567767433225. The wrapper correctly rejected the
+  run. Do not weaken ownership checks or certify frame hashes as fidelity.
+  Investigate flip event coalescing/delivery and presentation pacing under the
+  faster pipeline before enabling this mode. Baseline operation remains the
+  successfully inspected 30-second run above. The default-off native path still
+  rejects the original graphics barrier, verified in `20261014-113717-894`.
+
 - **Original captured GS exports now traverse the emulator's actual compute queue and guest writeback.**
   `--queued-compute` attaches owned bounded memory ranges, submits the retained
   original compute SPIR-V through GuestGpu, then enqueues selective output-range

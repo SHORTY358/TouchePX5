@@ -1,14 +1,15 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
-param([ValidateRange(5,60)][int]$TimeoutSeconds=12)
+param([ValidateRange(5,60)][int]$TimeoutSeconds=12,[switch]$RuntimeScalars)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $output=Join-Path $repo ('artifacts/gears-native-ngg/'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
-$variables=@('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG','SHARPEMU_LOG_VIDEOOUT','SHARPEMU_TRACE_GUEST_IMAGES','SHARPEMU_GUEST_IMAGE_DUMP_DIR','SHARPEMU_SWAPCHAIN_DUMP_EVERY')
+$variables=@('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG','TOUCHEPX5_GEARS_RUNTIME_SCALARS','SHARPEMU_LOG_VIDEOOUT','SHARPEMU_TRACE_GUEST_IMAGES','SHARPEMU_GUEST_IMAGE_DUMP_DIR','SHARPEMU_SWAPCHAIN_DUMP_EVERY')
 $saved=@{}
 foreach($name in $variables) { $saved[$name]=[Environment]::GetEnvironmentVariable($name) }
 try {
     $env:TOUCHEPX5_EXPERIMENTAL_GEARS_NGG='1'
+    $env:TOUCHEPX5_GEARS_RUNTIME_SCALARS=if($RuntimeScalars) { '1' } else { '0' }
     $env:SHARPEMU_LOG_VIDEOOUT='1'
     $env:SHARPEMU_TRACE_GUEST_IMAGES='present'
     $env:SHARPEMU_GUEST_IMAGE_DUMP_DIR=$output
@@ -34,6 +35,7 @@ try {
         ConsumedDraws=$consumed;SubmittedFlips=$submittedFlips
         NativePresentedImagesVerified=$true;FrameImagesChange=$true;OwnershipFailureObserved=$false
         RenderingFidelityAutomaticallyVerified=$false
+        RuntimeComputeScalars=[bool]$RuntimeScalars
         TerminatedAtDeadline=$nativeReport.TerminatedAtDeadline;ExperimentalModeOnly=$true;Frames=$hashes
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$output/native-ngg-report.json" -Encoding UTF8
     Write-Output "PASS actual native NGG frames change without frame-loop failure: $output"
