@@ -40,7 +40,7 @@ const uint Sentinel = 0xCAFEBABE;
 // exec program.
 var explicitExpected = args.Length > 1 ? JsonSerializer.Deserialize<uint[]>(File.ReadAllText(args[1]))
     ?? throw new InvalidOperationException("Missing expected words") : null;
-if (explicitExpected is { Length: 0 or > 16384 }) throw new InvalidOperationException("Invalid bounded output size");
+if (explicitExpected is { Length: 0 or > 65536 }) throw new InvalidOperationException("Invalid bounded output size");
 var BufferSize = explicitExpected is null ? 64UL : (ulong)explicitExpected.Length * sizeof(uint);
 var initialWords = args.Length > 3 ? JsonSerializer.Deserialize<uint[]>(File.ReadAllText(args[3]))
     ?? throw new InvalidOperationException("Missing initial words") : null;
@@ -62,6 +62,13 @@ if (storageFixture is not null && (explicitExpected is null ||
     throw new InvalidOperationException("Invalid bounded multi-binding fixture");
 var storageWords = storageFixture?.Buffers ?? [initialWords ?? Enumerable.Repeat(Sentinel, checked((int)(BufferSize / 4))).ToArray()];
 var outputBindingIndex = storageFixture?.OutputBinding ?? 0;
+var floatWordIndices = storageFixture?.FloatWords?.ToHashSet() ?? [];
+var floatTolerance = storageFixture?.FloatTolerance ?? 0;
+if (!double.IsFinite(floatTolerance) || floatTolerance < 0 || floatTolerance > 0.00002 ||
+    floatWordIndices.Any(i => i < 0 || explicitExpected is null || i >= explicitExpected.Length))
+    throw new InvalidOperationException("Invalid bounded float comparison policy");
+if (floatWordIndices.Count > 0)
+    Console.WriteLine($"float reference policy: {floatWordIndices.Count} words, tolerance={floatTolerance:R} * max(1, abs(reference)); all other words exact");
 
 var expectedFma = BitConverter.SingleToUInt32Bits(
     MathF.FusedMultiplyAdd(1.5f, 2.25f, 10.0f));
@@ -427,10 +434,19 @@ unsafe
             results[index] = ($"bounded export word {index}", words[index], explicitExpected[index]);
     }
     var failures = 0;
-    foreach (var (name, actual, expected) in results)
+    for (var resultIndex = 0; resultIndex < results.Length; resultIndex++)
     {
-        var status = actual == expected ? "PASS" : "FAIL";
-        if (actual != expected)
+        var (name, actual, expected) = results[resultIndex];
+        var matches = actual == expected;
+        if (!matches && floatWordIndices.Contains(resultIndex))
+        {
+            var actualFloat = BitConverter.UInt32BitsToSingle(actual);
+            var expectedFloat = BitConverter.UInt32BitsToSingle(expected);
+            matches = float.IsFinite(actualFloat) && float.IsFinite(expectedFloat) &&
+                Math.Abs((double)actualFloat - expectedFloat) <= floatTolerance * Math.Max(1, Math.Abs((double)expectedFloat));
+        }
+        var status = matches ? "PASS" : "FAIL";
+        if (!matches)
         {
             failures++;
         }
@@ -495,4 +511,5 @@ unsafe
     }
 }
 
-internal sealed record StorageFixture(uint[][] Buffers, int OutputBinding, uint GroupsX);
+internal sealed record StorageFixture(uint[][] Buffers, int OutputBinding, uint GroupsX,
+    int[]? FloatWords = null, double FloatTolerance = 0);

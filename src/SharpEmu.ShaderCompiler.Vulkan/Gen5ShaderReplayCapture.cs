@@ -27,6 +27,9 @@ public static class Gen5ShaderReplayCapture
         if (!string.IsNullOrWhiteSpace(filter) &&
             (!ulong.TryParse(filter.Replace("0x", "", StringComparison.OrdinalIgnoreCase),
                 System.Globalization.NumberStyles.HexNumber, null, out var address) || address != state.Program.Address)) return;
+        var drawFilter = Environment.GetEnvironmentVariable("TOUCHEPX5_SHADER_REPLAY_DRAW_COUNT");
+        if (!string.IsNullOrWhiteSpace(drawFilter) &&
+            (!uint.TryParse(drawFilter, out var count) || drawContext is null || drawContext.DrawCount != count)) return;
         string? key = null;
         try
         {

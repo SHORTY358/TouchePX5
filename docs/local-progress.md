@@ -6,6 +6,43 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original Gears gear-mesh shader now executes 1200 captured vertices on GTX 1060.**
+  Added an opt-in submitted draw-count capture filter, including backend-only
+  fallback rejection when the required context is missing. Fresh bounded native
+  run `gears-shader-aperture-windows/runs/20261014-081637-509` captured the actual
+  1200-vertex nonindexed triangle-list draw with its matching matrix/quaternion,
+  material, scalar/global bytes and two 28800-byte interleaved views:
+  `artifacts/gears-shader-replay/20261014-081637-367/0000000200001000.replay.json`.
+  This does not mix later geometry with the earlier clear-draw constants.
+
+  Explicit audit partition: ten 128-thread subgroups, 126 live vertices/42 complete
+  triangles in each of the first nine, 66 vertices/22 triangles in the last.
+  Original source vertex IDs remain global; connectivity remains subgroup-local
+  until checked remap. Ordered IDs are explicit audit ordinals, not inferred AMD
+  hardware scheduling. All original guest GS bytes remain unchanged.
+
+  Independent double-precision GLSL reference verifies transformed positions and
+  quaternion-rotated normals with error <= 2e-5 * max(1, abs(reference)); material,
+  all 400 primitive records, idle slots, source/descriptor tables and guards are
+  compared exactly. All three captured read-only input buffers remain byte-exact.
+  Completed readback remaps all 400 triangles/1200 indices into the reserved 1280
+  output slots; 880 idle primitive slots and noncanonical validity=2 reject.
+  A wrong-source-ID control changes only the second group's IDs and matches the
+  expected input table to that change: it rejects 744 actual vertex output words
+  in that group, so the numerical check detects wrong source addressing rather
+  than merely comparing an altered table.
+  Evidence: `artifacts/gears-compute-replay/20261014-082117-342/execution-report.json`,
+  `remap-report.json`, and hashed positive/negative readbacks. Clear-draw regression
+  still passes (`20261014-081952-537`); library tests remain **1396/1396**.
+
+  **No actual Gears image or full-scene rendering yet.** This is independent
+  compute execution/checked readback using captured original mesh inputs. Next
+  route completed position/packed parameter records and checked indices through
+  a bounded indexed graphics submission with the original pixel stage, then
+  establish image evidence before changing the native graphics route. Actual
+  producer completion/resource ownership and frame-token failures must remain
+  enforced; this audit does not solve the game's presentation queue.
+
 - **Original retained Gears GS executes a nonempty native clear triangle on GTX 1060.**
   This is the actual first captured command (3 vertices, 1 instance, triangle list),
   original 384-byte GS and matched scalar/global/vertex bytes. The audit supplies

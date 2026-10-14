@@ -7,9 +7,16 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
-if (args.Length is < 3 or > 4 || (args.Length == 4 && args[3] != "--nonempty"))
-    throw new ArgumentException("usage: GearsComputeAudit <replay.json> <original-gears-gs.bin> <output-directory> [--nonempty]");
+if (args.Length == 3 && args[0] == "--consume-mesh")
+{
+    MeshReplayReference.Consume(args[1], args[2]);
+    return;
+}
+
+if (args.Length is < 3 or > 4 || (args.Length == 4 && args[3] is not "--nonempty" and not "--mesh"))
+    throw new ArgumentException("usage: GearsComputeAudit <replay.json> <original-gears-gs.bin> <output-directory> [--nonempty|--mesh]");
 var nonempty = args.Length == 4;
+var mesh = args.Length == 4 && args[3] == "--mesh";
 using var envelope = JsonDocument.Parse(File.ReadAllText(args[0]));
 var snapshot = envelope.RootElement.GetProperty("Snapshot").Deserialize<Gen5ShaderReplaySnapshot>()!;
 if (snapshot.Schema != 1) throw new InvalidOperationException("Unsupported replay schema");
@@ -30,26 +37,26 @@ if (!Gen5ShaderTranslator.TryDecodeProgram(new CpuContext(new ShaderMemory(snaps
 if (program!.Instructions.Count != snapshot.Instructions.Length) throw new InvalidOperationException("Decoded coverage differs from captured program");
 var directory = Path.GetFullPath(args[2]);
 Directory.CreateDirectory(directory);
-// Empty explicit subgroup for compiler coverage only. No guessed draw count,
-// source IDs, matrix constants or host-produced scene geometry are executed.
+// Default is empty compiler coverage; nonempty modes require captured draw state.
 Gen5ShaderReplayDrawContext? draw = null;
 if (nonempty)
 {
     draw = envelope.RootElement.GetProperty("DrawContext").Deserialize<Gen5ShaderReplayDrawContext>();
     // This bounded first-draw audit has one explicit triangle, not a general scheduler.
-    if (draw is null || draw.DrawCount != 3 || draw.InstanceCount != 1 || draw.PrimitiveType != 4 ||
+    if (draw is null || (!mesh && draw.DrawCount != 3) || draw.InstanceCount != 1 || draw.PrimitiveType != 4 ||
         draw.Indexed || draw.BaseVertex != 0 || draw.IndexCaptureStatus != "not-indexed")
-        throw new InvalidOperationException("Nonempty audit requires the captured first nonindexed triangle draw");
+        throw new InvalidOperationException("Nonempty audit requires captured nonindexed triangle-list draw state");
 }
-var batch = nonempty
+var batch = mesh ? MeshReplayReference.Partition(draw!) : nonempty
     ? Gen5NggPassthroughBatch.Create([(new(3, 1, 32, 128, 0),
         new Gen5NggSourceVertex[] { new(0, 0), new(1, 0), new(2, 0) },
         new Gen5NggSourceTriangle[] { new(0, 0, 1, 2) })])
     : Gen5NggPassthroughBatch.Create([(new(0, 0, 32, 128, 0), [], [])]);
-const int primitiveFirst = 128 * 12;
-const int descriptorFirst = primitiveFirst + 128 * 5;
-const int sourceFirst = descriptorFirst + 4;
-var auxiliary = new byte[(sourceFirst + 128 * 9 + 16) * 4];
+var slots = batch.OutputSlotCapacity;
+var primitiveFirst = checked((int)slots * 12);
+var descriptorFirst = checked(primitiveFirst + (int)slots * 5);
+var sourceFirst = checked(descriptorFirst + batch.GroupCount * 4);
+var auxiliary = new byte[(sourceFirst + (int)slots * 9 + 16) * 4];
 for (var index = 0; index < auxiliary.Length / 4; index++)
     BinaryPrimitives.WriteUInt32LittleEndian(auxiliary.AsSpan(index * 4), 0xCAFEBABE);
 for (var index = 0; index < batch.Descriptors.Length; index++)
@@ -79,8 +86,8 @@ var state = new Gen5ShaderState(program, snapshot.UserData, snapshot.Metadata, s
 var evaluation = new Gen5ShaderEvaluation(snapshot.InitialScalarRegisters, snapshot.ScalarRegisters, snapshot.ImageBindings,
     bindings, snapshot.EvaluationComputeSystemRegisters, snapshot.RuntimeScalarRegisters?.ToHashSet(), snapshot.VertexInputs);
 var success = Gen5SpirvTranslator.TryCompileComputeShader(state, evaluation, 128, 1, 1, out var shader, out var error,
-    exportOutput: new(outputBinding, 128, 2), triangleOutput: new(outputBinding, primitiveFirst, 128, 0),
-    nggBatchInputs: new(outputBinding, descriptorFirst, outputBinding, sourceFirst, 1, 128, 32));
+    exportOutput: new(outputBinding, slots, 2), triangleOutput: new(outputBinding, (uint)primitiveFirst, slots, 0),
+    nggBatchInputs: new(outputBinding, (uint)descriptorFirst, outputBinding, (uint)sourceFirst, (uint)batch.GroupCount, 128, 32));
 if (success) File.WriteAllBytes(Path.Combine(directory, "original-gears-compute.spv"), shader.Spirv);
 if (success && nonempty)
 {
@@ -92,9 +99,13 @@ if (success && nonempty)
             words[index] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index * 4));
         return words;
     }
+    var floatWords = Array.Empty<int>();
+    uint[]? meshExpected = null;
+    if (mesh) (meshExpected, floatWords) = MeshReplayReference.Evaluate(snapshot, draw!, Words(auxiliary, auxiliary.Length), primitiveFirst);
     File.WriteAllText(Path.Combine(directory, "storage-fixture.json"), JsonSerializer.Serialize(new {
         Buffers = bindings.Select(b => Words(b.Data, b.DataLength)).ToArray(),
-        OutputBinding = outputBinding, GroupsX = 1u
+        OutputBinding = outputBinding, GroupsX = (uint)batch.GroupCount,
+        FloatWords = floatWords, FloatTolerance = mesh ? 0.00002 : 0
     }));
     File.WriteAllText(Path.Combine(directory, "initial.json"), JsonSerializer.Serialize(Words(auxiliary, auxiliary.Length)));
     // Unchanged-output negative control, explicitly not a numerical shader oracle.
@@ -102,6 +113,8 @@ if (success && nonempty)
     // Independent reference for the pinned native clear draw: identity MVP/quaternion,
     // original fullscreen triangle, +Z normals and black material. Do not derive
     // expected values from the emitted SPIR-V or GPU readback.
+    if (!mesh)
+    {
     var one = BitConverter.SingleToUInt32Bits(1f);
     if (snapshot.UserData.Length < 25 ||
         !snapshot.UserData.Skip(1).Take(16).SequenceEqual(Enumerable.Range(0, 16).Select(i => i % 5 == 0 ? one : 0u)) ||
@@ -130,12 +143,15 @@ if (success && nonempty)
     uint[] triangle = [0x00200400, 0, 1, 2, 1];
     Array.Copy(triangle, 0, expected, primitiveFirst, triangle.Length);
     File.WriteAllText(Path.Combine(directory, "expected.json"), JsonSerializer.Serialize(expected));
-    File.WriteAllText(Path.Combine(directory, "limits.json"), JsonSerializer.Serialize(new uint[] { 128, 1, 1 }));
+    }
+    else File.WriteAllText(Path.Combine(directory, "expected.json"), JsonSerializer.Serialize(meshExpected));
+    File.WriteAllText(Path.Combine(directory, "limits.json"), JsonSerializer.Serialize(new uint[] { slots, 1, 1 }));
 }
 File.WriteAllText(Path.Combine(directory, "audit-report.json"), JsonSerializer.Serialize(new {
-    Scope = nonempty ? "Original Gears first triangle inputs; nonempty compute fixture only; unchanged-control is not a numerical oracle; GPU execution not implied"
+    Scope = mesh ? "Original Gears captured mesh; explicit audit partitions, independent GLSL numerical reference; no hardware scheduling or rendering implied" : nonempty ? "Original Gears first triangle inputs; nonempty compute fixture only; unchanged-control is not a numerical oracle; GPU execution not implied"
         : "Original Gears stage/captured backend inputs; empty subgroup for compiler audit only; no GPU or scene execution",
     DrawContext = draw,
+    GroupCount = batch.GroupCount, OutputSlots = slots,
     OriginalShaderSha256 = shaderHash, ReplaySha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(args[0]))),
     Instructions = program.Instructions.Count, Globals = snapshot.GlobalMemoryBindings.Length, VertexInputs = snapshot.VertexInputs.Length,
     ReadOnlyVertexStorageViews = bindings.Count - snapshot.GlobalMemoryBindings.Length - 1,
