@@ -72,6 +72,20 @@ The next bridge must write bounded position/parameter outputs, preserve source
 vertex/primitive identity and tails, and synchronize that buffer before graphics
 consumption. Evidence is in `artifacts/smoke-compute-bounded-atomics-lds-paired-ngg-foundation`.
 
+## Verified output bridge
+
+`Test-ComputeVertexBridge.ps1` now builds/runs an independent guest with a 64-local
+wave32 producer and three live position records. GPU output is numerically checked,
+trailing guards stay intact, and a separate vertex shader fetches the produced
+buffer for a real triangle draw. Actual final swapchain pixels pass an analytic
+interior/exterior oracle; the image was also visually inspected. Omitting the
+producer intentionally fails native output checking (66), so zero/untouched
+buffers are not accepted. Source fixture is `compute-vertex-bridge.c`.
+
+This bridge carries position only. It does not yet expand original NGG exports,
+carry parameters/primitive connectivity, or solve Gears retirement. Extend the
+layout and translation stage before routing Gears through it.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.

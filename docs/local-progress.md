@@ -6,6 +6,38 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Independent compute-to-vertex bridge now produces verified GPU pixels.**
+  New original native `compute-vertex-bridge.c` dispatches wave32 compute with
+  64 local participants and an exact three-record tail mask. GPU loads raw
+  position records into an explicit bounded output buffer, restores EXEC and
+  executes a workgroup barrier; RELEASE_MEM completion precedes consumption.
+  Native checks compare all 12 position words and 16 trailing guards. Guest CPU
+  only initializes the output to DEADBEEF and reads it for assertions; it never
+  copies the input positions into the output. A separate graphics vertex shader
+  fetches that output as four floats at stride 16, exports position and draws.
+  Missing producer negative control fails native output check (return 66/host4).
+
+  `Test-ComputeVertexBridge.ps1` retains timestamped input/compiler/runtime
+  provenance, scoped/restored diagnostics, owned 20-second timeout and GPU-path
+  checks. `Verify-VertexBridgePixels.ps1` independently checks the actual final
+  swapchain image against analytic triangle interior/exterior, excluding a raster
+  edge band. Positive run `artifacts/native-vertex-bridge/20261014-015226-783`
+  passes native assertions, one real compute dispatch and one actual graphics
+  draw, with **443981 red interior pixels and 1320232 black exterior pixels**.
+  Prior positive `20261014-015121-448/frame.png` was visually inspected and shows
+  the expected triangle. Negative run `20261014-015300-700` remains explicitly
+  failed with `negative-report.json`; no rendering success inferred there.
+
+  This verifies independent position-buffer transport and rasterization, **not
+  original NGG/Gears execution**. Initial shader word typo 0x17 instead of GFX10
+  load-DWORDX4 opcode 0x0E failed in retained run `20261014-015025-906`; corrected
+  fixture uses E0382000. Emulator runtime unchanged; library suite remains 1296.
+  Next: add parameter/primitive output layout and implement an explicit NGG
+  compute-expansion stage using real merged group/wave inputs, source indices,
+  EXEC and shared barrier semantics. Connect that verified output to graphics
+  only after numerical checks. Gears still lacks verified visible geometry and
+  has independent flip-token coalescing/retirement limitations.
+
 - **Independent GPU group-sharing foundation passes with wave32 tail controls.**
   Added original `compute-ngg-group-foundation.c`, derived from the existing
   paired-LDS probe with explicit local-index predicate, lane identity readback
