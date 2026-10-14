@@ -23,6 +23,43 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original captured GS exports now traverse the emulator's actual compute queue and guest writeback.**
+  `--queued-compute` attaches owned bounded memory ranges, submits the retained
+  original compute SPIR-V through GuestGpu, then enqueues selective output-range
+  readback on the same named queue and waits from the caller/tool thread. It uses
+  the production presenter allocation/submission/GPU-completion/writeback path,
+  not the standalone Vulkan checker. Duplicate vertex-view addresses require
+  byte-identical retained contents; unexpected overlaps reject.
+
+  Positive result: dispatch sequence 1, readback 2, **33336 words match**, 21
+  output-memory write calls. Checked remap consumes all 400 original triangles.
+  Partial-final-group limit rejects the last group uniformly before its barrier
+  while retaining all earlier outputs: identical-sized reference passes, 20
+  output-memory writes. The partial report deliberately cannot authorize graphics
+  consumption as a complete mesh. Graphics replay now accepts hashed queued
+  proof/readback indices; **19877 reference-selected interior pixels match** after
+  original PS consumption of the emulator-produced output.
+  Verified end-to-end wrapper:
+  `artifacts/gears-queued-compute/20261014-105705-418/verification-report.json`.
+
+  Moved the bounded triangle-list partition into production compiler code:
+  `Gen5NggPassthroughBatch.CreateNonindexedTriangleList`, wave32/128 threads,
+  126 live vertices per full group, 1..798 complete triangles, explicit source
+  firstVertex/instanceId and audit-ordinal ordered IDs. It preserves absolute
+  source IDs and subgroup-local primitive connectivity; incomplete triangles,
+  oversized lists and ID overflow reject. The replay tool uses this same helper.
+  Five meaningful boundary/ID/connectivity regression cases bring the library
+  suite to **1401/1401**.
+
+  **This is still captured-input execution, not native Gears animation.** Next
+  integrate a dedicated bounded expansion work item into native draw submission.
+  Do not synchronously WaitForGuestWork from a guest-work consumer callback:
+  its own queue cannot advance while that callback waits. Preserve output
+  allocation lifetime through GPU completion, use checked connectivity before
+  graphics consumption, and keep unknown/indexed/culling/API-GS modes rejected.
+  Kernel-owned native scratch allocation/retirement and presentation-token
+  contract remain separate work before enabling the runtime path.
+
 - **All three original first-frame gear meshes now replay into one verified image.**
   Opt-in sequence-limited captures use actual submitted GPU work sequence IDs,
   not snapshot-content guesses. Both stages of one draw share `draw-NNNNNN`;

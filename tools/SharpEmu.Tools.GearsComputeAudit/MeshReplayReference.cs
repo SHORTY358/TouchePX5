@@ -56,17 +56,7 @@ internal static class MeshReplayReference
         if (draw.DrawCount == 0 || draw.DrawCount > 2394 || draw.DrawCount % 3 != 0 ||
             draw.InstanceCount != 1 || draw.Indexed || draw.PrimitiveType != 4 || draw.BaseVertex != 0)
             throw new InvalidOperationException("Mesh audit requires a bounded nonindexed triangle list with base vertex zero");
-        var groups = new List<(Gen5NggMergedGroup, Gen5NggSourceVertex[], Gen5NggSourceTriangle[])>();
-        // 42 complete triangles per 128-thread group: never split a triangle.
-        for (uint first = 0; first < draw.DrawCount; first += 126)
-        {
-            var count = Math.Min(126u, draw.DrawCount - first);
-            var vertices = Enumerable.Range(0, (int)count).Select(i => new Gen5NggSourceVertex(first + (uint)i, 0)).ToArray();
-            var triangles = Enumerable.Range(0, (int)count / 3).Select(i =>
-                new Gen5NggSourceTriangle(first / 3 + (uint)i, (uint)i * 3, (uint)i * 3 + 1, (uint)i * 3 + 2)).ToArray();
-            groups.Add((new(count, count / 3, 32, 128, (uint)groups.Count), vertices, triangles));
-        }
-        return Gen5NggPassthroughBatch.Create(groups);
+        return Gen5NggPassthroughBatch.CreateNonindexedTriangleList(draw.DrawCount);
     }
 
     public static (uint[] Expected, int[] FloatWords) Evaluate(Gen5ShaderReplaySnapshot snapshot,

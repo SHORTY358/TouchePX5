@@ -45,7 +45,9 @@ internal static class GraphicsReplay
         Environment.SetEnvironmentVariable("SHARPEMU_LOG_AGC_SHADER", "1");
         Environment.SetEnvironmentVariable("SHARPEMU_GUEST_IMAGE_DUMP_DIR", Path.GetFullPath(outputDirectory));
         var gsFile = Path.Combine(captureDirectory, "0000000200001000.replay.json");
-        using var proof = JsonDocument.Parse(File.ReadAllText(Path.Combine(computeDirectory, "execution-report.json")));
+        var proofFile = Path.Combine(computeDirectory, "queued-report.json");
+        if (!File.Exists(proofFile)) proofFile = Path.Combine(computeDirectory, "execution-report.json");
+        using var proof = JsonDocument.Parse(File.ReadAllText(proofFile));
         if (!proof.RootElement.GetProperty("NumericalOutputsVerified").GetBoolean() ||
             !proof.RootElement.GetProperty("ConnectivityRemapVerified").GetBoolean() ||
             proof.RootElement.GetProperty("ReplaySha256").GetString() != Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(gsFile))))
