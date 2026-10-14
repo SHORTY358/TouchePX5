@@ -21,6 +21,25 @@ it does not certify NGG execution.
 
 ## Implementation gates
 
+GFX10 compiler fields now verified from `NggPrimShader::initWaveThreadInfo`:
+group primitives s2[30:22], group vertices s2[20:12], ordered wave ID s2[11:0];
+wave vertices s3[7:0], wave primitives s3[15:8], group-relative wave ID s3[27:24].
+Thread ID is wave ID times guest wave size plus mbcnt-derived lane ID. Gears GS
+is wave32/WGP; the pixel shader is separately wave64.
+
+The previous translated vertex SPIR-V is invalid: actual captured barrier at
+byte 15128 uses execution scope Workgroup (2), memory scope Workgroup (2),
+semantics 0x108. [Vulkan rule 04682](https://github.khronos.org/Vulkan-Site/spec/latest/appendices/spirvenv.html)
+requires Subgroup execution scope for vertex/fragment barriers. Current runtime
+rejects this unsupported graphics workgroup barrier explicitly; compute remains
+unchanged. This does not implement NGG, and replacing the scope with Subgroup or
+removing the barrier would not supply missing cross-invocation semantics.
+
+A compute-expansion path is a candidate because it can represent group sharing,
+guest wave/lane identity and workgroup barriers. It must output explicit vertex
+and primitive data for a subsequent graphics draw, with real synchronization and
+resource lifetime. Prototype on an independent group before routing Gears.
+
 1. Determine the exact bit layout from this pinned compiler's extraction sites
    and cross-check hardware ABI. Retain compiler revision and actual shader words.
 2. Identify the validated no-culling/no-GS-amplification Gears path explicitly.

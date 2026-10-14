@@ -6,6 +6,37 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **NGG audit found invalid workgroup barriers in the previous vertex shader path.**
+  Pinned LLPC `NggPrimShader::initWaveThreadInfo` extracts group primitive count
+  from s2[30:22], vertex count s2[20:12], ordered wave ID s2[11:0]; wave vertex
+  count s3[7:0], primitive count s3[15:8], wave ID s3[27:24]. Gears GS metadata
+  says wave32/WGP, whereas pixel metadata says wave64: do not conflate stages.
+  Group information must be derived together with guest lane/EXEC/topology,
+  not populated with arbitrary constants in an independent vertex invocation.
+
+  Existing graphics translator emitted SBarrier as OpControlBarrier with
+  Workgroup execution/memory scope. Actual retained Gears `vertex.spv` has that
+  invalid graphics-stage barrier at byte offset 15128 (scope 2/2, semantics
+  0x108); audit retained beside draw-0002 in capture `20261014-003900-774`.
+  Vulkan VUID-StandaloneSpirv-OpControlBarrier-04682 requires Subgroup execution
+  scope in vertex/fragment stages. Merely replacing scope or deleting the
+  barrier would not reproduce NGG workgroup sharing. Translator now rejects
+  graphics SBarrier with an explicit shared-NGG-execution-required error instead
+  of producing invalid SPIR-V. Compute retains its original workgroup barrier.
+  Two regression checks cover graphics rejection and actual compute barrier
+  operands; full Release library suite **1296/1296** passes, CLI build zero
+  warnings/errors (existing catalog warning on test compilation remains).
+
+  Actual unchanged diagnostic title boot `20261014-011304-010` now identifies
+  SBarrier at pc 0x24 as the unsupported stage. **Gears remains without verified
+  visible geometry; no compatibility gain claimed from rejection.** Next real
+  implementation: shared execution of the supported NGG passthrough group,
+  likely compute expansion into an explicit vertex/output buffer followed by
+  graphics consumption. First validate group/lane counts, EXEC, barrier behavior,
+  topology and outputs with an independent minimal group probe; preserve original
+  shader bytes and keep culling/amplification modes unsupported until covered.
+  Exact stages/evidence: `docs/gears-ngg-input-contract.md`.
+
 - **Isolated exact flip-token loss and identified the missing NGG input contract.**
   Failure-only native diagnostic now records expected/observed VideoOut token,
   wait status/count and decode status in one stderr write. Checks, timing loop,

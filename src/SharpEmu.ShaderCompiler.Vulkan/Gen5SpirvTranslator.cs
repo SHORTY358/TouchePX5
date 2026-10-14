@@ -1929,6 +1929,14 @@ public static partial class Gen5SpirvTranslator
 
             if (instruction.Opcode == "SBarrier")
             {
+                if (_stage != Gen5SpirvStage.Compute)
+                {
+                    // NGG workgroup synchronization cannot be represented by
+                    // independent vertex invocations. Emitting Workgroup scope
+                    // here violates Vulkan's graphics-stage barrier rules.
+                    error = $"unsupported graphics workgroup barrier pc=0x{instruction.Pc:X}; shared NGG execution required";
+                    return false;
+                }
                 var workgroup = UInt(2);
                 var semantics = UInt(0x108);
                 _module.AddStatement(
