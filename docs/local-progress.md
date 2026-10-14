@@ -6,6 +6,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Merged group/wave count ABI now has an explicit host contract.**
+  `Gen5NggMergedGroup` packs the exact fields read by pinned LLPC
+  `NggPrimShader.cpp:2866-2907`: s2 group primitive count [30:22], vertex count
+  [20:12], ordered wave ID [11:0]; s3 per-wave vertex count [7:0], primitive
+  count [15:8], and subgroup wave ID [27:24]. It takes explicit live counts,
+  wave32/64, full-wave thread extent and ordered ID. Per-wave tails derive from
+  the supplied subgroup counts, independently for vertices and primitives.
+  Group counts above 511 (including 512), counts above thread extent, partial
+  thread extents, more than 16 waves and unrepresentable ordered IDs reject.
+  Reserved fields stay zero rather than being invented. Six wave32 tail cases
+  check exact active-lane coverage, independent primitive tails, plus wave64
+  boundary fields and invalid configurations. Full Release suite **1343/1343**.
+
+  This is a host packing/reference contract, **not populated runtime registers**.
+  No new Gears rendering capability is claimed. Next wire explicit subgroup
+  counts into compute s2/s3 and verify guest reads on GPU, with dynamic wave ID
+  and distinct live tails, before supplying source IDs/group vertex remapping.
+  Current runtime scalar reads are loads (`LoadS`), so initialization must occur
+  after generic initial/system-register stores and preserve user data s8+.
+
 - **Explicit triangle compute exports now execute on the real GTX 1060.**
   Optional `Gen5ComputeTriangleOutput` adds EXP target 20 transport separately
   from position/parameters. Each source invocation owns five uint words:

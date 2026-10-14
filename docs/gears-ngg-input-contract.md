@@ -162,6 +162,21 @@ vertex mapping. This output is not connected to Gears or to the indexed draw
 bridge. Next establish real merged inputs/source IDs and group ownership/
 remapping; varying per-group live counts require a dispatch adapter.
 
+## Merged count packing reference
+
+`Gen5NggMergedGroup` now implements only the fields decoded by the pinned
+`NggPrimShader::initWaveThreadInfo` (lines 2866-2907). Caller-supplied subgroup
+counts, full-wave thread extent, wave32/64 and ordered wave ID are checked before
+packing. The subgroup counts are nine bits (maximum 511, not 512); ordered ID
+is twelve bits and wave ID four. Per-wave vertex/primitive tails are separate.
+Six wave32 live-count cases (0/13/32/33/63/64), wave64/max-field checks and
+invalid-layout cases pass in the 1343-test library suite.
+
+Runtime s2/s3 injection, source IDs and per-workgroup dispatch/ordered ownership
+remain unimplemented. This helper is not a complete merged shader ABI: scratch,
+ring state and other fields/modes require their own contract. Next verify actual
+guest reads of the injected count fields on GPU before wiring original Gears.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.
