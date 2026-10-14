@@ -1,5 +1,24 @@
 # Local engineering checkpoint — 2026-10-14
 
+## Workspace relocation
+
+Canonical active checkout is now **D:\Dev\TouchePX5**. All 160200 files,
+62813958526 bytes were copied from C and verified by a zero-difference robocopy
+comparison, SHA-256 of 847 tracked files and `git fsck --full`. Library tests
+passed 1396/1396 from D; CLI Release win-x64 build passed from D. Generated NuGet
+path metadata was relocated to D. Historical evidence paths below remain verbatim.
+
+Cleanup is pending: Windows denied atomic rename of the old C root; PowerShell's
+fallback move was interrupted after moving 6.656 GiB into
+`C:\Dev\TouchePX5.migration-source`, leaving 51.844 GiB under the original root.
+Automatic tool policy rejected removal of old data, including the safer explicit
+artifact-directory attempt. Do not claim that C space was freed. The active D tree
+is complete and authoritative; both old C trees await human cleanup. A temporary
+`C:\Dev\TouchePX5\.packages` junction targets D's package cache; this is a link,
+not a second package copy. After removing the old C trees, a whole-root compatibility
+junction C:\Dev\TouchePX5 -> D:\Dev\TouchePX5 can preserve historical toolchain paths.
+The existing heartbeat points at D and remains PAUSED as it was before relocation.
+
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
 percentage or release-date estimate.
