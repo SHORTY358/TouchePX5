@@ -150,8 +150,17 @@ public static partial class Gen5SpirvTranslator
         uint waveLaneCount = 32,
         ulong storageBufferOffsetAlignment = 1,
         Gen5ComputeExportOutput? exportOutput = null,
-        Gen5ComputeTriangleOutput? triangleOutput = null)
+        Gen5ComputeTriangleOutput? triangleOutput = null,
+        Gen5NggMergedGroup? nggCountInputs = null)
     {
+        if (nggCountInputs is { } counts &&
+            (localSizeX != counts.ThreadCount || localSizeY != 1 || localSizeZ != 1 || waveLaneCount != counts.WaveSize ||
+             (triangleOutput is { } triangleCounts && triangleCounts.LiveVertexCount != counts.VertexCount)))
+        {
+            shader = default!;
+            error = "NGG count inputs require matching 1D thread extent, guest wave size and triangle live vertex count";
+            return false;
+        }
         if (exportOutput is { } output &&
             (localSizeX is 0 or > 1024 || localSizeY != 1 || localSizeZ != 1 || output.ParameterCount > 32 || output.RecordCapacity == 0 ||
              output.BufferBinding < 0 || output.BufferBinding >= evaluation.GlobalMemoryBindings.Count ||
@@ -202,7 +211,8 @@ public static partial class Gen5SpirvTranslator
             waveLaneCount: waveLaneCount,
             storageBufferOffsetAlignment: storageBufferOffsetAlignment,
             exportOutput: exportOutput,
-            triangleOutput: triangleOutput);
+            triangleOutput: triangleOutput,
+            nggCountInputs: nggCountInputs);
         return context.TryCompile(out shader, out error);
     }
 
@@ -285,6 +295,7 @@ public static partial class Gen5SpirvTranslator
         private readonly uint _localSizeZ;
         private readonly Gen5ComputeExportOutput? _exportOutput;
         private readonly Gen5ComputeTriangleOutput? _triangleOutput;
+        private readonly Gen5NggMergedGroup? _nggCountInputs;
         private readonly int _globalBufferBase;
         private readonly int _totalGlobalBufferCount;
         private readonly int _imageBindingBase;
@@ -420,10 +431,12 @@ public static partial class Gen5SpirvTranslator
             uint waveLaneCount = 32,
             ulong storageBufferOffsetAlignment = 1,
             Gen5ComputeExportOutput? exportOutput = null,
-            Gen5ComputeTriangleOutput? triangleOutput = null)
+            Gen5ComputeTriangleOutput? triangleOutput = null,
+            Gen5NggMergedGroup? nggCountInputs = null)
         {
             _exportOutput = exportOutput;
             _triangleOutput = triangleOutput;
+            _nggCountInputs = nggCountInputs;
             _stage = stage;
             _requiredVertexOutputCount = requiredVertexOutputCount;
             _state = state;
@@ -1683,6 +1696,26 @@ public static partial class Gen5SpirvTranslator
                             sizeRegister,
                             UInt(checked(_localSizeX * _localSizeY * _localSizeZ)));
                     }
+                }
+                if (_nggCountInputs is { } counts)
+                {
+                    // Explicit uniform subgroup count fields only. These are
+                    // not a draw scheduler, source-ID map or complete NGG ABI.
+                    // Apply after generic system registers; user data s8+ stays.
+                    var thread = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, localId, 0);
+                    var wave = _module.AddInstruction(SpirvOp.UDiv, _uintType, thread, UInt(counts.WaveSize));
+                    var first = _module.AddInstruction(SpirvOp.IMul, _uintType, wave, UInt(counts.WaveSize));
+                    uint Tail(uint count)
+                    {
+                        var hasTail = _module.AddInstruction(SpirvOp.ULessThan, _boolType, first, UInt(count));
+                        var remaining = _module.AddInstruction(SpirvOp.ISub, _uintType, UInt(count), first);
+                        var shortTail = _module.AddInstruction(SpirvOp.ULessThan, _boolType, remaining, UInt(counts.WaveSize));
+                        var bounded = _module.AddInstruction(SpirvOp.Select, _uintType, shortTail, remaining, UInt(counts.WaveSize));
+                        return _module.AddInstruction(SpirvOp.Select, _uintType, hasTail, bounded, UInt(0));
+                    }
+                    StoreS(2, UInt(counts.GroupInfo));
+                    StoreS(3, BitwiseOr(ShiftLeftLogical(wave, UInt(24)),
+                        BitwiseOr(ShiftLeftLogical(Tail(counts.PrimitiveCount), UInt(8)), Tail(counts.VertexCount))));
                 }
             }
         }

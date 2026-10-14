@@ -172,10 +172,25 @@ is twelve bits and wave ID four. Per-wave vertex/primitive tails are separate.
 Six wave32 live-count cases (0/13/32/33/63/64), wave64/max-field checks and
 invalid-layout cases pass in the 1343-test library suite.
 
-Runtime s2/s3 injection, source IDs and per-workgroup dispatch/ordered ownership
-remain unimplemented. This helper is not a complete merged shader ABI: scratch,
-ring state and other fields/modes require their own contract. Next verify actual
-guest reads of the injected count fields on GPU before wiring original Gears.
+Optional Vulkan compute `nggCountInputs` now injects those count fields into
+runtime s2/s3 after generic initialization. s3 wave ID and independent tails
+derive from local X. Thread extent/wave layout must match the compile layout;
+triangle output's live count must agree. User data s8+ is preserved. Counts and
+ordered ID are uniform caller-provided values for every workgroup; this is not
+an actual draw scheduler or variable per-group descriptor mechanism.
+
+`Test-NggCountInputs.ps1` now passes guest decode -> translator -> GTX 1060
+reads for all six wave32 tails, wave64 128-thread/67-vertex/65-primitive tails,
+and 512-thread/511-vertex groups (all 16 wave IDs). Every invocation's count
+words, s8 and local source ID plus guards are checked. Omitting injection fails
+128 expected values. Evidence:
+`artifacts/ngg-count-inputs/20261014-142017-491/execution-report.json`.
+Full library suite is 1349 tests; CLI builds cleanly.
+
+Source IDs, per-workgroup dispatch/ordered ownership and host vertex bases
+remain unimplemented. This is not a complete merged shader ABI: scratch, ring
+state and other fields/modes require their own contract. Next validate actual
+source reads and remapped connectivity before wiring original Gears.
 
 ## Independent ownership failure
 

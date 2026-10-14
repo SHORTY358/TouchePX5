@@ -6,6 +6,32 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Explicit count inputs now reach guest s2/s3 and pass actual GPU reads.**
+  Vulkan compute compilation accepts optional `nggCountInputs`. It requires a
+  matching 1D thread extent and guest wave size; triangle output live vertex
+  count must agree if supplied. Initialization writes s2 group count fields and
+  derives s3 wave ID/tails from local invocation X, after generic scalar/system
+  initialization. User data s8+ remains untouched. No automatic EXEC masking or
+  guessed source IDs are introduced; the guest decides which lanes do work.
+
+  `Test-NggCountInputs.ps1` decodes hand-assembled guest MOV/EXP words and runs
+  them through actual translation and GTX 1060 Vulkan execution. Eight positive
+  cases inspect every invocation's s2/s3, preserved s8 and local ID, with position
+  slots/tail guards unchanged: wave32 counts 0/13/32/33/63/64, wave64 with 67
+  vertices/65 primitives across 128 threads, and all 16 wave32 IDs in a 512-thread
+  group with vertex count 511. Expected words are independent of the new packer.
+  Omitting input injection deliberately leaves poisoned s2/s3 and fails exactly
+  128 values. Evidence/source/SPIR-V/guest/log hashes:
+  `artifacts/ngg-count-inputs/20261014-142017-491/execution-report.json`.
+  Full Release library suite **1349/1349**; CLI build zero warnings/errors.
+
+  This mode supplies explicit uniform count fields only, identically for each
+  workgroup; ordered ID is caller supplied and not a scheduling implementation.
+  Original Gears remains black, with graphics barrier rejection still intact.
+  Next supply actual guest source IDs and a per-group descriptor/dispatch adapter
+  (varying live counts, ordered IDs, source topology and host vertex bases), then
+  validate source reads and remapped connectivity before routing Gears.
+
 - **Merged group/wave count ABI now has an explicit host contract.**
   `Gen5NggMergedGroup` packs the exact fields read by pinned LLPC
   `NggPrimShader.cpp:2866-2907`: s2 group primitive count [30:22], vertex count
@@ -19,10 +45,9 @@ percentage or release-date estimate.
   check exact active-lane coverage, independent primitive tails, plus wave64
   boundary fields and invalid configurations. Full Release suite **1343/1343**.
 
-  This is a host packing/reference contract, **not populated runtime registers**.
-  No new Gears rendering capability is claimed. Next wire explicit subgroup
-  counts into compute s2/s3 and verify guest reads on GPU, with dynamic wave ID
-  and distinct live tails, before supplying source IDs/group vertex remapping.
+  This host packing/reference contract preceded the explicit runtime injection
+  described above. No new Gears rendering capability is claimed; source IDs and
+  per-group dispatch/vertex remapping remain missing.
   Current runtime scalar reads are loads (`LoadS`), so initialization must occur
   after generic initial/system-register stores and preserve user data s8+.
 
