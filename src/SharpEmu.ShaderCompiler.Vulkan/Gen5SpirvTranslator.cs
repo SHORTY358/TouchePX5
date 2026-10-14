@@ -171,7 +171,7 @@ public static partial class Gen5SpirvTranslator
              source.BufferBinding == initialScalarBufferIndex ||
              evaluation.GlobalMemoryBindings[source.BufferBinding].DataLength <= 0 ||
              evaluation.GlobalMemoryBindings[source.BufferBinding].DataLength > evaluation.GlobalMemoryBindings[source.BufferBinding].Data.Length ||
-             evaluation.GlobalMemoryBindings[source.BufferBinding].ScalarAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
+             evaluation.GlobalMemoryBindings[source.BufferBinding].BaseAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
              ((ulong)source.FirstWord + (ulong)nggCountInputs.ThreadCount * 9) * 4 >
                  (ulong)evaluation.GlobalMemoryBindings[source.BufferBinding].DataLength ||
              (exportOutput is { } position && position.BufferBinding == source.BufferBinding &&
@@ -200,7 +200,7 @@ public static partial class Gen5SpirvTranslator
              !evaluation.GlobalMemoryBindings[output.BufferBinding].Writable ||
              evaluation.GlobalMemoryBindings[output.BufferBinding].DataLength <= 0 ||
              evaluation.GlobalMemoryBindings[output.BufferBinding].DataLength > evaluation.GlobalMemoryBindings[output.BufferBinding].Data.Length ||
-             evaluation.GlobalMemoryBindings[output.BufferBinding].ScalarAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
+             evaluation.GlobalMemoryBindings[output.BufferBinding].BaseAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
              (ulong)output.RecordCapacity * (output.ParameterCount + 1) * 16 >
                  (ulong)evaluation.GlobalMemoryBindings[output.BufferBinding].DataLength))
         {
@@ -217,7 +217,7 @@ public static partial class Gen5SpirvTranslator
              !evaluation.GlobalMemoryBindings[triangle.BufferBinding].Writable ||
              evaluation.GlobalMemoryBindings[triangle.BufferBinding].DataLength <= 0 ||
              evaluation.GlobalMemoryBindings[triangle.BufferBinding].DataLength > evaluation.GlobalMemoryBindings[triangle.BufferBinding].Data.Length ||
-             evaluation.GlobalMemoryBindings[triangle.BufferBinding].ScalarAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
+             evaluation.GlobalMemoryBindings[triangle.BufferBinding].BaseAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
              ((ulong)triangle.FirstWord + (ulong)triangle.RecordCapacity * 5) * 4 >
                  (ulong)evaluation.GlobalMemoryBindings[triangle.BufferBinding].DataLength ||
              (exportOutput is { } vertices && vertices.BufferBinding == triangle.BufferBinding &&

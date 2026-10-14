@@ -286,6 +286,29 @@ draw is submitted. Next use retained original Gears shader/data/user/fetch
 bindings in a bounded numerical compute audit before graphics integration;
 preserve unsupported-op failures and independent frame-token assertions.
 
+## Original shader replay preparation
+
+Opt-in `TOUCHEPX5_SHADER_REPLAY_DIR` snapshots original vertex-backend inputs
+before compilation, including strict retained byte extents and decoded PC/word
+coverage. `TOUCHEPX5_SHADER_REPLAY_ADDRESS` filters the GS address 0x200001000;
+draw manifests' 0x200001200 label is the PS. Backend binding offsets/counts and
+alignment are retained, with state and evaluation system-register maps separate.
+
+`Capture-GearsShaderReplay.ps1` produced actual inputs at
+`artifacts/gears-shader-replay/20261014-073250-493`. This first invocation has
+two 72-byte vertex views, not the full later gear draw. Original title boot still
+fails graphics barrier/ownership handling. `GearsComputeAudit` matches captured
+instructions to the original GS hash and translates both retained graphics
+fetch views into exact read-only storage bytes/PC bindings. Original compute
+compiler coverage now passes (69136-byte SPIR-V), with compiler/input hashes
+in `compiler-audit/audit-report.json`.
+
+The audit intentionally supplies an empty subgroup and does not execute on GPU.
+Actual draw topology/count/index context, nonempty multi-buffer execution and
+numerical position/parameter/primitive comparisons remain required. Transport
+alignment checks now correctly inspect BaseAddress, not the scalar-register
+number ScalarAddress; the 1395-test library suite and CLI build pass.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.

@@ -6,6 +6,45 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original retained Gears GS now passes compute compiler coverage with captured inputs.**
+  Added opt-in pre-compilation vertex-backend replay snapshots: original decoded
+  instruction words/PCs, user data, initial/final scalar state, metadata, image
+  descriptors, global bytes and vertex views. Owned copies slice exactly
+  DataLength and never retain pooled arrays. Backend layout is saved separately.
+  The normal path performs no capture unless `TOUCHEPX5_SHADER_REPLAY_DIR` is set.
+
+  `Capture-GearsShaderReplay.ps1` was verified against a bounded original title
+  boot. GS address is **0x200001000**; old draw manifests label PS 0x200001200,
+  which is not the vertex-backend filter. Native rendering still fails the
+  graphics barrier/ownership path. Actual input evidence:
+  `artifacts/gears-shader-replay/20261014-073250-493/0000000200001000.replay.json`
+  and native run `gears-shader-aperture-windows/runs/20261014-073250-632`.
+  Snapshot has 73 instructions, one global binding and two 72-byte vertex views.
+  It captures the first shader invocation, not the later 1200-vertex gear draw.
+
+  `SharpEmu.Tools.GearsComputeAudit` verifies original GS hash and every captured
+  word against the retained 384-byte stage. Initial compute attempt correctly
+  rejected MTBUF fetch at pc 0x78 as missing storage binding (`compiler-audit`
+  under earlier local-time snapshot `20261014-172518-662`). Converting the two
+  captured graphics views to read-only storage bindings, retaining exact bytes/
+  addresses/PC identity, makes the original shader compile to 69136-byte compute
+  SPIR-V. Final report is `20261014-073250-493/compiler-audit/audit-report.json`.
+  **This is compiler coverage with an explicitly empty subgroup; no original
+  shader GPU execution, numerical output or rendering is claimed.**
+
+  Transport alignment validation now uses binding BaseAddress (guest bytes),
+  rather than ScalarAddress (an SGPR number). Four regression modes cover an
+  aligned guest address with s8 and an unaligned address with s0. Snapshot
+  ownership/JSON/invalid-retained-extent checks pass. Full Release library suite
+  **1395/1395**; CLI build zero warnings/errors.
+
+  Next retain actual draw count/topology/index context and run a nonempty bounded
+  original-shader GPU audit with multiple real input/storage bindings. Validate
+  resource descriptors/typed fetch strides and exact transformed positions,
+  parameters and primitive records before indexed graphics integration. Do not
+  substitute inferred draw counts, host geometry or a zero-group GPU pass for
+  actual Gears execution.
+
 - **Canonical per-group descriptors now execute in the Vulkan compute mode.**
   Optional `Gen5ComputeNggBatchInput` validates retained descriptor/source ranges,
   common wave/thread layout, full output reservation, scalar/input/output alias

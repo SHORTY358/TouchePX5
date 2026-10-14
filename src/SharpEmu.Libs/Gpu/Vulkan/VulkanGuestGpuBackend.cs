@@ -33,6 +33,8 @@ internal sealed class VulkanGuestGpuBackend : IGuestGpuBackend
         ulong storageBufferOffsetAlignment = 1)
     {
         shader = null;
+        Gen5ShaderReplayCapture.TryWrite(state, evaluation, new(globalBufferBase, totalGlobalBufferCount,
+            imageBindingBase, scalarRegisterBufferIndex, requiredVertexOutputCount, storageBufferOffsetAlignment));
         if (!Gen5SpirvTranslator.TryCompileVertexShader(
                 state,
                 evaluation,

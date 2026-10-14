@@ -19,7 +19,7 @@ public sealed record Gen5ComputeNggBatchInput(int DescriptorBinding, uint Descri
             (totalBuffers < 0 || binding < totalBuffers) && binding != scalarBuffer &&
             evaluation.GlobalMemoryBindings[binding].DataLength > 0 &&
             evaluation.GlobalMemoryBindings[binding].DataLength <= evaluation.GlobalMemoryBindings[binding].Data.Length &&
-            evaluation.GlobalMemoryBindings[binding].ScalarAddress % Math.Max(alignment, 1) == 0 &&
+            evaluation.GlobalMemoryBindings[binding].BaseAddress % Math.Max(alignment, 1) == 0 &&
             ((ulong)first + length) * 4 <= (ulong)evaluation.GlobalMemoryBindings[binding].DataLength;
         bool Overlap(int a, ulong firstA, ulong lengthA, int b, ulong firstB, ulong lengthB) =>
             a == b && firstA < firstB + lengthB && firstB < firstA + lengthA;
