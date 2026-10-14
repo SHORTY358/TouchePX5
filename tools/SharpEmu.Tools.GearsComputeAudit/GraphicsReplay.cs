@@ -10,7 +10,34 @@ using SharpEmu.ShaderCompiler.Vulkan;
 
 internal static class GraphicsReplay
 {
-    public static void Run(string captureDirectory, string computeDirectory, string outputDirectory)
+    public static void RunFrame(string computeFrameReport, string outputDirectory)
+    {
+        using var frame = JsonDocument.Parse(File.ReadAllText(computeFrameReport));
+        var draws = frame.RootElement.GetProperty("Draws").EnumerateArray()
+            .Where(d => d.GetProperty("DrawCount").GetUInt32() > 3).OrderBy(d => d.GetProperty("Sequence").GetUInt64()).ToArray();
+        if (draws.Length != 3 || draws[0].GetProperty("Sequence").GetUInt64() != 2 ||
+            draws[1].GetProperty("Sequence").GetUInt64() != 3 || draws[2].GetProperty("Sequence").GetUInt64() != 4)
+            throw new InvalidOperationException("Frame audit requires the first three consecutive native gear draws");
+        foreach (var draw in draws)
+            Run(draw.GetProperty("CaptureDirectory").GetString()!, draw.GetProperty("ComputeDirectory").GetString()!, outputDirectory, deferPresentation: true);
+        if (!GuestGpu.Current.TrySubmitGuestImage(0x400100000, 640, 360, 640))
+            throw new InvalidOperationException("Combined mesh image was not queued");
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline && !Directory.EnumerateFiles(outputDirectory, "present-*.bgra").Any()) Thread.Sleep(100);
+        var images = Directory.EnumerateFiles(outputDirectory, "present-*.bgra").ToArray();
+        if (images.Length == 0) throw new InvalidOperationException("No combined mesh image captured");
+        File.WriteAllText(Path.Combine(outputDirectory, "frame-graphics-report.json"), JsonSerializer.Serialize(new {
+            Scope = "Independent first native frame mesh replay; three verified compute readbacks, original PS and transport vertex bridge; background initialized black; not native runtime animation",
+            DrawCount = draws.Length, ComputeFrameReport = Path.GetFullPath(computeFrameReport),
+            ComputeFrameReportSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(computeFrameReport))),
+            CapturedImages = images.Select(f => new { File = f, Sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f))) }).ToArray(),
+            NativeFrameRenderingVerified = false, SharedDepth = true
+        }));
+        Console.WriteLine("Captured independent three-gear frame replay: " + images[0]);
+        Environment.Exit(0);
+    }
+
+    public static void Run(string captureDirectory, string computeDirectory, string outputDirectory, bool deferPresentation = false)
     {
         Directory.CreateDirectory(outputDirectory);
         Environment.SetEnvironmentVariable("SHARPEMU_TRACE_GUEST_IMAGES", "1");
@@ -94,6 +121,7 @@ internal static class GraphicsReplay
             renderState: GuestRenderState.Default with { Depth = new(true, true, 1) },
             depthTarget: new(0x400200000, 0x400200000, 640, 360, 3, 0, 1f, false),
             shaderAddress: snapshot.ShaderAddress);
+        if (deferPresentation) return;
         if (!gpu.TrySubmitGuestImage(targetAddress, 640, 360, 640)) throw new InvalidOperationException("Offscreen result was not queued for presentation");
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline && !Directory.EnumerateFiles(outputDirectory, "present-*.bgra").Any()) Thread.Sleep(100);

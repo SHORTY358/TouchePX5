@@ -4,6 +4,29 @@ using System.Text.Json;
 
 internal static class LightingReference
 {
+    public static void CompareFrame(string computeFrameReport, string imageFile)
+    {
+        using var frame = JsonDocument.Parse(File.ReadAllText(computeFrameReport));
+        var words = new List<uint>(); var indices = new List<uint>();
+        foreach (var draw in frame.RootElement.GetProperty("Draws").EnumerateArray().OrderBy(d => d.GetProperty("Sequence").GetUInt64()))
+        {
+            if (draw.GetProperty("DrawCount").GetUInt32() <= 3) continue;
+            var directory = draw.GetProperty("ComputeDirectory").GetString()!;
+            using var remap = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "remap-report.json")));
+            var slots = remap.RootElement.GetProperty("OutputSlots").GetInt32();
+            var readback = JsonSerializer.Deserialize<uint[]>(File.ReadAllText(Path.Combine(directory, "actual.json")))!;
+            var readbackIndices = JsonSerializer.Deserialize<uint[]>(File.ReadAllText(Path.Combine(directory, "remapped-indices.json")))!;
+            var outputBase = (uint)(words.Count / 12);
+            words.AddRange(readback.Take(slots * 12));
+            indices.AddRange(readbackIndices.Select(i => checked(i + outputBase)));
+        }
+        var referenceInputs = Path.Combine(Path.GetDirectoryName(imageFile)!, "frame-reference-inputs");
+        Directory.CreateDirectory(referenceInputs);
+        File.WriteAllText(Path.Combine(referenceInputs, "actual.json"), JsonSerializer.Serialize(words));
+        File.WriteAllText(Path.Combine(referenceInputs, "remapped-indices.json"), JsonSerializer.Serialize(indices));
+        Compare(referenceInputs, imageFile);
+    }
+
     public static void Compare(string computeDirectory, string imageFile)
     {
         var words = JsonSerializer.Deserialize<uint[]>(File.ReadAllText(Path.Combine(computeDirectory, "actual.json")))!;
@@ -65,6 +88,21 @@ internal static class LightingReference
         for (var pixel = 0; pixel < depth.Length; pixel++)
         {
             if (!confidence[pixel]) continue;
+            // A foreground mesh edge can cross the interior of a background
+            // triangle. Require reference-only color continuity over the same
+            // source-pixel margin; never select samples based on GPU agreement.
+            var px = pixel % width; var py = pixel / width;
+            var margin = (int)Math.Ceiling(3 * scale);
+            var stable = true;
+            foreach (var dx in new[] { -margin, 0, margin }) foreach (var dy in new[] { -margin, 0, margin })
+            {
+                var nx = px + dx; var ny = py + dy;
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height) { stable = false; continue; }
+                var neighbor = ny * width + nx;
+                for (var c = 0; c < 3; c++)
+                    if (Math.Abs(reference[pixel * 4 + c] - reference[neighbor * 4 + c]) > 3) stable = false;
+            }
+            if (!stable) continue;
             checkedPixels++;
             var error = Enumerable.Range(0, 3).Max(c => Math.Abs(actual[pixel * 4 + c] - reference[pixel * 4 + c]));
             if (error > 3) mismatchedPixels++;
@@ -75,7 +113,7 @@ internal static class LightingReference
         File.WriteAllText(Path.Combine(directory, "lighting-reference-report.json"), JsonSerializer.Serialize(new {
             Scope = "Independent GLSL lighting/depth reference with inferred aspect-fit presentation; diagnostic only, not rasterization conformance",
             CheckedInteriorPixels = checkedPixels, MismatchedPixels = mismatchedPixels, WorstChannelError = worstError,
-            ChannelTolerance = 3, EdgeMarginSourcePixels = 3,
+            ChannelTolerance = 3, EdgeMarginSourcePixels = 3, ReferenceColorContinuityRequired = true,
             InteriorLightingMatches = checkedPixels >= 10000 && mismatchedPixels == 0, LightingVerified = false
         }));
         Console.WriteLine($"Lighting reference: {mismatchedPixels}/{checkedPixels} interior pixels differ; maximum channel error {worstError}");

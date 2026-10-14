@@ -7,6 +7,18 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
+if (args.Length == 3 && args[0] == "--frame-lighting-reference")
+{
+    LightingReference.CompareFrame(args[1], args[2]);
+    return;
+}
+
+if (args.Length == 3 && args[0] == "--graphics-frame")
+{
+    GraphicsReplay.RunFrame(args[1], args[2]);
+    return;
+}
+
 if (args.Length == 3 && args[0] == "--lighting-reference")
 {
     LightingReference.Compare(args[1], args[2]);

@@ -8,15 +8,13 @@ comparison, SHA-256 of 847 tracked files and `git fsck --full`. Library tests
 passed 1396/1396 from D; CLI Release win-x64 build passed from D. Generated NuGet
 path metadata was relocated to D. Historical evidence paths below remain verbatim.
 
-Cleanup is pending: Windows denied atomic rename of the old C root; PowerShell's
-fallback move was interrupted after moving 6.656 GiB into
-`C:\Dev\TouchePX5.migration-source`, leaving 51.844 GiB under the original root.
-Automatic tool policy rejected removal of old data, including the safer explicit
-artifact-directory attempt. Do not claim that C space was freed. The active D tree
-is complete and authoritative; both old C trees await human cleanup. A temporary
-`C:\Dev\TouchePX5\.packages` junction targets D's package cache; this is a link,
-not a second package copy. After removing the old C trees, a whole-root compatibility
-junction C:\Dev\TouchePX5 -> D:\Dev\TouchePX5 can preserve historical toolchain paths.
+Cleanup completed by the user and verified: both old C directories were absent,
+and free C space increased to 131122667520 bytes (about 59 GiB recovered).
+Created and verified a whole-root compatibility junction
+`C:\Dev\TouchePX5` -> `D:\Dev\TouchePX5`. The project data remains on D;
+the C path is only a link. Historical toolchain/report paths therefore still
+resolve. The earlier OS rename failure/tool-policy cleanup rejection is resolved
+by the user's manual removal, not an agent bypass.
 The existing heartbeat points at D and remains PAUSED as it was before relocation.
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
@@ -24,6 +22,43 @@ playability have not been demonstrated. There is no supported whole-emulator com
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **All three original first-frame gear meshes now replay into one verified image.**
+  Opt-in sequence-limited captures use actual submitted GPU work sequence IDs,
+  not snapshot-content guesses. Both stages of one draw share `draw-NNNNNN`;
+  backend-only calls cannot invent a sequence, and the diagnostic limit is 1..32.
+  `Capture-GearsFrameReplay.ps1` saved four paired commands (3-vertex clear,
+  1200-vertex red mesh, 600-vertex green mesh, 600-vertex blue mesh) from bounded
+  native run `gears-shader-aperture-windows/runs/20261014-103612-399` into
+  `artifacts/gears-frame-replay/20261014-103611-982`.
+
+  All four original GS compute audits passed independently with exact matched
+  constants/streams. The three mesh audits also remapped 800 triangles/2400
+  indices total and rejected their wrong-source-ID controls. Aggregated input
+  lineage is saved in `compute-frame-report.json`; library tests **1396/1396**.
+
+  `--graphics-frame` consumes those three verified readbacks in submitted order,
+  keeps one color/depth target, waits on the existing ordered presentation path,
+  and uses original PS stages with transport-only vertex bridges. The audit's
+  black initial color attachment substitutes for rendering the captured clear
+  triangle; this remains explicitly an independent replay, not native execution.
+  Result: `artifacts/gears-graphics-replay/20261014-1039-three-gears/three-gears.png`,
+  visibly red/green/blue meshes together, with input/report/image hashes retained.
+
+  Independent GLSL depth/lighting reference initially found 25 differences near
+  foreground silhouette edges crossing background triangle interiors. The
+  comparison now requires a three-source-pixel triangle-edge margin AND purely
+  reference-derived color continuity over that same neighborhood, excluding
+  material/occlusion boundaries without looking at GPU agreement. All **22327**
+  selected frame pixels then match with zero channel error. The earlier bad-depth
+  single-gear control still fails **16625/19945** selected pixels, max error 157,
+  under the same updated policy. Edge/presentation rasterization fidelity is not
+  claimed. Reports are `lighting-reference-report.json` alongside those captures.
+
+  Next implement a bounded native compute-to-indexed-graphics route and verify
+  real producer completion/ownership before enabling it for Gears. The original
+  graphics barrier and frame-token errors still block normal runtime animation;
+  this single saved-frame replay is not game compatibility or GTA VI readiness.
 
 - **Independent mesh image now passes an interior lighting/depth reference.**
   The prior radial light/dark wedges were caused by this audit's own draw state:

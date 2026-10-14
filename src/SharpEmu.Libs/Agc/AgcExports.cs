@@ -707,6 +707,7 @@ public static partial class AgcExports
 
     private sealed class SubmittedDcbState
     {
+        public ulong ReplayDrawSequence { get; set; }
         public readonly record struct PendingSubmission(
             ulong CommandAddress,
             uint DwordCount,
@@ -7219,6 +7220,7 @@ public static partial class AgcExports
         state.UcRegisters.TryGetValue(VgtPrimitiveType, out var primitiveType);
         var renderTargets = GetRenderTargets(state.CxRegisters);
         var drawSequence = ++gpuState.WorkSequence;
+        state.ReplayDrawSequence = drawSequence;
         if (state.PendingTargetlessDraw is { } stalePendingDraw)
         {
             ReturnPooledDrawArrays(
@@ -9004,7 +9006,7 @@ public static partial class AgcExports
         Gen5ShaderReplayCapture.TryWrite(shader, evaluation, layout,
             new(drawCount, state.InstanceCount, primitiveType, GetBaseVertex(state), indexed,
                 indexed ? state.IndexBufferAddress : 0, indexed ? state.DrawIndexOffset : 0,
-                stride, indices, status, pixelInputEnable, pixelInputAddress, pixelInputControl?.ToArray()));
+                stride, indices, status, pixelInputEnable, pixelInputAddress, pixelInputControl?.ToArray(), state.ReplayDrawSequence));
     }
 
     private static GuestIndexBuffer? CreateGuestIndexBuffer(
