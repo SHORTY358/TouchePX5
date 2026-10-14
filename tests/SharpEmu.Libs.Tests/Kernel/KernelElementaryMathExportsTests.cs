@@ -9,6 +9,44 @@ namespace SharpEmu.Libs.Tests.Kernel;
 public sealed class KernelElementaryMathExportsTests
 {
     [Theory]
+    [InlineData(0.0f, 0.0f, 1.0f)]
+    [InlineData(1.5707963267948966f, 1.0f, 0.0f)]
+    [InlineData(-1.5707963267948966f, -1.0f, 0.0f)]
+    public void SincosfWritesBothPointerResultsAndPreservesAdjacentMemory(float angle, float sine, float cosine)
+    {
+        var memory = new FakeCpuMemory(0x10000, 64);
+        var ctx = new CpuContext(memory, Generation.Gen5);
+        var original = Enumerable.Repeat((byte)0xA5, 64).ToArray();
+        Assert.True(memory.TryWrite(0x10000, original));
+        ctx.SetXmmRegister(0, (uint)BitConverter.SingleToInt32Bits(angle) | 0xDEADBEEF00000000UL, ulong.MaxValue);
+        ctx[CpuRegister.Rdi] = 0x10010;
+        ctx[CpuRegister.Rsi] = 0x10020;
+        var manager = new ModuleManager();
+        manager.RegisterExports(SharpEmu.Generated.SysAbiExportRegistry.CreateExports(Generation.Gen5));
+        Assert.Equal(OrbisGen2Result.ORBIS_GEN2_OK, manager.Dispatch("pztV4AF18iI", ctx));
+        Assert.True(ctx.TryReadUInt32(0x10010, out var sineBits));
+        Assert.True(ctx.TryReadUInt32(0x10020, out var cosineBits));
+        Assert.InRange(MathF.Abs(BitConverter.Int32BitsToSingle((int)sineBits) - sine), 0, 0.000001f);
+        Assert.InRange(MathF.Abs(BitConverter.Int32BitsToSingle((int)cosineBits) - cosine), 0, 0.000001f);
+        var after = new byte[64];
+        Assert.True(memory.TryRead(0x10000, after));
+        for (var i = 0; i < 64; i++)
+            if (!(i >= 16 && i < 20) && !(i >= 32 && i < 36)) Assert.Equal(original[i], after[i]);
+    }
+
+    [Fact]
+    public void SincosfRejectsMissingCosinePointerBeforeWritingSine()
+    {
+        var ctx = new CpuContext(new FakeCpuMemory(0x10000, 64), Generation.Gen5);
+        Assert.True(ctx.TryWriteUInt32(0x10010, 0xA5A5A5A5));
+        ctx[CpuRegister.Rdi] = 0x10010;
+        ctx[CpuRegister.Rsi] = 0x20000;
+        Assert.Equal((int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT, KernelElementaryMathExports.Sincosf(ctx));
+        Assert.True(ctx.TryReadUInt32(0x10010, out var value));
+        Assert.Equal(0xA5A5A5A5u, value);
+    }
+
+    [Theory]
     [InlineData("sin", 0.0, 0.0)]
     [InlineData("sin", 1.5707963267948966, 1.0)]
     [InlineData("log", 1.0, 0.0)]

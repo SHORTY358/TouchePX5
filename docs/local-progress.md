@@ -1,10 +1,47 @@
-# Local engineering checkpoint — 2026-10-13
+# Local engineering checkpoint — 2026-10-14
 
 This remains an experimental PS5 emulator. Commercial-game compatibility and GTA VI
 playability have not been demonstrated. There is no supported whole-emulator completion
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **Native sincosf fallback caused corrupt Gears mesh coordinates; now implemented.**
+  Real Clang mesh/scene objects import `sincosf`: it combines original sinf/cosf
+  calls. NID derived by existing PS5 algorithm is `pztV4AF18iI`; old runtime
+  redirected it to companion libc placeholder at 0x804000050. Implemented the
+  void ABI with float angle in low XMM0 bits and sine/cosine output pointers in
+  RDI/RSI. Both output locations are checked before writes; adjacent bytes are
+  preserved. Four generated-dispatch/invalid-pointer tests added. Full library
+  Release suite **1294/1294** passes; Windows CLI build zero warnings/errors.
+
+  Independent original native fixture `tools/native-probes/fixtures/sincosf.c`
+  checks three angles and output guards, built with same validated SDK, converter
+  and companion libc as Gears by `Build-SincosfProbe.ps1`. Original runtime run
+  `artifacts/native-sincosf/runs/20261014-003810-882-before` prints native FAIL;
+  changed runtime `20261014-003836-787-after` prints PASS and main dispatch OK.
+  **Whole probe host process still exits 4**: independent main finalizer returns
+  32856. Strict `report.json` remains failed; `diagnosis-report.json` separates
+  confirmed numerical success from finalizer failure, with runtime/input hashes.
+  Do not report this as a clean whole-process pass or bypass finalization.
+
+  Actual Gears boot `20261014-003900-984` with unchanged diagnostic SELF
+  `D672A7DD...` now captures first mesh vertex as approximately
+  (1.084148, 0.08532427, 0.125; 0,0,1), replacing the corrupt prior X/Y values.
+  Captured values agree with original mesh formula within 1e-6; exact evidence
+  in `captures/20261014-003900-774/numerical-report.json` and actual draw payloads.
+  Swapchain still has zero nonblack RGB pixels; **visible Gears unverified**.
+  Next graphics gate: inspect actual scene matrices, vertex shader export/control
+  handling and depth/raster state using captured payloads, preserving guest data.
+
+  Retirement still fails with callback=-24 (unexpected flip token), failed frame
+  3 after 3 completed in this boot. Source inspection finds display events with
+  same ident/filter overwrite the pending entry with latest hint in
+  `KernelEventQueueCompatExports.TriggerDisplayEvent` (lines 1255-1274): two
+  in-flight flips can therefore lose the earlier token before consumption.
+  Next: capture expected/observed tokens and verify real queue/coalescing contract
+  before changing runtime or title behavior. Keep exact completion assertions;
+  coalescing may be intentional console semantics, not automatically a runtime bug.
 
 - **Typed vertex fetch now respects the actual GFX10 instruction format.**
   Pinned LLVM `BUFInstructions.td` GFX10 MTBUF encoding explicitly defines
