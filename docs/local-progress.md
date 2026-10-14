@@ -6,6 +6,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **GFX10 triangle primitive connectivity now has a bounded host decoder.**
+  Pinned LLPC `23a0757d922da7eb06c6a626d48553e0fb99fde0`,
+  `NggPrimShader.cpp:3290-3340`, documents nine-bit subgroup-relative indices
+  in bits 8:0, 18:10 and 28:20 and null bit 31. New
+  `Gen5TriangleConnectivity` retains the complete packed word, extracts those
+  fields and requires each index to be below the actual live subgroup vertex
+  count before consumption. Null primitives and unrepresentable counts fail;
+  non-null degenerates remain valid connectivity. Seven regression cases check
+  gap bits, null with nonzero payload and the bound on each vertex index.
+  Full Release library suite **1311/1311** passes.
+  This is a host decoding contract only: compute EXP target 20 still rejects,
+  no GPU primitive output or group-to-host remapping has been enabled. Next wire
+  explicit bounded primitive records to the translator and validate raw/null/
+  index output on hardware before implementing merged inputs or using Gears.
+
 - **Runtime translator now has explicit bounded compute export transport.**
   Added optional `Gen5ComputeExportOutput` to Vulkan compute compilation: aligned
   writable existing buffer binding, logical record capacity and parameter count.

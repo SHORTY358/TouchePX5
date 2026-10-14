@@ -121,6 +121,22 @@ Input is synthetic IR through the real translator, not original Gears or guest
 EXP decoding. Next add primitive decoding and the actual NGG system-input/
 dispatch adapter. Prior transport pixels do not validate original Gears.
 
+## Triangle primitive decoding contract
+
+Pinned LLPC `23a0757d922da7eb06c6a626d48553e0fb99fde0`,
+`lgc/lowering/NggPrimShader.cpp:3290-3340` and `:3380-3390`, documents pre-GFX12
+connectivity: index0 bits 8:0, index1 18:10, index2 28:20, null bit 31.
+Indices have **nine** bits, separated by ten-bit strides. Host reference decoder
+`Gen5TriangleConnectivity` retains the packed word and does not interpret gap
+bits. Consumption requires a non-null primitive and all three indices below the
+actual live subgroup vertex count (1..512); degenerate triangles are preserved.
+Seven regression cases pass as part of the 1311-test library suite.
+
+This contract applies to explicitly selected triangle topology only. It does not
+establish line/point decoding, edge flags, GS amplification, compaction or global
+vertex mapping. Primitive compute exports still reject until an explicit output
+layout, hardware checks and group ownership/remapping are implemented.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.
