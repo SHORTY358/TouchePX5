@@ -58,6 +58,20 @@ resource lifetime. Prototype on an independent group before routing Gears.
    inspect geometry, depth, color, animation and ownership. Successful submission
    alone remains insufficient.
 
+## Verified compute foundation
+
+The independent native `compute-ngg-group-foundation.c` probe now passes on the
+actual GPU: two guest wave32 groups within one 64-invocation compute workgroup,
+live tails 0/13/32/33/63/64, exact local IDs and active flags, shared paired LDS
+and two barriers, per-record/trailing guards. Twelve numerical dispatches pass
+without CPU replacement. An intentionally all-active predicate fails at native
+return 150. Existing paired-LDS baseline still passes.
+
+This does not feed NGG group system inputs or execute original Gears shaders.
+The next bridge must write bounded position/parameter outputs, preserve source
+vertex/primitive identity and tails, and synchronize that buffer before graphics
+consumption. Evidence is in `artifacts/smoke-compute-bounded-atomics-lds-paired-ngg-foundation`.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.

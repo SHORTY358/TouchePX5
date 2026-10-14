@@ -1,6 +1,8 @@
 [CmdletBinding()]
-param([ValidateSet(0,1,2,3,4,5)][int]$ByteCase=0, [switch]$UnalignedByte, [switch]$PartialImage, [switch]$ImageAtomicsCrossQueue, [switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
+param([ValidateSet(0,1,2,3,4,5)][int]$ByteCase=0, [switch]$UnalignedByte, [switch]$PartialImage, [switch]$ImageAtomicsCrossQueue, [switch]$NggGroupFoundation, [switch]$NggForceAllActive, [switch]$LdsPaired, [switch]$LdsWide, [switch]$LdsAtomics, [switch]$BoundedAtomics, [switch]$BufferAtomics, [switch]$SignedImage, [switch]$ImageAtomics, [switch]$IndirectDimensions, [switch]$BaseRelative, [switch]$ComputeQueue)
 $ErrorActionPreference = 'Stop'
+if($NggForceAllActive -and -not $NggGroupFoundation) { throw 'Negative tail control requires group foundation mode' }
+if($NggGroupFoundation) { $LdsPaired=$true }
 if($ByteCase -ne 0) { $UnalignedByte=$true }
 if($UnalignedByte) { $PartialImage=$true }
 if($PartialImage) { $ImageAtomics=$true }
@@ -30,14 +32,17 @@ if($SignedImage) { $root += '-signed' }
 if($LdsAtomics) { $root += '-lds' }
 if($LdsWide) { $root += '-wide' }
 if($LdsPaired) { $root += '-paired' }
+if($NggGroupFoundation) { $root += '-ngg-foundation' }
+if($NggForceAllActive) { $root += '-all-active-negative' }
 if($IndirectDimensions) { $root += '-indirect-dimensions' }
 if($BaseRelative) { $root += '-base-relative' }
 if($ComputeQueue) { $root += '-compute-queue' }
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
-$source=if($PartialImage) { 'compute-image-partial.c' } elseif($ImageAtomicsCrossQueue) { 'compute-image-atomic-cross.c' } elseif($LdsPaired) { 'compute-lds-paired.c' } elseif($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
+$source=if($NggGroupFoundation) { 'compute-ngg-group-foundation.c' } elseif($PartialImage) { 'compute-image-partial.c' } elseif($ImageAtomicsCrossQueue) { 'compute-image-atomic-cross.c' } elseif($LdsPaired) { 'compute-lds-paired.c' } elseif($LdsWide) { 'compute-lds-wide.c' } elseif($LdsAtomics) { 'compute-lds-atomic.c' } elseif($BoundedAtomics) { 'compute-clamped-atomic.c' } elseif($ImageAtomics) { 'compute-image-atomic.c' } elseif($IndirectDimensions) { 'compute-indirect.c' } else { 'compute.c' }
 $fixtureOptions=@(
+    if($NggForceAllActive) { '-DNGG_FORCE_ALL_ACTIVE=1' }
     if($UnalignedByte) { '-DPARTIAL_UNALIGNED_BYTE=1'; '-DPARTIAL_BYTE_CASE='+$ByteCase }
     if($BufferAtomics) { '-DCLAMP_BUFFER=1' }
     if($SignedImage) { if($PartialImage) { '-DPARTIAL_SIGNED_IMAGE=1' } else { '-DCLAMP_SIGNED_IMAGE=1' } }
@@ -86,8 +91,12 @@ try {
            [regex]::Matches($output,"agc.dma_packet [^\r\n]*bytes=$dmaBytes src_sel=2 fill=True copied=True").Count -ne 1 -or
            [regex]::Matches($output,'vk.cpu_image_partial_upload [^\r\n]*spans=1 [^\r\n]*success=True').Count -ne 1) { throw 'Expected GPU seed, a one-texel CPU DMA and two independent GPU readbacks preserving its GPU-only neighbor.' }
     } elseif($LdsPaired) {
-        if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne 8 -or
-           [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=0 ').Count -ne 8 -or
+        $pairedDispatches=if($NggGroupFoundation) { 12 } else { 8 }
+        if($NggGroupFoundation -and [regex]::Matches($output,'agc.compute_shader [^\r\n]*wave=32 local=64x1x1 ').Count -ne 2) {
+            throw 'Expected two translated wave32 shaders with 64 local participants'
+        }
+        if([regex]::Matches($output,'vk.compute_dispatch groups=').Count -ne $pairedDispatches -or
+           [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=0 ').Count -ne $pairedDispatches -or
            [regex]::Matches($output,'agc.compute_shader [^\r\n]*local=64x1x1 ').Count -ne 2 -or
            -not $output.Contains('DsWrite2B32') -or
            -not $output.Contains('DsWrite2St64B32')) { throw 'Expected paired and scaled-offset LDS stores under inactive/lane-0/32/63 masks.' }
@@ -126,7 +135,7 @@ try {
            [regex]::Matches($output,'vk.compute_dispatch groups=1x1x1 [^\r\n]*textures=1 ').Count -ne 3) { throw 'Expected one GPU seed, two contended image atomic dispatches and two separate image readbacks.' }
     } elseif ([regex]::Matches($output,'vk.compute_dispatch groups=1x1x1').Count -ne 2) { throw "Expected two Vulkan executions: $log" }
     if ($output.Contains('agc.compute_semantic_fast_path')) { throw 'Probe unexpectedly used a CPU semantic replacement.' }
-    $expectedSubmissions=if($UnalignedByte) { 4 } elseif($PartialImage) { 3 } elseif($LdsPaired) { 8 } elseif($LdsWide) { 12 } elseif($LdsAtomics) { 19 } elseif($BoundedAtomics) { 39 } else { 5 }
+    $expectedSubmissions=if($UnalignedByte) { 4 } elseif($PartialImage) { 3 } elseif($LdsPaired) { if($NggGroupFoundation) { 12 } else { 8 } } elseif($LdsWide) { 12 } elseif($LdsAtomics) { 19 } elseif($BoundedAtomics) { 39 } else { 5 }
     if($ImageAtomicsCrossQueue -and
         ([regex]::Matches($output,'agc.driver_submit_acb owner=7 [^\r\n]*dwords=70 ').Count -ne 3 -or
          [regex]::Matches($output,'agc.driver_submit_dcb [^\r\n]*dwords=77 ').Count -ne 2 -or
@@ -143,6 +152,7 @@ try {
     if($UnalignedByte) { Write-Output "PASS: Byte-span R32 DMA case=$ByteCase preserved GPU-only bytes; separate GPU reads and CPU/output guards passed. SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
     elseif($PartialImage) { Write-Output "PASS: Partial R32 CPU DMA changed only texel 1 to 123; separate GPU reads preserved GPU-only texel 0 at 7 while CPU backing stayed 99, with unchanged output and neighboring CPU guards. SignedImage=$SignedImage ComputeQueue=$ComputeQueue" }
     elseif($ImageAtomicsCrossQueue) { Write-Output "PASS: ACB image atomics returned unique old values; two graphics consumers suspended before their producers, resumed through real labels, and read sums 13/23 with unchanged CPU image backing and output guards." }
+    elseif($NggGroupFoundation) { Write-Output "PASS: independent wave32 group sharing, local indices 0..63, live tails 0/13/32/33/63/64, paired/scaled LDS and guards; not Gears rendering." }
     elseif($LdsPaired) { Write-Output "PASS: Paired LDS stores at ordinary and ST64-scaled offsets verified each component through independent dword reads on all 64 invocations, untouched LDS locations, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
     elseif($LdsWide) { Write-Output "PASS: Masked 64/96/128-bit LDS stores verified each component through independent dword reads on all 64 invocations, a neighboring LDS guard, per-record padding and trailing output guards. ComputeQueue=$ComputeQueue" }
     elseif($LdsAtomics) { Write-Output "PASS: LDS INC/DEC boundaries, 64-invocation shared cycles and inactive/lane-0/32/63 writes verified old values, final readback and output guards. ComputeQueue=$ComputeQueue" }

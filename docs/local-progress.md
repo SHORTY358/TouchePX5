@@ -6,6 +6,33 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Independent GPU group-sharing foundation passes with wave32 tail controls.**
+  Added original `compute-ngg-group-foundation.c`, derived from the existing
+  paired-LDS probe with explicit local-index predicate, lane identity readback
+  and forced wave32 dispatch. It runs 64 local participants (two guest wave32
+  groups), live counts 0/13/32/33/63/64, ordinary/scaled paired LDS writes and
+  independent dword reads after two real barriers. Each of 12 GPU dispatches
+  checks all 64 local IDs, exact per-invocation active flags, shared results,
+  untouched LDS word, per-record padding and trailing guards. Native host exit
+  and dispatch result are zero; no CPU semantic replacement is permitted.
+  This is **shared compute infrastructure**, not execution of original Gears GS.
+
+  `Test-TouchePX5-Compute.ps1 -NggGroupFoundation` passes on actual GPU.
+  Deliberate `-NggForceAllActive` negative control is rejected by native numerical
+  assertions (guest return 150, host exit 4) instead of accepted as success.
+  Existing unmodified `-LdsPaired` scenario also passes after the runner change.
+  Artifacts: `artifacts/smoke-compute-bounded-atomics-lds-paired-ngg-foundation`
+  and `...-all-active-negative`, with source/ELF/runtime/log hashes and exact
+  dispatch counts in `group-foundation-report.json`. No emulator runtime code
+  changed; latest library suite remains 1296, not a new whole-emulator metric.
+
+  Next: connect validated group/lane identity to an explicit bounded NGG
+  expansion output buffer (position and parameters), preserving topology/tails,
+  then consume that output with graphics and compare independently expected
+  pixels. Original Gears system-register inputs/export semantics and stable flip
+  retirement still require implementation/verification. **Gears is still black
+  and unsupported at its workgroup barrier in the current graphics stage.**
+
 - **NGG audit found invalid workgroup barriers in the previous vertex shader path.**
   Pinned LLPC `NggPrimShader::initWaveThreadInfo` extracts group primitive count
   from s2[30:22], vertex count s2[20:12], ordered wave ID s2[11:0]; wave vertex
