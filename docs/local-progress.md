@@ -6,6 +6,42 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original retained Gears GS executes a nonempty native clear triangle on GTX 1060.**
+  This is the actual first captured command (3 vertices, 1 instance, triangle list),
+  original 384-byte GS and matched scalar/global/vertex bytes. The audit supplies
+  one explicit 128-thread passthrough subgroup and separate storage bindings;
+  it is not a general NGG scheduler or the later gear mesh.
+
+  Initial hardware execution exposed an actual translation bug: compute MTBUF
+  loads used the descriptor's single-component format instead of the instruction's
+  explicit typed format. X survived but Y/Z and normal components were lost.
+  `nonempty-audit` under `artifacts/gears-shader-replay/20261014-075029-729`
+  retains that failed numerical shape. Corrected format selection leaves MUBUF
+  descriptor semantics intact and rejects reserved MTBUF formats explicitly.
+  Re-executing the preserved old SPIR-V against the independent final reference
+  rejects exactly nine words (Y, Z and normal Z for all three live vertices);
+  see that directory's `reference-gpu.log`. The corrected shader passes the
+  identical fixture/reference, so the oracle detects the actual previous defect.
+
+  `Test-GearsComputeReplay.ps1` now verifies a strict independent reference from
+  the native clear builder/GLSL: identity matrix/quaternion, fullscreen triangle,
+  +Z normals, black material and original packed export masks. All 3348 output
+  words match, including the 35 authored export/connectivity words, untouched
+  idle slots, source/descriptor tables and guards. All three captured input
+  buffers remain byte-exact. Driver accepted the SPIR-V and GPU completion/readback
+  succeeded. Evidence: `artifacts/gears-compute-replay/20261014-075743-881/execution-report.json`.
+  The earlier unchanged-output negative control reports 35 mismatches intentionally;
+  it is not the numerical reference and is not a failed positive audit.
+
+  Library suite **1396/1396**, CLI build zero warnings/errors. Existing ten-case
+  source/count/barrier GPU checks still pass (`ngg-source-inputs/20261014-175657-040`).
+  **No Gears scene rendering is claimed.** The graphics barrier route and frame-token
+  ownership remain blocked. Next capture a matched nonempty gear-mesh draw, retain
+  its real inputs/counts and partition triangle-list sources into bounded groups;
+  validate transformed positions/normals/connectivity before integrating compute
+  output into indexed graphics. Ordered IDs and primitive/vertex reuse must remain
+  explicit, not guessed from the successful single clear triangle.
+
 - **Original GS replay now includes the actual submitted draw context.**
   Captured before either stage compilation can fail, with count, instance count,
   topology, base vertex and indexed state. Indexed diagnostics retain original

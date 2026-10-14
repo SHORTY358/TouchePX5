@@ -2902,12 +2902,19 @@ public static partial class Gen5SpirvTranslator
             // typed conversion for both MUBUF and MTBUF in that fallback path.
             if (IsFormatBufferLoad(instruction.Opcode))
             {
+                if (control.TypedFormat is { } typedFormat &&
+                    (!Gfx10UnifiedFormat.TryDecode(typedFormat, out var typedDataFormat, out _) || typedDataFormat == 0))
+                {
+                    error = $"unsupported typed buffer format {typedFormat}";
+                    return false;
+                }
                 EmitBufferFormatLoad(
                     bindingIndex,
                     byteAddress,
                     control.ScalarResource,
                     control.VectorData,
-                    control.DwordCount);
+                    control.DwordCount,
+                    control.TypedFormat);
                 return true;
             }
 
@@ -2929,10 +2936,11 @@ public static partial class Gen5SpirvTranslator
             uint byteAddress,
             uint scalarResource,
             uint vectorData,
-            uint componentCount)
+            uint componentCount,
+            uint? typedFormat)
         {
             var descriptorWord3 = LoadS(scalarResource + 3);
-            var unifiedFormat = BitwiseAnd(
+            var unifiedFormat = typedFormat is { } explicitFormat ? UInt(explicitFormat) : BitwiseAnd(
                 ShiftRightLogical(descriptorWord3, UInt(12)),
                 UInt(0x7F));
             var (dataFormat, numberFormat) = DecodeGfx10BufferFormat(unifiedFormat);

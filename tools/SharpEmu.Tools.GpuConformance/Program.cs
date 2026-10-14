@@ -27,6 +27,8 @@
 // Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json] [actual-words.json] [initial-words.json] [dispatch-limits.json]
 // Explicit expected words select a buffer of that size and two X workgroups;
 // omitted expected words retain the original arithmetic probe and one group.
+// Optional sixth argument: storage-fixture.json with Buffers (uint[][]),
+// OutputBinding and GroupsX. Every non-output binding must remain unchanged.
 
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -47,6 +49,19 @@ if (initialWords is not null && (ulong)initialWords.Length * 4 != BufferSize)
 var dispatchLimits = args.Length > 4 ? JsonSerializer.Deserialize<uint[]>(File.ReadAllText(args[4]))
     ?? throw new InvalidOperationException("Missing dispatch limits") : new uint[] { uint.MaxValue, 1, 1 };
 if (dispatchLimits.Length != 3) throw new InvalidOperationException("Dispatch limits require three uint words");
+// Optional owned multi-binding fixture; buffer order is the descriptor-array order.
+var storageFixture = args.Length > 5
+    ? JsonSerializer.Deserialize<StorageFixture>(File.ReadAllText(args[5]))
+        ?? throw new InvalidOperationException("Missing storage fixture") : null;
+if (storageFixture is not null && (explicitExpected is null ||
+    storageFixture.Buffers.Length is 0 or > 16 ||
+    storageFixture.OutputBinding < 0 || storageFixture.OutputBinding >= storageFixture.Buffers.Length ||
+    storageFixture.GroupsX is 0 or > 128 ||
+    storageFixture.Buffers.Any(b => b is null || b.Length is 0 or > 65536) ||
+    storageFixture.Buffers[storageFixture.OutputBinding].Length != explicitExpected.Length))
+    throw new InvalidOperationException("Invalid bounded multi-binding fixture");
+var storageWords = storageFixture?.Buffers ?? [initialWords ?? Enumerable.Repeat(Sentinel, checked((int)(BufferSize / 4))).ToArray()];
+var outputBindingIndex = storageFixture?.OutputBinding ?? 0;
 
 var expectedFma = BitConverter.SingleToUInt32Bits(
     MathF.FusedMultiplyAdd(1.5f, 2.25f, 10.0f));
@@ -165,11 +180,18 @@ unsafe
     Check(vk.CreateDevice(physical, in deviceInfo, null, out var device), "vkCreateDevice");
     vk.GetDeviceQueue(device, computeFamily, 0, out var queue);
 
-    // Storage buffer, host-visible so the CPU can prefill and read back.
+    // Separate buffers preserve each captured binding's range and byte identity.
+    var buffers = new Silk.NET.Vulkan.Buffer[storageWords.Length];
+    var memories = new DeviceMemory[storageWords.Length];
+    var mappings = new nint[storageWords.Length];
+    var descriptorBuffers = new DescriptorBufferInfo[storageWords.Length];
+    for (var bindingIndex = 0; bindingIndex < storageWords.Length; bindingIndex++)
+    {
+    var storageSize = checked((ulong)storageWords[bindingIndex].Length * 4);
     var bufferInfo = new BufferCreateInfo
     {
         SType = StructureType.BufferCreateInfo,
-        Size = BufferSize,
+        Size = storageSize,
         Usage = BufferUsageFlags.StorageBufferBit,
         SharingMode = SharingMode.Exclusive,
     };
@@ -206,15 +228,21 @@ unsafe
     Check(vk.BindBufferMemory(device, buffer, memory, 0), "vkBindBufferMemory");
 
     void* mapped;
-    Check(vk.MapMemory(device, memory, 0, BufferSize, 0, &mapped), "vkMapMemory");
-    var words = (uint*)mapped;
-    for (var index = 0; index < (int)(BufferSize / sizeof(uint)); index++)
+    Check(vk.MapMemory(device, memory, 0, storageSize, 0, &mapped), "vkMapMemory");
+    var bindingWords = (uint*)mapped;
+    for (var index = 0; index < storageWords[bindingIndex].Length; index++)
     {
-        words[index] = initialWords is null ? Sentinel : initialWords[index];
+        bindingWords[index] = storageWords[bindingIndex][index];
     }
+    buffers[bindingIndex] = buffer;
+    memories[bindingIndex] = memory;
+    mappings[bindingIndex] = (nint)mapped;
+    descriptorBuffers[bindingIndex] = new() { Buffer = buffer, Offset = 0, Range = storageSize };
+    }
+    var words = (uint*)mappings[outputBindingIndex];
 
     // SharpEmu emits all guest buffers as one descriptor array at set 0,
-    // binding 0; this conformance shader uses a single buffer.
+    // binding 0; fixture order preserves separate captured resource ranges.
     ShaderModule module;
     fixed (byte* pCode = code)
     {
@@ -231,7 +259,7 @@ unsafe
     {
         Binding = 0,
         DescriptorType = DescriptorType.StorageBuffer,
-        DescriptorCount = 1,
+        DescriptorCount = (uint)buffers.Length,
         StageFlags = ShaderStageFlags.ComputeBit,
     };
     var setLayoutInfo = new DescriptorSetLayoutCreateInfo
@@ -278,7 +306,7 @@ unsafe
     var poolSize = new DescriptorPoolSize
     {
         Type = DescriptorType.StorageBuffer,
-        DescriptorCount = 1,
+        DescriptorCount = (uint)buffers.Length,
     };
     var poolInfo = new DescriptorPoolCreateInfo
     {
@@ -298,23 +326,20 @@ unsafe
     };
     Check(vk.AllocateDescriptorSets(device, in setAllocateInfo, out var descriptorSet), "vkAllocateDescriptorSets");
 
-    var descriptorBuffer = new DescriptorBufferInfo
+    fixed (DescriptorBufferInfo* bufferInfos = descriptorBuffers)
     {
-        Buffer = buffer,
-        Offset = 0,
-        Range = BufferSize,
-    };
     var write = new WriteDescriptorSet
     {
         SType = StructureType.WriteDescriptorSet,
         DstSet = descriptorSet,
         DstBinding = 0,
         DstArrayElement = 0,
-        DescriptorCount = 1,
+        DescriptorCount = (uint)buffers.Length,
         DescriptorType = DescriptorType.StorageBuffer,
-        PBufferInfo = &descriptorBuffer,
+        PBufferInfo = bufferInfos,
     };
     vk.UpdateDescriptorSets(device, 1, in write, 0, null);
+    }
 
     var commandPoolInfo = new CommandPoolCreateInfo
     {
@@ -349,7 +374,7 @@ unsafe
         null);
     fixed (uint* limits = dispatchLimits)
         vk.CmdPushConstants(commandBuffer, pipelineLayout, ShaderStageFlags.ComputeBit, 0, 12, limits);
-    vk.CmdDispatch(commandBuffer, explicitExpected is null ? 1u : 2u, 1, 1);
+    vk.CmdDispatch(commandBuffer, storageFixture?.GroupsX ?? (explicitExpected is null ? 1u : 2u), 1, 1);
     var barrier = new MemoryBarrier
     {
         SType = StructureType.MemoryBarrier,
@@ -426,6 +451,14 @@ unsafe
     }
 
     failures += trailingClobbered;
+    // All non-output buffers are captured inputs and must remain byte-exact.
+    for (var bindingIndex = 0; bindingIndex < buffers.Length; bindingIndex++)
+    {
+        if (bindingIndex == outputBindingIndex) continue;
+        var inputWords = (uint*)mappings[bindingIndex];
+        for (var index = 0; index < storageWords[bindingIndex].Length; index++)
+            if (inputWords[index] != storageWords[bindingIndex][index]) failures++;
+    }
     if (trailingClobbered == 0 && results.Length < totalWords)
     {
         Console.WriteLine(
@@ -442,9 +475,12 @@ unsafe
     vk.DestroyPipelineLayout(device, pipelineLayout, null);
     vk.DestroyDescriptorSetLayout(device, setLayout, null);
     vk.DestroyShaderModule(device, module, null);
-    vk.UnmapMemory(device, memory);
-    vk.FreeMemory(device, memory, null);
-    vk.DestroyBuffer(device, buffer, null);
+    for (var bindingIndex = 0; bindingIndex < buffers.Length; bindingIndex++)
+    {
+        vk.UnmapMemory(device, memories[bindingIndex]);
+        vk.DestroyBuffer(device, buffers[bindingIndex], null);
+        vk.FreeMemory(device, memories[bindingIndex], null);
+    }
     vk.DestroyDevice(device, null);
     vk.DestroyInstance(instance, null);
 
@@ -458,3 +494,5 @@ unsafe
         }
     }
 }
+
+internal sealed record StorageFixture(uint[][] Buffers, int OutputBinding, uint GroupsX);

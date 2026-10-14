@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
+using SharpEmu.ShaderCompiler.Vulkan;
 using Xunit;
 
 namespace SharpEmu.Libs.Tests.Agc;
@@ -39,6 +40,18 @@ public sealed class Gen5TypedVertexFetchTests
         Assert.False(Gen5ShaderScalarEvaluator.TryEvaluate(ctx, state, out _,
             out var error, resolveVertexInputs: true));
         Assert.Contains("vertex-input-binding-failed", error);
+    }
+
+    [Fact]
+    public void ComputeStorageFetchRejectsReservedMtbufFormat()
+    {
+        var (_, state) = Create((0xEA6B2000u & ~(0x7Fu << 19)) | (30u << 19));
+        var binding = new Gen5GlobalMemoryBinding(36, Base + 0x800, [0], new byte[48], 48, false);
+        var scalars = new uint[256];
+        Array.Copy(state.UserData.ToArray(), 0, scalars, 36, 4);
+        Assert.False(Gen5SpirvTranslator.TryCompileComputeShader(state,
+            new(scalars, scalars, [], [binding]), 1, 1, 1, out _, out var error));
+        Assert.Contains("unsupported typed buffer format 30", error);
     }
 
     private static (CpuContext, Gen5ShaderState) Create(uint word)

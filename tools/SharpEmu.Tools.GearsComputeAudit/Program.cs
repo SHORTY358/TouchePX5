@@ -7,7 +7,9 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
-if (args.Length != 3) throw new ArgumentException("usage: GearsComputeAudit <replay.json> <original-gears-gs.bin> <output-directory>");
+if (args.Length is < 3 or > 4 || (args.Length == 4 && args[3] != "--nonempty"))
+    throw new ArgumentException("usage: GearsComputeAudit <replay.json> <original-gears-gs.bin> <output-directory> [--nonempty]");
+var nonempty = args.Length == 4;
 using var envelope = JsonDocument.Parse(File.ReadAllText(args[0]));
 var snapshot = envelope.RootElement.GetProperty("Snapshot").Deserialize<Gen5ShaderReplaySnapshot>()!;
 if (snapshot.Schema != 1) throw new InvalidOperationException("Unsupported replay schema");
@@ -30,13 +32,30 @@ var directory = Path.GetFullPath(args[2]);
 Directory.CreateDirectory(directory);
 // Empty explicit subgroup for compiler coverage only. No guessed draw count,
 // source IDs, matrix constants or host-produced scene geometry are executed.
-var batch = Gen5NggPassthroughBatch.Create([(new(0, 0, 32, 128, 0), [], [])]);
+Gen5ShaderReplayDrawContext? draw = null;
+if (nonempty)
+{
+    draw = envelope.RootElement.GetProperty("DrawContext").Deserialize<Gen5ShaderReplayDrawContext>();
+    // This bounded first-draw audit has one explicit triangle, not a general scheduler.
+    if (draw is null || draw.DrawCount != 3 || draw.InstanceCount != 1 || draw.PrimitiveType != 4 ||
+        draw.Indexed || draw.BaseVertex != 0 || draw.IndexCaptureStatus != "not-indexed")
+        throw new InvalidOperationException("Nonempty audit requires the captured first nonindexed triangle draw");
+}
+var batch = nonempty
+    ? Gen5NggPassthroughBatch.Create([(new(3, 1, 32, 128, 0),
+        new Gen5NggSourceVertex[] { new(0, 0), new(1, 0), new(2, 0) },
+        new Gen5NggSourceTriangle[] { new(0, 0, 1, 2) })])
+    : Gen5NggPassthroughBatch.Create([(new(0, 0, 32, 128, 0), [], [])]);
 const int primitiveFirst = 128 * 12;
 const int descriptorFirst = primitiveFirst + 128 * 5;
 const int sourceFirst = descriptorFirst + 4;
 var auxiliary = new byte[(sourceFirst + 128 * 9 + 16) * 4];
+for (var index = 0; index < auxiliary.Length / 4; index++)
+    BinaryPrimitives.WriteUInt32LittleEndian(auxiliary.AsSpan(index * 4), 0xCAFEBABE);
 for (var index = 0; index < batch.Descriptors.Length; index++)
     BinaryPrimitives.WriteUInt32LittleEndian(auxiliary.AsSpan((descriptorFirst + index) * 4), batch.Descriptors.Span[index]);
+for (var index = 0; index < batch.SourceWords.Length; index++)
+    BinaryPrimitives.WriteUInt32LittleEndian(auxiliary.AsSpan((sourceFirst + index) * 4), batch.SourceWords.Span[index]);
 var bindings = snapshot.GlobalMemoryBindings.ToList();
 // Graphics attribute views must become actual read-only storage bindings for
 // compute fetches. Keep original bytes, addresses, strides and instruction
@@ -63,8 +82,60 @@ var success = Gen5SpirvTranslator.TryCompileComputeShader(state, evaluation, 128
     exportOutput: new(outputBinding, 128, 2), triangleOutput: new(outputBinding, primitiveFirst, 128, 0),
     nggBatchInputs: new(outputBinding, descriptorFirst, outputBinding, sourceFirst, 1, 128, 32));
 if (success) File.WriteAllBytes(Path.Combine(directory, "original-gears-compute.spv"), shader.Spirv);
+if (success && nonempty)
+{
+    uint[] Words(byte[] bytes, int length)
+    {
+        if (length % 4 != 0) throw new InvalidOperationException("Captured binding is not word aligned");
+        var words = new uint[length / 4];
+        for (var index = 0; index < words.Length; index++)
+            words[index] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index * 4));
+        return words;
+    }
+    File.WriteAllText(Path.Combine(directory, "storage-fixture.json"), JsonSerializer.Serialize(new {
+        Buffers = bindings.Select(b => Words(b.Data, b.DataLength)).ToArray(),
+        OutputBinding = outputBinding, GroupsX = 1u
+    }));
+    File.WriteAllText(Path.Combine(directory, "initial.json"), JsonSerializer.Serialize(Words(auxiliary, auxiliary.Length)));
+    // Unchanged-output negative control, explicitly not a numerical shader oracle.
+    File.WriteAllText(Path.Combine(directory, "unchanged-control.json"), JsonSerializer.Serialize(Words(auxiliary, auxiliary.Length)));
+    // Independent reference for the pinned native clear draw: identity MVP/quaternion,
+    // original fullscreen triangle, +Z normals and black material. Do not derive
+    // expected values from the emitted SPIR-V or GPU readback.
+    var one = BitConverter.SingleToUInt32Bits(1f);
+    if (snapshot.UserData.Length < 25 ||
+        !snapshot.UserData.Skip(1).Take(16).SequenceEqual(Enumerable.Range(0, 16).Select(i => i % 5 == 0 ? one : 0u)) ||
+        !snapshot.UserData.Skip(17).Take(4).SequenceEqual(new uint[] { 0, 0, 0, one }) ||
+        !snapshot.UserData.Skip(21).Take(4).SequenceEqual(new uint[] { 0, 0, 0, one }))
+        throw new InvalidOperationException("Numerical oracle supports only the captured identity/black clear draw");
+    float[][] clearPositions = [[-1, -1, 1], [3, -1, 1], [-1, 3, 1]];
+    var stream = snapshot.VertexInputs.Single(v => v.Pc == 0x78);
+    if (stream.Stride != 24 || stream.OffsetBytes != 0 || stream.DataLength != 72)
+        throw new InvalidOperationException("Unexpected clear vertex extent");
+    for (var vertex = 0; vertex < 3; vertex++)
+        for (var component = 0; component < 6; component++)
+        {
+            var value = component < 3 ? clearPositions[vertex][component] : component == 5 ? 1f : 0f;
+            if (BinaryPrimitives.ReadUInt32LittleEndian(stream.Data.AsSpan(vertex * 24 + component * 4)) != BitConverter.SingleToUInt32Bits(value))
+                throw new InvalidOperationException("Captured geometry differs from native clear-draw reference");
+        }
+    var expected = Words(auxiliary, auxiliary.Length);
+    for (var vertex = 0; vertex < 3; vertex++)
+    {
+        uint[] exports = [BitConverter.SingleToUInt32Bits(clearPositions[vertex][0]),
+            BitConverter.SingleToUInt32Bits(clearPositions[vertex][1]), one, one,
+            0, 0, one, 0, 0, 0];
+        Array.Copy(exports, 0, expected, vertex * 12, exports.Length);
+    }
+    uint[] triangle = [0x00200400, 0, 1, 2, 1];
+    Array.Copy(triangle, 0, expected, primitiveFirst, triangle.Length);
+    File.WriteAllText(Path.Combine(directory, "expected.json"), JsonSerializer.Serialize(expected));
+    File.WriteAllText(Path.Combine(directory, "limits.json"), JsonSerializer.Serialize(new uint[] { 128, 1, 1 }));
+}
 File.WriteAllText(Path.Combine(directory, "audit-report.json"), JsonSerializer.Serialize(new {
-    Scope = "Original Gears stage/captured backend inputs; empty subgroup for compiler audit only; no GPU or scene execution",
+    Scope = nonempty ? "Original Gears first triangle inputs; nonempty compute fixture only; unchanged-control is not a numerical oracle; GPU execution not implied"
+        : "Original Gears stage/captured backend inputs; empty subgroup for compiler audit only; no GPU or scene execution",
+    DrawContext = draw,
     OriginalShaderSha256 = shaderHash, ReplaySha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(args[0]))),
     Instructions = program.Instructions.Count, Globals = snapshot.GlobalMemoryBindings.Length, VertexInputs = snapshot.VertexInputs.Length,
     ReadOnlyVertexStorageViews = bindings.Count - snapshot.GlobalMemoryBindings.Length - 1,
