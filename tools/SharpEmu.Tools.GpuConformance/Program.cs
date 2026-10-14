@@ -24,7 +24,7 @@
 // Creating the compute pipeline doubles as a driver-acceptance check for the
 // emitted SPIR-V; the dispatch then verifies the arithmetic numerically.
 //
-// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json]
+// Usage: SharpEmu.Tools.GpuConformance <shader.spv> [expected-uint-words.json] [actual-words.json]
 // Explicit expected words select a buffer of that size and two X workgroups;
 // omitted expected words retain the original arithmetic probe and one group.
 
@@ -366,7 +366,14 @@ unsafe
     Check(vk.QueueSubmit(queue, 1, in submitInfo, default), "vkQueueSubmit");
     Check(vk.QueueWaitIdle(queue), "vkQueueWaitIdle");
 
-    var results = new (string Name, uint Actual, uint Expected)[]
+    if (args.Length > 2)
+    {
+        var actualWords = new uint[checked((int)(BufferSize / sizeof(uint)))];
+        for (var index = 0; index < actualWords.Length; index++) actualWords[index] = words[index];
+        File.WriteAllText(args[2], JsonSerializer.Serialize(actualWords));
+    }
+
+    var results = explicitExpected is null ? new (string Name, uint Actual, uint Expected)[]
     {
         ("v_fmac_f32  fma(1.5, 2.25, 10.0)", words[0], expectedFma),
         ("v_mul_hi_i32 hi(0x7FFFFFFF*0x10003)", words[1], expectedHi),
@@ -376,10 +383,9 @@ unsafe
         ("v_pk_fma_f16 fused rounds up at midpoint", words[5], ExpectedPkFma),
         ("v_pk_fma_f16 neg addend rounds down", words[6], ExpectedPkFmaNeg),
         ("v_pk_fma_f16 clamp saturates to 1.0", words[7], ExpectedPkFmaClamp),
-    };
+    } : new (string Name, uint Actual, uint Expected)[explicitExpected.Length];
     if (explicitExpected is not null)
     {
-        results = new (string Name, uint Actual, uint Expected)[explicitExpected.Length];
         for (var index = 0; index < results.Length; index++)
             results[index] = ($"bounded export word {index}", words[index], explicitExpected[index]);
     }

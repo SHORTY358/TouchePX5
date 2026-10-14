@@ -7,6 +7,31 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
+if (args.Length == 2 && args[0] == "--verify-remap")
+{
+    var path = Path.GetFullPath(args[1]);
+    var actual = JsonSerializer.Deserialize<uint[]>(File.ReadAllText(path)) ?? throw new InvalidOperationException("Missing GPU words");
+    using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path)!, "shader-report.json")));
+    var report = metadata.RootElement;
+    if (report.GetProperty("TriangleMode").ValueKind == JsonValueKind.Null) throw new InvalidOperationException("No triangle records");
+    var count = report.GetProperty("ExpectedRecordCapacity").GetUInt32();
+    var firstWord = report.GetProperty("TriangleFirstWord").GetUInt32();
+    var live = report.GetProperty("TriangleLiveVertexCount").GetUInt32();
+    var invalid = report.GetProperty("TriangleMode").GetString() is "--null-triangle" or "--invalid-triangle";
+    for (uint record = 0; record < count; record++)
+    {
+        var offset = checked((int)(firstWord + record * 5));
+        foreach (uint outputBase in new uint[] { 10, 100 })
+        {
+            var valid = Gen5NggTriangleRemap.TryRemap(actual.AsSpan(offset, 5), live, outputBase, 104, out var indices);
+            if (valid == invalid || (valid && indices != (outputBase, outputBase + 1, outputBase + 3)))
+                throw new InvalidOperationException($"Wrong GPU record remapping at record {record}, base {outputBase}");
+        }
+    }
+    Console.WriteLine($"PASS checked remapping of {count} actual GPU primitive records into two distinct host ranges; no draw submitted");
+    return;
+}
+
 var allowed = new[] { "--negative-capacity", "--decode-triangle", "--multi-group", "--triangle", "--null-triangle", "--invalid-triangle", "--gap-triangle" };
 if (args.Length < 1 || args.Skip(1).Any(arg => !allowed.Contains(arg)) ||
     args.Skip(1).Distinct().Count() != args.Length - 1 || args.Skip(1).Count(arg => arg is not "--negative-capacity" and not "--decode-triangle" and not "--multi-group") > 1)

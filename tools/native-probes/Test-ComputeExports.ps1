@@ -29,7 +29,7 @@ try {
         & $Dotnet @arguments
         if ($LASTEXITCODE -ne 0) { throw "Export generation failed: $name" }
         $log = Join-Path $directory 'gpu.log'
-        & $Dotnet run --project $checker -c Release -- (Join-Path $directory 'exports.spv') (Join-Path $directory 'expected.json') > $log 2>&1
+        & $Dotnet run --project $checker -c Release -- (Join-Path $directory 'exports.spv') (Join-Path $directory 'expected.json') (Join-Path $directory 'actual.json') > $log 2>&1
         $actualExit = $LASTEXITCODE
         $expectedExit = $variant.Exit
         $text = Get-Content -LiteralPath $log -Raw
@@ -37,12 +37,20 @@ try {
         if ($actualExit -ne $expectedExit -or !$text.Contains($expectedResult)) {
             throw "Unexpected GPU result: $name; see $log"
         }
+        $remap = $false
+        if ($name -like 'triangle*' -and $expectedExit -eq 0) {
+            & $Dotnet run --project $generator -c Release -- --verify-remap (Join-Path $directory 'actual.json') > (Join-Path $directory 'remap.log') 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "GPU record remap failed: $name" }
+            $remap = $true
+        }
         $cases += [ordered]@{
             Name = $name; ExitCode = $actualExit; ExpectedExitCode = $expectedExit
             Device = ($text -split '\r?\n' | Where-Object { $_ -like 'executing on:*' } | Select-Object -First 1)
             SpirvSha256 = (Get-FileHash -LiteralPath (Join-Path $directory 'exports.spv')).Hash
             ExpectedSha256 = (Get-FileHash -LiteralPath (Join-Path $directory 'expected.json')).Hash
             LogSha256 = (Get-FileHash -LiteralPath $log).Hash
+            ActualWordsSha256 = (Get-FileHash -LiteralPath (Join-Path $directory 'actual.json')).Hash
+            HostRemapChecked = $remap
             GuestShaderSha256 = if (Test-Path -LiteralPath (Join-Path $directory 'guest-shader.bin')) {
                 (Get-FileHash -LiteralPath (Join-Path $directory 'guest-shader.bin')).Hash
             } else { $null }
@@ -58,7 +66,8 @@ try {
         'src/SharpEmu.ShaderCompiler.Vulkan/Gen5SpirvTranslator.cs',
         'src/SharpEmu.ShaderCompiler.Vulkan/Gen5ComputeExportOutput.cs',
         'src/SharpEmu.ShaderCompiler.Vulkan/Gen5ComputeTriangleOutput.cs',
-        'src/SharpEmu.ShaderCompiler/Gen5TriangleConnectivity.cs')
+        'src/SharpEmu.ShaderCompiler/Gen5TriangleConnectivity.cs',
+        'src/SharpEmu.ShaderCompiler/Gen5NggTriangleRemap.cs')
     $hashes = @($sourceFiles | ForEach-Object {
         [ordered]@{ Path = $_; Sha256 = (Get-FileHash -LiteralPath (Join-Path $repo $_)).Hash }
     })

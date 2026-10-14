@@ -192,6 +192,31 @@ remain unimplemented. This is not a complete merged shader ABI: scratch, ring
 state and other fields/modes require their own contract. Next validate actual
 source reads and remapped connectivity before wiring original Gears.
 
+## Source identity and checked host remapping
+
+Pinned `NggPrimShader.cpp:615-634` assigns pre-GFX12 v5 vertex ID, v8 instance
+ID and v2 primitive ID. Passthrough (`:1019`, `:1115-1117`) consumes packed
+nine-bit primitive connectivity from v0. Non-passthrough/no-API-GS
+(`:1481-1484`) extracts relative indices from v0 low/high 16 bits and v1 low
+16 bits. These contracts are not interchangeable. Original `gears_lit.pipe`
+selects triangle list, NGG enabled and API GS disabled; selected internal
+passthrough/culling mode still needs evidence before constructing source inputs.
+
+`Gen5NggTriangleRemap` now checks the explicit output record's exact shape,
+flag == 1, non-null source, live index bounds and consistency of all decoded
+fields. It requires the full group's uncompacted vertex range to fit output
+capacity using overflow-safe arithmetic, then adds the group's caller-owned
+vertex base. GPU completion/validity reset and descriptor ownership remain
+caller obligations. Degenerate triangles are preserved.
+
+Thirteen regression cases pass in the 1362-test library suite. Actual generated
+GPU records also pass/reject appropriately in seven triangle variants, each
+checked against two distinct host bases, including 67 records across groups.
+Evidence is `artifacts/compute-export-gpu/20261014-144810-438`, with actual GPU
+word files and remapping logs. This is checked host consumption only, not a
+submitted indexed draw or original Gears execution. Next supply mode-correct
+source records and varying per-group descriptors before graphics integration.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.

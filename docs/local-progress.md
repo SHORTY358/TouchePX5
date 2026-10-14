@@ -6,6 +6,37 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Produced triangle records now have checked group-to-host remapping.**
+  `Gen5NggTriangleRemap` consumes exactly the explicit five-word GPU record:
+  validity must equal 1, packed connectivity must be non-null and refer to live
+  subgroup vertices, decoded index words must match the packed source, and the
+  caller's entire live vertex range must fit its output capacity without uint
+  overflow. It adds the caller-owned output base only after these checks.
+  Non-null degenerate triangles remain valid. Caller must establish producer
+  completion, reset validity for each dispatch and retain uncompacted slot IDs.
+  Thirteen cases verify distinct group bases, stale/sentinel/forged validity,
+  null/mismatched indices, short output ranges, overflow and record shape.
+  Full Release library suite **1362/1362**; CLI builds cleanly.
+
+  `Test-ComputeExports.ps1` now retains actual mapped GPU words and feeds them
+  to the remapper after completion/numerical checking. Seven triangle variants
+  verify two different host ranges (bases 10 and 100), including null/invalid
+  rejection, decoded guest exports and the 67-record case. No graphics draw is
+  submitted by the remapper. Evidence:
+  `artifacts/compute-export-gpu/20261014-144810-438/execution-report.json`
+  plus each triangle `actual.json` and `remap.log`. GPU conformance also avoids
+  reading the legacy eight-word result vector for explicitly shorter buffers;
+  independent one-word storage and original arithmetic baseline pass.
+
+  Source inspection found two different pre-GFX12 input contracts: passthrough
+  reads packed nine-bit connectivity from v0, while non-passthrough/no-API-GS
+  reads 16-bit relative indices from v0 low/high and v1 low. Both use v5 vertex
+  ID and v8 instance ID; v2 is primitive ID. Gears pipeline selects triangle
+  list, NGG and no API GS, but its chosen passthrough/culling mode must be proven
+  before filling inputs. Do not reuse the EXP packed word for every v0 mode.
+  Next implement mode-specific source records and per-group descriptors; this
+  host remapper is not wired to Gears or the indexed graphics bridge.
+
 - **Explicit count inputs now reach guest s2/s3 and pass actual GPU reads.**
   Vulkan compute compilation accepts optional `nggCountInputs`. It requires a
   matching 1D thread extent and guest wave size; triangle output live vertex
