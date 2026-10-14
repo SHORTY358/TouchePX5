@@ -23,6 +23,45 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Native Gears now presents changing frames through an opt-in NGG expansion path.**
+  `TOUCHEPX5_EXPERIMENTAL_GEARS_NGG=1` admits only the exact retained 384-byte GS
+  and 160-byte PS, nonindexed single-instance triangle lists and the supported
+  untextured color target. Original GS instructions execute as Vulkan compute;
+  checked exported connectivity and owned vertex copies feed a transport vertex
+  shader and the original pixel shader. No host gear geometry or lighting is
+  substituted. Unknown shaders and modes retain the existing rejection path.
+
+  Scratch allocations are kernel-owned, bounded to eight reusable 256 KiB slots
+  per CPU-memory context. Ordered compute/readback/preparation keeps the queue
+  moving without waiting from its own consumer. Preparation reserves the actual
+  render target before flip admission, but does not certify initialized pixels.
+  Without that reservation the original native application failed its first flip
+  ownership token; with it, repeated native draw/flip submissions progress.
+
+  First integration runs produced clean initial frames but accumulated old depth
+  on later frames. The pinned public DMA ABI's immediate L2 fill was incorrectly
+  interpreted as a copy from address 0x3f800000. Its precise control/flag variant
+  now admits immediate fill only under the experimental gate; packet arguments
+  are captured before deferred execution. Declared D32 targets mirror full DMA
+  fills into cached GPU depth attachments in queue order. Other public DMA
+  variants and partial/tiled depth uploads remain unsupported by this addition.
+
+  Twelve-second corrected native run:
+  `artifacts/gears-native-ngg/20261014-113315-132/native-ngg-report.json`.
+  Five different presented captures; the final capture was visually inspected
+  and retains clean teeth/holes without the earlier depth trails. This supersedes
+  the visually defective captures under `20261014-111738-991` and
+  `20261014-112623-134`. Frame hashes establish change, not rendering fidelity;
+  the wrapper explicitly does not certify fidelity automatically. Library tests
+  pass 1401/1401. This is actual bounded native animation, not commercial-game
+  readiness. It is slow because per-draw shader compilation/readback remains.
+  A subsequent 30-second run (`20261014-113438-571/native-ngg-report.json`)
+  completed 82 submitted flips and 323 consumed draws, with 17 distinct captured
+  frames and no observed native loop/ownership failure. The last capture was
+  visually checked and is also clean. This does not establish long-session stability.
+  Next: longer native stability checks, independent late-frame fidelity checks,
+  then reuse shader pipelines without baking changing matrix scalars.
+
 - **Original captured GS exports now traverse the emulator's actual compute queue and guest writeback.**
   `--queued-compute` attaches owned bounded memory ranges, submits the retained
   original compute SPIR-V through GuestGpu, then enqueues selective output-range
@@ -51,7 +90,7 @@ percentage or release-date estimate.
   Five meaningful boundary/ID/connectivity regression cases bring the library
   suite to **1401/1401**.
 
-  **This is still captured-input execution, not native Gears animation.** Next
+  **This checkpoint was captured-input execution; the opt-in native path above supersedes it.** Next
   integrate a dedicated bounded expansion work item into native draw submission.
   Do not synchronously WaitForGuestWork from a guest-work consumer callback:
   its own queue cannot advance while that callback waits. Preserve output

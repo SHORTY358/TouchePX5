@@ -91,7 +91,8 @@ internal sealed record VulkanOrderedGuestAction(
     string DebugName,
     ulong WriteBackAddress = 0,
     ulong WriteBackLength = 0,
-    GuestGpuWriteBackMode WriteBackMode = GuestGpuWriteBackMode.AllDirty)
+    GuestGpuWriteBackMode WriteBackMode = GuestGpuWriteBackMode.AllDirty,
+    IReadOnlyList<GuestRenderTarget>? PreparedRenderTargets = null)
 {
     public bool RequiresGuestBufferWriteBack =>
         WriteBackMode != GuestGpuWriteBackMode.None;
@@ -593,6 +594,7 @@ internal static unsafe class VulkanVideoPresenter
     private static readonly Queue<Presentation> _pendingGuestImagePresentations = new();
     private static readonly Dictionary<ulong, long> _guestImageWorkSequences = new();
     private static readonly Dictionary<ulong, uint> _availableGuestImages = new();
+    private static readonly ConcurrentDictionary<ulong, byte> _declaredFloatDepthBuffers = new();
     // Write-tracker generation last uploaded for a CPU-backed guest image.
     // A newer generation in the tracker means the guest CPU rewrote the
     // memory (video frames, streamed atlases) and the upload-known skip in
@@ -1013,6 +1015,7 @@ internal static unsafe class VulkanVideoPresenter
         _pendingGuestImagePresentations.Clear();
         _guestImageWorkSequences.Clear();
         _availableGuestImages.Clear();
+        _declaredFloatDepthBuffers.Clear();
         _cpuBackedUploadGenerations.Clear();
         _untrackedGuestImageContentProbes.Clear();
         _lastOrderedGuestFlipVersions.Clear();
@@ -1524,6 +1527,18 @@ internal static unsafe class VulkanVideoPresenter
         return false;
     }
 
+    internal static bool DeclareFloatDepthBuffer(GuestDepthTarget target)
+    {
+        if (target.Address == 0 || target.GuestFormat != 3 || target.HasStencil || target.Width == 0 || target.Height == 0) return false;
+        lock (_gate)
+        {
+            if (_availableGuestImages.ContainsKey(target.Address)) return false;
+            _declaredFloatDepthBuffers.TryAdd(target.Address, 0);
+            _guestImageExtents[target.Address] = (target.Width, target.Height, (ulong)target.Width * target.Height * 4);
+            return true;
+        }
+    }
+
     internal static void SubmitGuestImageFill(ulong address, uint fillValue)
     {
         lock (_gate)
@@ -1825,6 +1840,18 @@ internal static unsafe class VulkanVideoPresenter
     /// before it. The render thread flushes its open batch and waits for the
     /// corresponding guest fences before invoking the action.
     /// </summary>
+    internal static long SubmitOrderedDrawPreparation(Action action, string debugName,
+        IReadOnlyList<GuestRenderTarget> targets)
+    {
+        if (targets.Count == 0 || targets.Any(t => t.Address == 0 || t.Width == 0 || t.Height == 0)) return 0;
+        lock (_gate)
+        {
+            return _closed || _thread is null ? 0 : EnqueueGuestWorkLocked(
+                new VulkanOrderedGuestAction(action, debugName, WriteBackMode: GuestGpuWriteBackMode.None,
+                    PreparedRenderTargets: targets.ToArray()));
+        }
+    }
+
     public static long SubmitOrderedGuestAction(
         Action action,
         string debugName,
@@ -3711,6 +3738,13 @@ internal static unsafe class VulkanVideoPresenter
     {
         switch (work)
         {
+            case VulkanOrderedGuestAction { PreparedRenderTargets: { } prepared }:
+                foreach (var target in prepared)
+                {
+                    _guestImageWorkSequences[target.Address] = sequence;
+                    _availableGuestImages[target.Address] = GetGuestTextureFormat(target.Format, target.NumberType);
+                }
+                break;
             case VulkanOffscreenGuestDraw draw:
                 for (var index = 0; index < draw.Targets.Count; index++)
                 {
@@ -4538,6 +4572,7 @@ internal static unsafe class VulkanVideoPresenter
             uint StencilFormat = 0);
 
         private readonly Dictionary<GuestDepthKey, GuestDepthResource> _guestDepthImages = new();
+        private readonly Dictionary<ulong, float> _pendingFloatDepthFills = new();
         private readonly Dictionary<GuestDepthKey, ulong> _depthOnlyColorAddresses = new();
         private ulong _nextDepthOnlyColorAddress = 0xFFFF_FF00_0000_0000UL;
         private readonly HashSet<(ulong Address, uint Width, uint Height, Format Format)> _tracedTextureCacheHits = new();
@@ -16423,7 +16458,28 @@ internal static unsafe class VulkanVideoPresenter
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void ExecuteGuestImageWrite(VulkanGuestImageWrite work)
         {
-            if (_deviceLost || !_guestImages.TryGetValue(work.Address, out var target))
+            if (_deviceLost) return;
+            if (work.Pixels is null && work.FillValue is { } repeated && _declaredFloatDepthBuffers.ContainsKey(work.Address))
+            {
+                var value = BitConverter.UInt32BitsToSingle(repeated);
+                if (!float.IsFinite(value) || value < 0 || value > 1)
+                    throw new InvalidOperationException("Unsupported declared float depth DMA fill");
+                _pendingFloatDepthFills[work.Address] = value;
+                foreach (var depth in _guestDepthImages.Values.Where(d => d.Address == work.Address && d.GuestFormat == 3 && !d.HasStencil))
+                {
+                    var previousCommandBuffer = _commandBuffer;
+                    try
+                    {
+                        _commandBuffer = BeginBatchedGuestCommands();
+                        CloseOpenTranslatedRenderPass();
+                        depth.ClearDepth = value;
+                        RecordStandaloneGuestDepthClear(depth);
+                    }
+                    finally { _commandBuffer = previousCommandBuffer; }
+                }
+                return;
+            }
+            if (!_guestImages.TryGetValue(work.Address, out var target))
             {
                 return;
             }
@@ -17674,6 +17730,11 @@ internal static unsafe class VulkanVideoPresenter
                 view.Handle,
                 $"SharpEmu guest depth view 0x{target.Address:X16}");
             _guestDepthImages.Add(key, resource);
+            if (_pendingFloatDepthFills.TryGetValue(target.Address, out var filledDepth))
+            {
+                resource.ClearDepth = filledDepth;
+                resource.InitializationSource = "ordered-float-depth-dma-fill";
+            }
             if (_traceGuestImageEvents || _traceVulkanShaderEnabled)
             {
                 Console.Error.WriteLine(
@@ -22630,6 +22691,7 @@ internal static unsafe class VulkanVideoPresenter
                 DestroyGuestDepth(guestDepth);
             }
             _guestDepthImages.Clear();
+            _pendingFloatDepthFills.Clear();
             lock (_gate)
             {
                 _availableGuestImages.Clear();

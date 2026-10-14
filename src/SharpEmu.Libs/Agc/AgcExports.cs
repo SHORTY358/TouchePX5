@@ -4666,6 +4666,16 @@ public static partial class AgcExports
             return;
         }
 
+        // The pinned Gears public ABI requests an immediate L2 fill with
+        // dst_select=3, src_select=2 and cp_sync=1. Keep this opt-in until
+        // the remaining public DMA variants have independent ABI coverage.
+        // Capture packet controls now: the title can reuse its command slot
+        // before the ordered side-effect callback executes.
+        var pinnedImmediateFill = !compactLayout &&
+            string.Equals(Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_GEARS_NGG"), "1", StringComparison.Ordinal) &&
+            TryReadUInt32(ctx, packetAddress + 4, out var dmaControl) && dmaControl == 0x02000300 &&
+            TryReadUInt32(ctx, packetAddress + 8, out var dmaFlags) && dmaFlags == 0x01000000;
+
         if (_traceComputeImageAddress is { } tracedAddress &&
             byteCount != 0 &&
             RangesOverlap(destinationAddress, byteCount, tracedAddress, 1))
@@ -4684,9 +4694,9 @@ public static partial class AgcExports
             {
                 InvalidateDcbWindowIfOverlaps(destinationAddress, byteCount);
                 var immediateFill =
-                    compactLayout &&
                     destinationAddress >= 0x10000 &&
-                    sourceAddress <= uint.MaxValue;
+                    sourceAddress <= uint.MaxValue &&
+                    (compactLayout || pinnedImmediateFill);
                 var copied =
                     byteCount != 0 &&
                     byteCount <= 256u * 1024u * 1024u &&
@@ -7371,6 +7381,7 @@ public static partial class AgcExports
             return;
         }
 
+        var expansionSubmitted = false;
         if (hasExportShader &&
             hasPixelShader &&
             hasPsInputEna &&
@@ -7385,7 +7396,8 @@ public static partial class AgcExports
                 vertexCount,
                 indexed,
                 out var translatedDraw,
-                out translationError))
+                out translationError,
+                out expansionSubmitted))
         {
             state.TranslatedDraw = translatedDraw;
             if (TryGetHardwareColorResolveTargets(
@@ -7669,6 +7681,7 @@ public static partial class AgcExports
             return;
         }
 
+        if (expansionSubmitted) return;
         TraceDrawCompactMiss(
             drawSequence,
             vertexCount,
@@ -7910,10 +7923,12 @@ public static partial class AgcExports
         uint vertexCount,
         bool indexed,
         out TranslatedGuestDraw draw,
-        out string error)
+        out string error,
+        out bool expansionSubmitted)
     {
         draw = default!;
         error = string.Empty;
+        expansionSubmitted = false;
         ulong exportShaderHeader;
         ulong pixelShaderHeader;
         lock (_submitTraceGate)
@@ -8223,6 +8238,21 @@ public static partial class AgcExports
         }
 
         var attributeCount = requiredVertexOutputCount;
+        if (Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_GEARS_NGG") == "1")
+        {
+            if (TryScheduleGearsNgg(ctx, state, exportState, exportEvaluation, pixelState, pixelEvaluation,
+                renderTargets, pixelColorExportMasks, vertexCount, indexed, psInputEna, psInputAddr, psInputCntl,
+                out var expansionError))
+            {
+                expansionSubmitted = true;
+                ReturnPooledEvaluationArrays(exportEvaluation);
+                ReturnPooledEvaluationArrays(pixelEvaluation);
+                return false;
+            }
+            if (!string.IsNullOrEmpty(expansionError))
+                Console.Error.WriteLine($"[LOADER][ERROR] agc.experimental_gears_ngg schedule failed: {expansionError}");
+        }
+
         var exportStateFingerprint = _bakeScalars
             ? ComputeShaderStateFingerprint(exportEvaluation)
             : ComputeShaderStructuralFingerprint(exportEvaluation);
