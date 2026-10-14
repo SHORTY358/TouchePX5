@@ -81,6 +81,23 @@ if($PublicInitAbi) {
         }
 '@
         $content="#include <stdio.h>`n"+$content.Replace($loopMarker,$loopMarker+"`n"+$loopDiagnostic)
+        $eventMarker="        if (result < 0)`n            return result;"
+        if(([regex]::Matches($content,[regex]::Escape($eventMarker))).Count -ne 1) { throw 'Review changed event completion failure' }
+        $eventDiagnostic=@'
+        if (result < 0) {
+            char event_message[256];
+            int event_length = snprintf(event_message, sizeof(event_message),
+                "GEARS_EVENT_FAILURE result=%d expected=%llu observed=%llu wait=%d count=%d decode=%d\n",
+                result, (unsigned long long)frame->token,
+                (unsigned long long)diagnostics.last_flip_arg,
+                diagnostics.last_wait_rc, diagnostics.last_event_count,
+                diagnostics.last_decode_rc);
+            if (event_length > 0 && (size_t)event_length < sizeof(event_message))
+                (void)write(2, event_message, (size_t)event_length);
+            return result;
+        }
+'@
+        $content=$content.Replace($eventMarker,$eventDiagnostic)
     }
     if($ShaderAperture) {
         $map='result = sceKernelMapDirectMemory(address, bytes, 0x33, 0, *offset,'

@@ -6,6 +6,35 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Isolated exact flip-token loss and identified the missing NGG input contract.**
+  Failure-only native diagnostic now records expected/observed VideoOut token,
+  wait status/count and decode status in one stderr write. Checks, timing loop,
+  retention and error returns stay unchanged. Build preserves original upstream
+  sources and prior run build reports. New diagnostic SELF SHA256:
+  `F0B8BFAB4222D41CAB336F6A512EC4A02BEAE28FBE5D5632070983077321520C`.
+  Actual bounded boot `20261014-004305-347` confirms expected token
+  72567767433219 (frame 3), observed 72567767433220 (frame 4), wait=0,
+  count=1, decode=0, callback=-24 after two completed frames. This is successful
+  decoding of the later token, not an event-format decoding error. Runtime
+  display-event coalescing replaces a queued same-ident/filter hint; verify real
+  semantics before deciding whether runtime or this homebrew consumer needs
+  correction. No success assertion was weakened, and no frame is certified.
+
+  Independent compiler-source audit: pinned LLPC `ShaderMerger.cpp` maps GFX10
+  merged-group information to s2 and merged-wave information to s3; original
+  Gears GS begins extracting group counts from s2 and wave ID from s3. Current
+  scalar evaluator initializes only user data at s8+, and Vulkan vertex setup
+  initializes v5/v8, not these merged-stage inputs. Its shader thus sees zero
+  group counts. This is a concrete missing input contract and strong explanation
+  for skipped position exports; **not yet a proven complete black-screen fix**.
+  Audit/next implementation gates are in `docs/gears-ngg-input-contract.md`.
+  Next: derive bounded group/wave counts and IDs from actual draw topology,
+  preserve existing non-NGG vertex path, validate subgroup/EXEC behavior and
+  source-index mapping before retrying real captured pixels. Do not fill s2/s3
+  with arbitrary nonzero values or bypass shader branches/barriers.
+  No graphics runtime code changed in this checkpoint; latest suite remains
+  1294 passing checks, not emulator readiness.
+
 - **Native sincosf fallback caused corrupt Gears mesh coordinates; now implemented.**
   Real Clang mesh/scene objects import `sincosf`: it combines original sinf/cosf
   calls. NID derived by existing PS5 algorithm is `pztV4AF18iI`; old runtime
