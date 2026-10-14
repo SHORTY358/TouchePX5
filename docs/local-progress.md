@@ -6,6 +6,36 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Independent mesh image now passes an interior lighting/depth reference.**
+  The prior radial light/dark wedges were caused by this audit's own draw state:
+  `GuestDepthState.ClearEnable=true` represents a guest DB clear operation, so
+  the presenter deliberately disables depth test/write for that draw. It does
+  not mean "initialize the depth buffer, then draw normally". Removed that flag
+  from the audit; first-use depth attachment initialization already clears to 1.
+  No emulator depth behavior or original shader instructions were changed.
+
+  Added an independent double-precision software GLSL lighting/depth reference
+  over the completed, verified GPU outputs and checked indices. It models the
+  aspect-fit presentation and compares only points at least three source pixels
+  from triangle boundaries; this excludes unresolved low-resolution coverage,
+  presentation filtering and top-left rasterization details. Under those stated
+  limits, **all 20526 interior pixels match with zero channel error**. The saved
+  previous clear-draw-state image fails 17205 of the identical 20526 points,
+  maximum channel error 157. Earlier looser edge margin comparisons are diagnostic
+  only and are superseded by the explicitly documented source-pixel margin.
+
+  `Test-GearsGraphicsReplay.ps1` was verified end to end with matched inputs:
+  `artifacts/gears-graphics-replay/20261014-091449-480/verification-report.json`
+  and `mesh-replay.png`. Actual corrected image was visually inspected in the
+  preceding `20261014-0927-depth-test` diagnostic run: solid red front face,
+  darker side faces and central hole, without radial wedges. Wrapper preserves
+  hashes of the original GPU image, reference, reports and log.
+  **This verifies interior lighting for one independently replayed captured mesh;
+  it does not verify full image boundaries, native Gears animation or GTA VI.**
+  Next retain all relevant draws of a native frame, then implement a bounded
+  compute-to-indexed-graphics runtime route with real completion/resource ownership.
+  Native graphics barrier and frame-token failures remain active blockers.
+
 - **First independent original-pixel Gears mesh image captured through the emulator presenter.**
   Both shader stages now retain the same submitted draw/interface context, including
   PS input enable/address/control registers. Fresh bounded native run

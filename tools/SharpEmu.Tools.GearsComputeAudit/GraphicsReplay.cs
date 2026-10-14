@@ -14,6 +14,8 @@ internal static class GraphicsReplay
     {
         Directory.CreateDirectory(outputDirectory);
         Environment.SetEnvironmentVariable("SHARPEMU_TRACE_GUEST_IMAGES", "1");
+        Environment.SetEnvironmentVariable("SHARPEMU_TRACE_GUEST_IMAGE_ADDRS", "0x400100000");
+        Environment.SetEnvironmentVariable("SHARPEMU_LOG_AGC_SHADER", "1");
         Environment.SetEnvironmentVariable("SHARPEMU_GUEST_IMAGE_DUMP_DIR", Path.GetFullPath(outputDirectory));
         var gsFile = Path.Combine(captureDirectory, "0000000200001000.replay.json");
         using var proof = JsonDocument.Parse(File.ReadAllText(Path.Combine(computeDirectory, "execution-report.json")));
@@ -87,8 +89,11 @@ internal static class GraphicsReplay
             vertexCount: (uint)indices.Length, indexBuffer: new(indexBytes, indexBytes.Length, true, false),
             vertexBuffers: views.Select(v => new GuestVertexBuffer(v.Location, v.ComponentCount, v.DataFormat, v.NumberFormat,
                 v.BaseAddress, v.Stride, v.OffsetBytes, vertices, vertices.Length, false)).ToArray(),
-            renderState: GuestRenderState.Default with { Depth = new(true, true, 1, ClearEnable: true) },
-            depthTarget: new(0x400200000, 0x400200000, 640, 360, 3, 0, 1f, false));
+            // First-use attachment initialization clears to ClearDepth. Guest
+            // ClearEnable means a DB clear draw and intentionally disables testing.
+            renderState: GuestRenderState.Default with { Depth = new(true, true, 1) },
+            depthTarget: new(0x400200000, 0x400200000, 640, 360, 3, 0, 1f, false),
+            shaderAddress: snapshot.ShaderAddress);
         if (!gpu.TrySubmitGuestImage(targetAddress, 640, 360, 640)) throw new InvalidOperationException("Offscreen result was not queued for presentation");
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline && !Directory.EnumerateFiles(outputDirectory, "present-*.bgra").Any()) Thread.Sleep(100);
