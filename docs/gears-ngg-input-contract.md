@@ -1,7 +1,7 @@
 # Gears NGG input audit — 2026-10-14
 
-Current output is black despite valid mesh coordinates and successful shader
-translation. This file records source evidence and gates for the next change;
+Current Gears output is black despite valid mesh coordinates; its original
+graphics workgroup barrier is explicitly rejected. This file records source evidence and gates for the next change;
 it does not certify NGG execution.
 
 ## Evidence
@@ -106,7 +106,8 @@ Optional `Gen5ComputeExportOutput` now maps raw position export 12 and parameter
 exports 32+ to a bounded existing writable output binding. Logical record index
 comes from a 1D workgroup/local ID; guest EXEC, logical capacity, group overflow
 bound and actual array length all guard writes. Disabled components stay intact.
-Compressed and primitive exports fail explicitly; ordinary compute exports
+Compressed exports fail explicitly; primitive exports require the separate
+explicit triangle transport below. Ordinary compute exports
 without this transport fail instead of disappearing. Local Y/Z must be one;
 nonzero dispatched group Y/Z rows are suppressed to avoid output aliasing.
 
@@ -132,10 +133,34 @@ bits. Consumption requires a non-null primitive and all three indices below the
 actual live subgroup vertex count (1..512); degenerate triangles are preserved.
 Seven regression cases pass as part of the 1311-test library suite.
 
+`Gen5ComputeTriangleOutput` now writes explicit five-word primitive records on
+GPU: packed word, three decoded subgroup-relative indices and a consumable flag.
+The caller supplies live vertex count (uniform across these dispatch groups),
+record capacity, binding and first-word offset. Null or out-of-range indices
+clear validity, without erasing the packed source. Mask zero/EXEC suppress writes;
+non-source0/compressed forms fail. Logical/tail/array bounds protect stores;
+overlap with position records and invalid backing/configuration fail before
+shader generation. Original EXP target 20 is still unsupported without this
+explicit configuration.
+
+The consumer must clear validity words for a new dispatch and accept only
+flag == 1 after producer completion. EXEC/zero-mask suppression preserves old
+storage, so treating arbitrary nonzero words or stale flags as valid is unsafe.
+
+Actual GTX 1060 evidence is in
+`artifacts/compute-export-gpu/20261014-134326-020/execution-report.json`:
+normal/null/out-of-range/gap-bit cases pass; permitting one extra primitive
+record intentionally causes five tail mismatches. Two hand-assembled guest word
+cases pass actual decoder -> translator -> Vulkan dispatch, including null and
+EXEC/zero-mask suppression. A 67-record case verifies separate records in two
+workgroups with all 887 words and guards checked. Original arithmetic baseline
+passes and the full library suite is 1327 tests.
+
 This contract applies to explicitly selected triangle topology only. It does not
 establish line/point decoding, edge flags, GS amplification, compaction or global
-vertex mapping. Primitive compute exports still reject until an explicit output
-layout, hardware checks and group ownership/remapping are implemented.
+vertex mapping. This output is not connected to Gears or to the indexed draw
+bridge. Next establish real merged inputs/source IDs and group ownership/
+remapping; varying per-group live counts require a dispatch adapter.
 
 ## Independent ownership failure
 

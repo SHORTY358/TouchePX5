@@ -6,6 +6,35 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Explicit triangle compute exports now execute on the real GTX 1060.**
+  Optional `Gen5ComputeTriangleOutput` adds EXP target 20 transport separately
+  from position/parameters. Each source invocation owns five uint words:
+  packed connectivity, three nine-bit subgroup-relative indices and a consumable
+  flag. Null bit 31 or an index outside the supplied live vertex count clears
+  that flag; the original packed word remains available. This requires explicit
+  triangle topology/counts from the caller, not guessed NGG state.
+
+  Configuration checks writable/aligned retained binding, scalar-buffer alias,
+  actual data length, offset/capacity overflow, 1D local layout and overlap with
+  position/parameter records. Uncompressed source0 is required; mask zero writes
+  nothing. Logical capacity, guest EXEC, first Y/Z row and actual array lengths
+  bound every write. Position and primitive record capacities are independent.
+
+  Ten hardware cases in `Test-ComputeExports.ps1` cover the earlier position
+  baseline/negative control, normal/null/out-of-range/gap-bit triangles, primitive
+  capacity negative control, two hand-assembled guest decode cases, and 67
+  position/primitive records across two workgroups (887 words including guards).
+  The primitive negative control detects exactly five clobbered tail words.
+  Original arithmetic/EXEC/f16 GPU baseline also passes. Evidence:
+  `artifacts/compute-export-gpu/20261014-134326-020/execution-report.json`.
+  Full Release library suite **1327/1327** passes; CLI builds successfully.
+
+  These are independent probes, not original Gears. GPU output is not yet wired
+  to the indexed draw bridge, and the fixed caller-supplied live count is not an
+  NGG group-input implementation. Next implement actual merged group/wave inputs,
+  source IDs and group-to-host vertex remapping before using original Gears.
+  Graphics workgroup-barrier rejection and separate flip-token issue remain.
+
 - **GFX10 triangle primitive connectivity now has a bounded host decoder.**
   Pinned LLPC `23a0757d922da7eb06c6a626d48553e0fb99fde0`,
   `NggPrimShader.cpp:3290-3340`, documents nine-bit subgroup-relative indices
@@ -16,10 +45,8 @@ percentage or release-date estimate.
   non-null degenerates remain valid connectivity. Seven regression cases check
   gap bits, null with nonzero payload and the bound on each vertex index.
   Full Release library suite **1311/1311** passes.
-  This is a host decoding contract only: compute EXP target 20 still rejects,
-  no GPU primitive output or group-to-host remapping has been enabled. Next wire
-  explicit bounded primitive records to the translator and validate raw/null/
-  index output on hardware before implementing merged inputs or using Gears.
+  This host decoder preceded the explicit GPU primitive transport described
+  above. Group-to-host remapping and original Gears remain unimplemented.
 
 - **Runtime translator now has explicit bounded compute export transport.**
   Added optional `Gen5ComputeExportOutput` to Vulkan compute compilation: aligned
@@ -33,9 +60,9 @@ percentage or release-date estimate.
   rejected. Extra dispatch Y/Z rows cannot overwrite the valid row.
 
   Ordinary compute EXP without an explicit output no longer silently succeeds
-  while discarding outputs. Primitive export 20 and compressed exports are
-  explicitly unsupported in this mode; no primitive decoding or system inputs
-  are invented. Eight regression cases verify missing-transport rejection,
+  while discarding outputs. Primitive export 20 requires the separate explicit
+  triangle transport described above; compressed exports remain unsupported.
+  Eight original regression cases verify missing-transport rejection,
   storage-length checks on all position/parameter channels, invalid capacities,
   read-only buffer and unsupported primitive export. Full Release library suite
   **1304/1304** passes; CLI rebuild zero warnings/errors. Existing independent

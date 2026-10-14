@@ -149,7 +149,8 @@ public static partial class Gen5SpirvTranslator
         int initialScalarBufferIndex = -1,
         uint waveLaneCount = 32,
         ulong storageBufferOffsetAlignment = 1,
-        Gen5ComputeExportOutput? exportOutput = null)
+        Gen5ComputeExportOutput? exportOutput = null,
+        Gen5ComputeTriangleOutput? triangleOutput = null)
     {
         if (exportOutput is { } output &&
             (localSizeX is 0 or > 1024 || localSizeY != 1 || localSizeZ != 1 || output.ParameterCount > 32 || output.RecordCapacity == 0 ||
@@ -167,6 +168,25 @@ public static partial class Gen5SpirvTranslator
             error = "invalid compute export output capacity, binding or dimensions";
             return false;
         }
+        if (triangleOutput is { } triangle &&
+            (localSizeX is 0 or > 1024 || localSizeY != 1 || localSizeZ != 1 ||
+             triangle.RecordCapacity == 0 || triangle.LiveVertexCount is 0 or > 512 ||
+             triangle.BufferBinding < 0 || triangle.BufferBinding >= evaluation.GlobalMemoryBindings.Count ||
+             (totalGlobalBufferCount >= 0 && triangle.BufferBinding >= totalGlobalBufferCount) ||
+             triangle.BufferBinding == initialScalarBufferIndex ||
+             !evaluation.GlobalMemoryBindings[triangle.BufferBinding].Writable ||
+             evaluation.GlobalMemoryBindings[triangle.BufferBinding].DataLength <= 0 ||
+             evaluation.GlobalMemoryBindings[triangle.BufferBinding].DataLength > evaluation.GlobalMemoryBindings[triangle.BufferBinding].Data.Length ||
+             evaluation.GlobalMemoryBindings[triangle.BufferBinding].ScalarAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
+             ((ulong)triangle.FirstWord + (ulong)triangle.RecordCapacity * 5) * 4 >
+                 (ulong)evaluation.GlobalMemoryBindings[triangle.BufferBinding].DataLength ||
+             (exportOutput is { } vertices && vertices.BufferBinding == triangle.BufferBinding &&
+              triangle.FirstWord < (ulong)vertices.RecordCapacity * (vertices.ParameterCount + 1) * 4)))
+        {
+            shader = default!;
+            error = "invalid compute triangle output capacity, binding, overlap or dimensions";
+            return false;
+        }
         var context = new CompilationContext(
             Gen5SpirvStage.Compute,
             state,
@@ -181,7 +201,8 @@ public static partial class Gen5SpirvTranslator
             initialScalarBufferIndex,
             waveLaneCount: waveLaneCount,
             storageBufferOffsetAlignment: storageBufferOffsetAlignment,
-            exportOutput: exportOutput);
+            exportOutput: exportOutput,
+            triangleOutput: triangleOutput);
         return context.TryCompile(out shader, out error);
     }
 
@@ -263,6 +284,7 @@ public static partial class Gen5SpirvTranslator
         private readonly uint _localSizeY;
         private readonly uint _localSizeZ;
         private readonly Gen5ComputeExportOutput? _exportOutput;
+        private readonly Gen5ComputeTriangleOutput? _triangleOutput;
         private readonly int _globalBufferBase;
         private readonly int _totalGlobalBufferCount;
         private readonly int _imageBindingBase;
@@ -397,9 +419,11 @@ public static partial class Gen5SpirvTranslator
             int requiredVertexOutputCount = 0,
             uint waveLaneCount = 32,
             ulong storageBufferOffsetAlignment = 1,
-            Gen5ComputeExportOutput? exportOutput = null)
+            Gen5ComputeExportOutput? exportOutput = null,
+            Gen5ComputeTriangleOutput? triangleOutput = null)
         {
             _exportOutput = exportOutput;
+            _triangleOutput = triangleOutput;
             _stage = stage;
             _requiredVertexOutputCount = requiredVertexOutputCount;
             _state = state;
@@ -4611,6 +4635,28 @@ public static partial class Gen5SpirvTranslator
                 arrayOffset);
         }
 
+        private void EmitBoundedComputeOutput(uint capacity, Action<uint> emitRecord)
+        {
+            var groupId = Load(_uvec3Type, _workGroupIdInput);
+            var group = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, groupId, 0);
+            var groupFirst = _module.AddInstruction(SpirvOp.IMul, _uintType, group, UInt(_localSizeX));
+            var local = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType,
+                Load(_uvec3Type, _localInvocationIdInput), 0);
+            var record = IAdd(groupFirst, local);
+            var inRange = _module.AddInstruction(SpirvOp.ULessThan, _boolType, record, UInt(capacity));
+            var groupInRange = _module.AddInstruction(SpirvOp.ULessThan, _boolType, group,
+                UInt((capacity - 1) / _localSizeX + 1));
+            for (uint axis = 1; axis < 3; axis++)
+            {
+                var coordinate = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, groupId, axis);
+                var firstRow = _module.AddInstruction(SpirvOp.IEqual, _boolType, coordinate, UInt(0));
+                groupInRange = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, groupInRange, firstRow);
+            }
+            inRange = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, inRange, groupInRange);
+            var active = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, inRange, Load(_boolType, _exec));
+            EmitConditional(active, () => emitRecord(record));
+        }
+
         private bool TryEmitExport(
             Gen5ShaderInstruction instruction,
             Gen5ExportControl export,
@@ -4625,6 +4671,37 @@ public static partial class Gen5SpirvTranslator
 
             if (_stage == Gen5SpirvStage.Compute)
             {
+                if (export.Target == 20 && _triangleOutput is { } triangle)
+                {
+                    if (export.Compressed || (export.EnableMask & ~1u) != 0)
+                    {
+                        error = "triangle compute export requires uncompressed source0 only";
+                        return false;
+                    }
+                    if (export.EnableMask == 0) return true;
+                    EmitBoundedComputeOutput(triangle.RecordCapacity, record =>
+                    {
+                        var packed = GetRawSource(instruction, 0);
+                        var indices = new[] {
+                            BitwiseAnd(packed, UInt(Gen5TriangleConnectivity.VertexMask)),
+                            BitwiseAnd(ShiftRightLogical(packed, UInt(10)), UInt(Gen5TriangleConnectivity.VertexMask)),
+                            BitwiseAnd(ShiftRightLogical(packed, UInt(20)), UInt(Gen5TriangleConnectivity.VertexMask))
+                        };
+                        var valid = _module.AddInstruction(SpirvOp.IEqual, _boolType,
+                            BitwiseAnd(packed, UInt(Gen5TriangleConnectivity.NullMask)), UInt(0));
+                        foreach (var index in indices)
+                            valid = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, valid,
+                                _module.AddInstruction(SpirvOp.ULessThan, _boolType, index, UInt(triangle.LiveVertexCount)));
+                        var firstWord = IAdd(UInt(triangle.FirstWord),
+                            _module.AddInstruction(SpirvOp.IMul, _uintType, record, UInt(5)));
+                        StoreBufferWord(triangle.BufferBinding, firstWord, packed);
+                        for (var index = 0; index < 3; index++)
+                            StoreBufferWord(triangle.BufferBinding, IAdd(firstWord, UInt((uint)index + 1)), indices[index]);
+                        StoreBufferWord(triangle.BufferBinding, IAdd(firstWord, UInt(4)),
+                            _module.AddInstruction(SpirvOp.Select, _uintType, valid, UInt(1), UInt(0)));
+                    });
+                    return true;
+                }
                 if (_exportOutput is not { } output)
                 {
                     error = "compute export requires explicit output transport";
@@ -4644,24 +4721,7 @@ public static partial class Gen5SpirvTranslator
                     error = "compressed compute export requires explicit unpacking";
                     return false;
                 }
-                var groupId = Load(_uvec3Type, _workGroupIdInput);
-                var group = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, groupId, 0);
-                var groupFirst = _module.AddInstruction(SpirvOp.IMul, _uintType, group, UInt(_localSizeX));
-                var local = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType,
-                    Load(_uvec3Type, _localInvocationIdInput), 0);
-                var record = IAdd(groupFirst, local);
-                var inRange = _module.AddInstruction(SpirvOp.ULessThan, _boolType, record, UInt(output.RecordCapacity));
-                var groupInRange = _module.AddInstruction(SpirvOp.ULessThan, _boolType, group,
-                    UInt((output.RecordCapacity - 1) / _localSizeX + 1));
-                for (uint axis = 1; axis < 3; axis++)
-                {
-                    var coordinate = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, groupId, axis);
-                    var firstRow = _module.AddInstruction(SpirvOp.IEqual, _boolType, coordinate, UInt(0));
-                    groupInRange = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, groupInRange, firstRow);
-                }
-                inRange = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, inRange, groupInRange);
-                var active = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, inRange, Load(_boolType, _exec));
-                EmitConditional(active, () =>
+                EmitBoundedComputeOutput(output.RecordCapacity, record =>
                 {
                     var recordFirst = _module.AddInstruction(SpirvOp.IMul, _uintType, record, UInt((output.ParameterCount + 1) * 4));
                     var firstWord = IAdd(recordFirst, UInt(slot * 4));
