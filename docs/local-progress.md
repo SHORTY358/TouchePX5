@@ -6,6 +6,34 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Runtime translator now has explicit bounded compute export transport.**
+  Added optional `Gen5ComputeExportOutput` to Vulkan compute compilation: aligned
+  writable existing buffer binding, logical record capacity and parameter count.
+  Position export 12 and parameter exports 32+ lower to raw per-channel buffer
+  writes; disabled channels remain untouched. Record identity uses workgroup X
+  times local X plus local invocation X. Capacity, actual storage array length,
+  guest EXEC and valid first Y/Z row guard every write; group bound prevents
+  integer wraparound from aliasing earlier records. Invalid binding/capacity,
+  short backing data, scalar-buffer alias, alignment and non-1D local layout are
+  rejected. Extra dispatch Y/Z rows cannot overwrite the valid row.
+
+  Ordinary compute EXP without an explicit output no longer silently succeeds
+  while discarding outputs. Primitive export 20 and compressed exports are
+  explicitly unsupported in this mode; no primitive decoding or system inputs
+  are invented. Eight regression cases verify missing-transport rejection,
+  storage-length checks on all position/parameter channels, invalid capacities,
+  read-only buffer and unsupported primitive export. Full Release library suite
+  **1304/1304** passes; CLI rebuild zero warnings/errors. Existing independent
+  GPU indexed transport probe still passes in `20261014-031613-360`.
+
+  **New export-lowering mode has not yet been executed on GPU or routed to Gears.**
+  Existing native probe uses ordinary buffer stores; its pixels validate the
+  preceding transport path, not this new lowering. Next: run generated position+
+  parameter EXP compute on real GPU, inspect numeric writes/disabled channels,
+  inactive EXEC and tail guards; then implement primitive output and actual
+  merged group/wave inputs. Do not enable original Gears until those gates pass.
+  Gears still lacks verified geometry and retains the separate token-loss issue.
+
 - **Independent GPU output bridge now carries primitive connectivity.**
   Optional `Test-ComputeVertexBridge.ps1 -Connectivity` generates four position+
   parameter records and a separate three-word 32-bit index output (0,1,3) on GPU.

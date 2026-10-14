@@ -148,8 +148,25 @@ public static partial class Gen5SpirvTranslator
         int totalGlobalBufferCount = -1,
         int initialScalarBufferIndex = -1,
         uint waveLaneCount = 32,
-        ulong storageBufferOffsetAlignment = 1)
+        ulong storageBufferOffsetAlignment = 1,
+        Gen5ComputeExportOutput? exportOutput = null)
     {
+        if (exportOutput is { } output &&
+            (localSizeX is 0 or > 1024 || localSizeY != 1 || localSizeZ != 1 || output.ParameterCount > 32 || output.RecordCapacity == 0 ||
+             output.BufferBinding < 0 || output.BufferBinding >= evaluation.GlobalMemoryBindings.Count ||
+             (totalGlobalBufferCount >= 0 && output.BufferBinding >= totalGlobalBufferCount) ||
+             output.BufferBinding == initialScalarBufferIndex ||
+             !evaluation.GlobalMemoryBindings[output.BufferBinding].Writable ||
+             evaluation.GlobalMemoryBindings[output.BufferBinding].DataLength <= 0 ||
+             evaluation.GlobalMemoryBindings[output.BufferBinding].DataLength > evaluation.GlobalMemoryBindings[output.BufferBinding].Data.Length ||
+             evaluation.GlobalMemoryBindings[output.BufferBinding].ScalarAddress % Math.Max(storageBufferOffsetAlignment, 1) != 0 ||
+             (ulong)output.RecordCapacity * (output.ParameterCount + 1) * 16 >
+                 (ulong)evaluation.GlobalMemoryBindings[output.BufferBinding].DataLength))
+        {
+            shader = default!;
+            error = "invalid compute export output capacity, binding or dimensions";
+            return false;
+        }
         var context = new CompilationContext(
             Gen5SpirvStage.Compute,
             state,
@@ -163,7 +180,8 @@ public static partial class Gen5SpirvTranslator
             0,
             initialScalarBufferIndex,
             waveLaneCount: waveLaneCount,
-            storageBufferOffsetAlignment: storageBufferOffsetAlignment);
+            storageBufferOffsetAlignment: storageBufferOffsetAlignment,
+            exportOutput: exportOutput);
         return context.TryCompile(out shader, out error);
     }
 
@@ -244,6 +262,7 @@ public static partial class Gen5SpirvTranslator
         private readonly uint _localSizeX;
         private readonly uint _localSizeY;
         private readonly uint _localSizeZ;
+        private readonly Gen5ComputeExportOutput? _exportOutput;
         private readonly int _globalBufferBase;
         private readonly int _totalGlobalBufferCount;
         private readonly int _imageBindingBase;
@@ -377,8 +396,10 @@ public static partial class Gen5SpirvTranslator
             IReadOnlyList<uint>? pixelInputCntl = null,
             int requiredVertexOutputCount = 0,
             uint waveLaneCount = 32,
-            ulong storageBufferOffsetAlignment = 1)
+            ulong storageBufferOffsetAlignment = 1,
+            Gen5ComputeExportOutput? exportOutput = null)
         {
+            _exportOutput = exportOutput;
             _stage = stage;
             _requiredVertexOutputCount = requiredVertexOutputCount;
             _state = state;
@@ -4600,6 +4621,58 @@ public static partial class Gen5SpirvTranslator
             {
                 error = "missing export sources";
                 return false;
+            }
+
+            if (_stage == Gen5SpirvStage.Compute)
+            {
+                if (_exportOutput is not { } output)
+                {
+                    error = "compute export requires explicit output transport";
+                    return false;
+                }
+                uint slot;
+                if (export.Target == 12) slot = 0;
+                else if (export.Target >= 32 && export.Target - 32 < output.ParameterCount)
+                    slot = export.Target - 32 + 1;
+                else
+                {
+                    error = $"unsupported compute export target {export.Target}";
+                    return false;
+                }
+                if (export.Compressed)
+                {
+                    error = "compressed compute export requires explicit unpacking";
+                    return false;
+                }
+                var groupId = Load(_uvec3Type, _workGroupIdInput);
+                var group = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, groupId, 0);
+                var groupFirst = _module.AddInstruction(SpirvOp.IMul, _uintType, group, UInt(_localSizeX));
+                var local = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType,
+                    Load(_uvec3Type, _localInvocationIdInput), 0);
+                var record = IAdd(groupFirst, local);
+                var inRange = _module.AddInstruction(SpirvOp.ULessThan, _boolType, record, UInt(output.RecordCapacity));
+                var groupInRange = _module.AddInstruction(SpirvOp.ULessThan, _boolType, group,
+                    UInt((output.RecordCapacity - 1) / _localSizeX + 1));
+                for (uint axis = 1; axis < 3; axis++)
+                {
+                    var coordinate = _module.AddInstruction(SpirvOp.CompositeExtract, _uintType, groupId, axis);
+                    var firstRow = _module.AddInstruction(SpirvOp.IEqual, _boolType, coordinate, UInt(0));
+                    groupInRange = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, groupInRange, firstRow);
+                }
+                inRange = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, inRange, groupInRange);
+                var active = _module.AddInstruction(SpirvOp.LogicalAnd, _boolType, inRange, Load(_boolType, _exec));
+                EmitConditional(active, () =>
+                {
+                    var recordFirst = _module.AddInstruction(SpirvOp.IMul, _uintType, record, UInt((output.ParameterCount + 1) * 4));
+                    var firstWord = IAdd(recordFirst, UInt(slot * 4));
+                    for (var component = 0; component < 4; component++)
+                    {
+                        if ((export.EnableMask & (1u << component)) != 0)
+                            StoreBufferWord(output.BufferBinding, IAdd(firstWord, UInt((uint)component)),
+                                GetRawSource(instruction, component));
+                    }
+                });
+                return true;
             }
 
             if (_stage == Gen5SpirvStage.Pixel)

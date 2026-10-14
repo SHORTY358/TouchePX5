@@ -100,6 +100,21 @@ more transport variants without a failure to resolve. Gears and its retirement
 remain unverified; original NGG primitive export is not yet decoded into this
 host index output, and culling/amplification modes are not implemented.
 
+## Explicit translator export transport
+
+Optional `Gen5ComputeExportOutput` now maps raw position export 12 and parameter
+exports 32+ to a bounded existing writable output binding. Logical record index
+comes from a 1D workgroup/local ID; guest EXEC, logical capacity, group overflow
+bound and actual array length all guard writes. Disabled components stay intact.
+Compressed and primitive exports fail explicitly; ordinary compute exports
+without this transport fail instead of disappearing. Local Y/Z must be one;
+nonzero dispatched group Y/Z rows are suppressed to avoid output aliasing.
+
+Compilation/regression checks pass, but this new lowering has not been exercised
+on GPU. Next validate generated EXP writes numerically on hardware, including
+tail/EXEC/enable-mask controls, then add primitive decoding and the actual NGG
+system-input/dispatch adapter. Prior transport pixels do not validate this mode.
+
 ## Independent ownership failure
 
 Boot `20261014-004305-347` decodes frame 4's token while awaiting frame 3.
