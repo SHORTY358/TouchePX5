@@ -10,7 +10,8 @@ public sealed record Gen5ShaderReplayLayout(int GlobalBufferBase, int TotalGloba
 
 public sealed record Gen5ShaderReplayDrawContext(uint DrawCount, uint InstanceCount,
     uint PrimitiveType, int BaseVertex, bool Indexed, ulong IndexBufferAddress,
-    uint IndexOffset, int IndexStrideBytes, byte[]? IndexData, string IndexCaptureStatus);
+    uint IndexOffset, int IndexStrideBytes, byte[]? IndexData, string IndexCaptureStatus,
+    uint PixelInputEnable = 0, uint PixelInputAddress = 0, uint[]? PixelInputControl = null);
 
 public static class Gen5ShaderReplayCapture
 {
@@ -38,7 +39,7 @@ public static class Gen5ShaderReplayCapture
             var snapshot = Gen5ShaderReplaySnapshot.Create(state, evaluation);
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, $"{state.Program.Address:X16}.replay.json"),
-                JsonSerializer.Serialize(new { Scope = "Owned vertex backend inputs before compilation; no replay or GPU execution implied",
+                JsonSerializer.Serialize(new { Scope = "Owned shader backend inputs before compilation; no replay or GPU execution implied",
                     Snapshot = snapshot, BackendLayout = layout, DrawContext = drawContext }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)

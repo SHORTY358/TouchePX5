@@ -7,6 +7,12 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
+if (args.Length == 4 && args[0] == "--graphics")
+{
+    GraphicsReplay.Run(args[1], args[2], args[3]);
+    return;
+}
+
 if (args.Length == 3 && args[0] == "--consume-mesh")
 {
     MeshReplayReference.Consume(args[1], args[2]);

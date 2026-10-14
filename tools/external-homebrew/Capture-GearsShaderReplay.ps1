@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
-param([ValidateRange(1,60)][int]$TimeoutSeconds = 12, [uint32]$DrawCount = 0)
+param([ValidateRange(1,60)][int]$TimeoutSeconds = 12, [uint32]$DrawCount = 0, [switch]$BothStages)
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $output = Join-Path $repo ('artifacts/gears-shader-replay/' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
@@ -11,7 +11,7 @@ try {
     $env:TOUCHEPX5_SHADER_REPLAY_DIR = $output
     # Native capture manifests label the pixel shader (0x1200). The original
     # pre-raster GS is at 0x1000; do not filter the vertex backend by the PS.
-    $env:TOUCHEPX5_SHADER_REPLAY_ADDRESS = '0x200001000'
+    $env:TOUCHEPX5_SHADER_REPLAY_ADDRESS = if ($BothStages) { $null } else { '0x200001000' }
     $env:TOUCHEPX5_SHADER_REPLAY_DRAW_COUNT = if ($DrawCount -gt 0) { "$DrawCount" } else { $null }
     & "$PSScriptRoot/Invoke-GearsNative.ps1" -PublicInitAbi -BootDiagnostics -LegacyDefaultsAbi -ShaderAperture -TimeoutSeconds $TimeoutSeconds
     $file = Join-Path $output '0000000200001000.replay.json'
@@ -20,6 +20,14 @@ try {
     if ($capture.Snapshot.ShaderAddress -ne 0x200001000 -or $capture.Snapshot.Schema -ne 1) { throw 'Wrong shader snapshot' }
     if ($null -eq $capture.DrawContext) { throw 'Actual draw context was not captured' }
     if ($DrawCount -gt 0 -and $capture.DrawContext.DrawCount -ne $DrawCount) { throw 'Wrong submitted draw count' }
+    if ($BothStages) {
+        $pixelFile = Join-Path $output '0000000200001200.replay.json'
+        if (!(Test-Path -LiteralPath $pixelFile)) { throw 'Original pixel stage was not captured' }
+        $pixel = Get-Content -LiteralPath $pixelFile -Raw | ConvertFrom-Json
+        if (($capture.DrawContext | ConvertTo-Json -Depth 5 -Compress) -ne ($pixel.DrawContext | ConvertTo-Json -Depth 5 -Compress)) {
+            throw 'Captured stages disagree on submitted draw context'
+        }
+    }
     if ($capture.DrawContext.Indexed -and $capture.DrawContext.IndexCaptureStatus -ne 'captured') {
         throw "Original index bytes unavailable: $($capture.DrawContext.IndexCaptureStatus)"
     }

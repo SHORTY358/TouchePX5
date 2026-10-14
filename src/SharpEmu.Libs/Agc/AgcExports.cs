@@ -8305,7 +8305,11 @@ public static partial class AgcExports
                 CaptureShaderReplayDraw(ctx, state, vertexCount, indexed, exportState, exportEvaluation,
                     new(pixelEvaluation.GlobalMemoryBindings.Count, totalGlobalBuffers,
                         pixelEvaluation.ImageBindings.Count, _bakeScalars ? -1 : guestGlobalBuffers + 1,
-                        checked((int)requiredVertexOutputCount), _storageBufferOffsetAlignment));
+                        checked((int)requiredVertexOutputCount), _storageBufferOffsetAlignment),
+                    psInputEna, psInputAddr, psInputCntl);
+                CaptureShaderReplayDraw(ctx, state, vertexCount, indexed, pixelState, pixelEvaluation,
+                    new(0, totalGlobalBuffers, 0, _bakeScalars ? -1 : guestGlobalBuffers,
+                        0, _storageBufferOffsetAlignment), psInputEna, psInputAddr, psInputCntl);
                 if (!GuestGpu.Current.TryCompilePixelShader(
                         pixelState,
                         pixelEvaluation,
@@ -8968,7 +8972,8 @@ public static partial class AgcExports
 
     private static void CaptureShaderReplayDraw(CpuContext ctx, SubmittedDcbState state,
         uint drawCount, bool indexed, Gen5ShaderState shader, Gen5ShaderEvaluation evaluation,
-        Gen5ShaderReplayLayout layout)
+        Gen5ShaderReplayLayout layout, uint pixelInputEnable = 0, uint pixelInputAddress = 0,
+        IReadOnlyList<uint>? pixelInputControl = null)
     {
         if (!Gen5ShaderReplayCapture.IsEnabled) return;
         state.UcRegisters.TryGetValue(VgtPrimitiveType, out var primitiveType);
@@ -8999,7 +9004,7 @@ public static partial class AgcExports
         Gen5ShaderReplayCapture.TryWrite(shader, evaluation, layout,
             new(drawCount, state.InstanceCount, primitiveType, GetBaseVertex(state), indexed,
                 indexed ? state.IndexBufferAddress : 0, indexed ? state.DrawIndexOffset : 0,
-                stride, indices, status));
+                stride, indices, status, pixelInputEnable, pixelInputAddress, pixelInputControl?.ToArray()));
     }
 
     private static GuestIndexBuffer? CreateGuestIndexBuffer(

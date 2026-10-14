@@ -6,6 +6,36 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **First independent original-pixel Gears mesh image captured through the emulator presenter.**
+  Both shader stages now retain the same submitted draw/interface context, including
+  PS input enable/address/control registers. Fresh bounded native run
+  `gears-shader-aperture-windows/runs/20261014-085809-042` produced matched GS/PS
+  snapshots in `artifacts/gears-shader-replay/20261014-085808-748`. Fresh original
+  GS compute/reference/remap audit passed with those exact inputs:
+  `gears-compute-replay/20261014-090053-548`.
+
+  `GearsComputeAudit --graphics <capture-directory> <compute-directory> <output-directory>`
+  requires the verified compute report and exact readback/index hashes. It retains
+  original PS words (checked against retained stage/manifest), compiles its captured
+  input mapping and uses a transport-only vertex bridge to copy completed GPU
+  position/packed parameter records. No host geometry or lighting replaces either
+  original calculation. The tool has narrowly scoped friend access to the existing
+  internal GPU seam. Separate RGBA8 offscreen drawing and ordered guest-image
+  presentation produced a nonblack swapchain image; direct translated swapchain
+  draws did not enter the image dump path, which was a diagnostic-route limitation.
+
+  Final input/hash-checked evidence:
+  `artifacts/gears-graphics-replay/20261014-0908-verified/graphics-report.json` and
+  BGRA capture. Visually inspected PNG is in the preceding depth-enabled run
+  `gears-graphics-replay/20261014-0906-depth/mesh-replay.png`: a red toothed gear
+  with a central hole is visible. **Lighting/depth fidelity is not verified:**
+  radial light/dark wedges remain suspicious, and enabling depth test/write/clear
+  in the audit did not change the image. Do not attribute those wedges solely to
+  missing depth; next investigate packed varying interpolation/normal transport
+  and reference image formation. This is one independent captured mesh replay,
+  not native Gears scene animation. Runtime graphics barrier/presentation-token
+  failures remain untouched. Library suite **1396/1396**.
+
 - **Original Gears gear-mesh shader now executes 1200 captured vertices on GTX 1060.**
   Added an opt-in submitted draw-count capture filter, including backend-only
   fallback rejection when the required context is missing. Fresh bounded native
