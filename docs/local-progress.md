@@ -6,6 +6,31 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Actual Gears passthrough mode is now proven against retained shader bytes.**
+  `Test-GearsNggMode.ps1` compiles the clean pinned original pipe with the same
+  pinned compiler and diagnostic output, in an isolated artifact directory.
+  LLPC reports NGG enabled, API GS disabled, passthrough enabled, compaction and
+  all culling disabled. Extracted GS (384 bytes) and PS (160 bytes) exactly match
+  the retained original stage hashes. Diagnostic PAL ELF differs as a container;
+  it is not substituted into the title. Evidence/settings/tool/source/stage hashes:
+  `artifacts/gears-ngg-mode/20261014-151918-920/mode-report.json`.
+  The correct input contract for these stages is therefore packed nine-bit
+  connectivity in v0, primitive ID v2, vertex ID v5 and instance ID v8.
+
+  `Gen5NggPassthroughSources` now packs explicit per-thread input records for
+  this no-API-GS mode. Vertex/primitive source arrays must match subgroup counts;
+  each triangle refers to live local vertices. Vertex and instance IDs come
+  from the caller rather than local thread numbering; primitive identity is
+  separate. Idle records remain zero and rely on guest count predicates.
+  Degenerate triangles are preserved. Three regression cases verify identity,
+  source-count/index bounds and empty/degenerate cases. Full Release library
+  suite **1365/1365**; CLI builds with zero warnings/errors.
+
+  This is a host source-record encoder, not injected VGPRs or Gears rendering.
+  Next load these explicit records into compute v0/v2/v5/v8 from a bounded source
+  binding and verify actual guest reads on GPU, then add variable per-group
+  descriptors/ownership and connect produced vertices/indices to graphics.
+
 - **Produced triangle records now have checked group-to-host remapping.**
   `Gen5NggTriangleRemap` consumes exactly the explicit five-word GPU record:
   validity must equal 1, packed connectivity must be non-null and refer to live
@@ -32,8 +57,8 @@ percentage or release-date estimate.
   reads packed nine-bit connectivity from v0, while non-passthrough/no-API-GS
   reads 16-bit relative indices from v0 low/high and v1 low. Both use v5 vertex
   ID and v8 instance ID; v2 is primitive ID. Gears pipeline selects triangle
-  list, NGG and no API GS, but its chosen passthrough/culling mode must be proven
-  before filling inputs. Do not reuse the EXP packed word for every v0 mode.
+  list, NGG and no API GS; the exact passthrough mode is now proven above.
+  Do not reuse the EXP packed word for every v0 mode.
   Next implement mode-specific source records and per-group descriptors; this
   host remapper is not wired to Gears or the indexed graphics bridge.
 

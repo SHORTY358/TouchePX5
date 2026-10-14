@@ -200,7 +200,7 @@ nine-bit primitive connectivity from v0. Non-passthrough/no-API-GS
 (`:1481-1484`) extracts relative indices from v0 low/high 16 bits and v1 low
 16 bits. These contracts are not interchangeable. Original `gears_lit.pipe`
 selects triangle list, NGG enabled and API GS disabled; selected internal
-passthrough/culling mode still needs evidence before constructing source inputs.
+passthrough mode is now proven by the isolated compiler audit below.
 
 `Gen5NggTriangleRemap` now checks the explicit output record's exact shape,
 flag == 1, non-null source, live index bounds and consistency of all decoded
@@ -216,6 +216,26 @@ Evidence is `artifacts/compute-export-gpu/20261014-144810-438`, with actual GPU
 word files and remapping logs. This is checked host consumption only, not a
 submitted indexed draw or original Gears execution. Next supply mode-correct
 source records and varying per-group descriptors before graphics integration.
+
+## Proven Gears source mode
+
+`Test-GearsNggMode.ps1` checks clean Gears pin, LLPC pin, original pipe hash and
+compiler hash, then compiles into an isolated directory with diagnostic output.
+Actual compiler settings are NGG 1, API GS 0, passthrough 1, compaction 0 and all
+culling/filter flags 0. Both extracted stage extents/hashes match the retained
+original shaders (GS 384, PS 160). Diagnostic PAL ELF container hash differs;
+it is not used in the native title. Evidence:
+`artifacts/gears-ngg-mode/20261014-151918-920/mode-report.json`.
+
+This selects the packed-connectivity passthrough VGPR contract for these exact
+GFX1013 stages, not the 16-bit relative-index culling input contract. New host
+`Gen5NggPassthroughSources` encodes nine-word local-thread records: v0 packed
+triangle, v2 explicit primitive ID, v5 caller vertex ID, v8 caller instance ID.
+Source array counts match subgroup counts and each triangle index is checked;
+idle lanes remain zero and require guest predicates. Three regression cases
+pass in the 1365-test library suite. This is not yet loaded into guest VGPRs.
+Next validate bounded source-buffer injection on GPU before combining count
+inputs, variable per-group descriptors and indexed graphics consumption.
 
 ## Independent ownership failure
 
