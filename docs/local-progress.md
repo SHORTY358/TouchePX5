@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-10-14
+# Local engineering checkpoint — 2026-10-17
 
 ## Workspace relocation
 
@@ -22,6 +22,32 @@ playability have not been demonstrated. There is no supported whole-emulator com
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **Runtime-scalar Gears now survives its earlier flip-token failure in bounded runs.**
+  Reproduced on 2026-10-17, including `runs/20261017-121257-086`: consecutive
+  successful host presents were only about 7–10 ms apart after a slow pipeline
+  preparation, and timely notifications replaced an unread flip in the existing
+  coalescing event queue. Notification delivery itself was not the long delay.
+  Submission pacing was insufficient to pace a completed GPU backlog with MAILBOX.
+
+  Accepted flip tickets now retain the configured display interval. Vulkan keeps
+  an early presentation's exact version/ticket in its existing retry slot until
+  the interval after the last successful present has elapsed. It neither sleeps
+  the GPU/event loop nor signals skipped work. Failed swapchain acquisition or
+  presentation does not advance the cadence. Unpaced/host-only frames retain
+  their prior behavior. Event coalescing and exact token checks are unchanged.
+
+  `Test-GearsNativeNgg.ps1 -RuntimeScalars -TimeoutSeconds 12` passed at
+  `artifacts/gears-native-ngg/20261017-121429-756/native-ngg-report.json`:
+  67 submissions, 264 consumed draws, 13 different captures. Last frame inspected:
+  clean teeth/holes and no old-depth trails. A 30-second follow-up at
+  `20261017-121621-799` passed with 207 submissions, 824 consumed draws and
+  41 different captures; this is bounded progress, not sustained FPS certification.
+  Three cadence regression cases bring the library suite to 1404/1404.
+  `Test-TouchePX5-FlipLifecycle.ps1 -Mode ordered -Retry present` also passes
+  exact pending/status/event checks and three independent displayed-color checks
+  across injected swapchain recreation. Real minimize/restore is not revalidated.
+  Both Gears switches remain explicit opt-ins; commercial games remain unverified.
 
 - **Native Gears now presents changing frames through an opt-in NGG expansion path.**
   `TOUCHEPX5_EXPERIMENTAL_GEARS_NGG=1` admits only the exact retained 384-byte GS

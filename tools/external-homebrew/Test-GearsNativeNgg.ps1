@@ -28,11 +28,16 @@ try {
     if(@($hashes.Sha256 | Select-Object -Unique).Count -lt 2) { throw 'Native frame captures did not change' }
     $consumed=[regex]::Matches($log,'experimental_gears_ngg consumed seq=').Count
     $submittedFlips=[regex]::Matches($log,'videoout.submit_flip[^\r\n]*submitted=True').Count
+    $presentTimes=@([regex]::Matches($log,'videoout.resolve_flip[^\r\n]*present_ticks=(\d+)') | ForEach-Object { [long]$_.Groups[1].Value })
+    $intervals=@(for($i=1;$i -lt $presentTimes.Count;$i++) { ($presentTimes[$i]-$presentTimes[$i-1])*1000.0/[Diagnostics.Stopwatch]::Frequency })
     if($consumed -lt 8 -or $submittedFlips -lt 3) { throw 'Insufficient repeated native draw/flip evidence' }
     @{Scope='Bounded original native Gears with opt-in pinned GS/PS NGG expansion, owned scratch and ordered producer/readback/graphics; not commercial-game compatibility'
         NativeRun=$run.FullName;InputSha256=$nativeReport.InputSha256
         CapturedFrames=$frames.Count;DistinctFrameHashes=@($hashes.Sha256 | Select-Object -Unique).Count
         ConsumedDraws=$consumed;SubmittedFlips=$submittedFlips
+        PresentedTickets=$presentTimes.Count
+        MinimumPresentIntervalMs=($intervals | Measure-Object -Minimum).Minimum
+        MaximumPresentIntervalMs=($intervals | Measure-Object -Maximum).Maximum
         NativePresentedImagesVerified=$true;FrameImagesChange=$true;OwnershipFailureObserved=$false
         RenderingFidelityAutomaticallyVerified=$false
         RuntimeComputeScalars=[bool]$RuntimeScalars

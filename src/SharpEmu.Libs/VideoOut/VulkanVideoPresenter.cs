@@ -18763,6 +18763,7 @@ internal static unsafe class VulkanVideoPresenter
 
         private bool _windowPresentationDeferred;
         private Presentation? _retryPresentation;
+        private GuestPresentationCadence _guestPresentationCadence;
         private readonly int _diagnosticFlipDelayMs =
             int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DIAGNOSTIC_FLIP_DELAY_MS"), out var delay)
                 ? Math.Clamp(delay, 0, 5000) : 0;
@@ -19150,6 +19151,15 @@ internal static unsafe class VulkanVideoPresenter
                 return;
 				}
             }
+            // Submission pacing alone cannot pace a completed GPU backlog:
+            // MAILBOX admits those frames in a burst after a slow compilation.
+            // Keep the exact pending version/ticket until its display interval;
+            // do not sleep the GPU/event thread or acknowledge a skipped frame.
+            if (!_guestPresentationCadence.CanPresent(presentation.Completion, Stopwatch.GetTimestamp()))
+            {
+                _retryPresentation = presentation;
+                return;
+            }
             if (_hostSurface is not null)
             {
                 if (presentation.IsSplash && presentation.Pixels is not null)
@@ -19468,6 +19478,8 @@ internal static unsafe class VulkanVideoPresenter
 
             CheckSwapchainResult(presentResult, "vkQueuePresentKHR");
             recreateAfterPresent |= presentResult == Result.SuboptimalKhr;
+            if (presentation.Completion is not null)
+                _guestPresentationCadence.Presented(Stopwatch.GetTimestamp());
             presentation.Completion?.Presented();
             VideoOutExports.ReportPresentedFrame();
             PerfOverlay.RecordPresent();

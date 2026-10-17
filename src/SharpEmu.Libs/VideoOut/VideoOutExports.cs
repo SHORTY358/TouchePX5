@@ -1404,8 +1404,11 @@ public static class VideoOutExports
                 return OrbisVideoOutErrorResourceBusy;
             var id = ++port.NextFlipId;
             var submitted = Stopwatch.GetTimestamp();
+            var presentationRate = _flipPacingDisabled ? 0 :
+                ResolveFramePacingRate(port.FlipRate, Volatile.Read(ref _frameLimit));
             completion = new GuestPresentationCompletion((presented, timestamp) =>
-                ResolveFlip(port, id, bufferIndex, flipArg, submitted, presented, timestamp));
+                ResolveFlip(port, id, bufferIndex, flipArg, submitted, presented, timestamp),
+                presentationRate == 0 ? 0 : Stopwatch.Frequency / presentationRate);
             port.PendingFlips.Add(id, completion);
             return 0;
         }
@@ -1435,6 +1438,7 @@ public static class VideoOutExports
             }
             var hint = SceVideoOutInternalEventFlip |
                 ((unchecked((ulong)flipArg) & 0x0000_FFFF_FFFF_FFFFUL) << 16);
+            TraceVideoOut($"videoout.resolve_flip id={id} arg={flipArg} present_ticks={timestamp} delivery_ticks={Stopwatch.GetTimestamp()}");
             // Holding the port lock makes close/event removal atomic with delivery.
             // The notifier runs outside all GPU locks; the kernel event queue does
             // not call back into VideoOut while holding its own lock.

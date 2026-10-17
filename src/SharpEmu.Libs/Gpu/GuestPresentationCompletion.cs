@@ -16,11 +16,14 @@ internal sealed class GuestPresentationCompletion
     private readonly Action<bool, long> _notify;
     private int _outcome;
 
-    internal GuestPresentationCompletion(Action<bool, long> notify)
+    internal GuestPresentationCompletion(Action<bool, long> notify, long minimumPresentIntervalTicks = 0)
     {
         _notify = notify;
+        MinimumPresentIntervalTicks = Math.Max(0, minimumPresentIntervalTicks);
         Active.TryAdd(this, 0);
     }
+
+    internal long MinimumPresentIntervalTicks { get; }
 
     public bool IsCancelled => Volatile.Read(ref _outcome) == 2;
 
@@ -77,4 +80,16 @@ internal sealed class GuestPresentationCompletion
                 ScheduleDrain();
         }
     }
+}
+
+/// <summary>Presentation admission, advanced only after a successful host present.</summary>
+internal struct GuestPresentationCadence
+{
+    private long _lastPresented;
+
+    internal readonly bool CanPresent(GuestPresentationCompletion? completion, long now) =>
+        completion is null || completion.MinimumPresentIntervalTicks == 0 ||
+        _lastPresented == 0 || now - _lastPresented >= completion.MinimumPresentIntervalTicks;
+
+    internal void Presented(long timestamp) => _lastPresented = timestamp;
 }
