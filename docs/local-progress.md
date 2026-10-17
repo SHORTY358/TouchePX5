@@ -23,6 +23,28 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Bounded compute-translation reuse now works in runtime-scalar Gears.**
+  The cache belongs to the CPU-memory context and retains only SPIR-V byte arrays,
+  with at most 32 variants / 8 MiB of SPIR-V (key metadata is additional). The key
+  conservatively includes shader address, dispatch/partition extent, storage
+  alignment, initial-register count, system mapping, full binding addresses,
+  layouts and contents. Only runtime initial SGPR values are excluded. It stores
+  no borrowed evaluation data or GPU handles. Baked-scalar baseline bypasses it.
+
+  `-RuntimeScalars -VerifyTranslationCache` compiles every reused request afresh
+  and requires byte-for-byte equality before submission. Twelve-second run
+  `artifacts/gears-native-ngg/20261017-121951-430/native-ngg-report.json`
+  verified all **209 cache hits** against fresh translations; no mismatches.
+  Normal reuse run `20261017-122042-144`, 30 seconds with `-CaptureEvery 30`,
+  produced **603 presented tickets**, 605 submissions, 2420 consumed draws,
+  2400 cache hits and 21 distinct actual swapchain captures. The final frame was
+  visually inspected: three clean gears, no old-depth trails. Observed intervals
+  ranged from 17.2401 to 759.8635 ms, so this is NOT steady 60 FPS. The run includes
+  initialization; it is a bounded throughput observation, not a calibrated benchmark.
+  CLI build passes (existing SHEM006 catalog warning); library tests 1404/1404.
+  Next: independently verify late-frame output and reduce remaining shader/
+  per-draw readback stalls while preserving original GS/PS and exact flip tokens.
+
 - **Runtime-scalar Gears now survives its earlier flip-token failure in bounded runs.**
   Reproduced on 2026-10-17, including `runs/20261017-121257-086`: consecutive
   successful host presents were only about 7–10 ms apart after a slow pipeline

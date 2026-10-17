@@ -3,6 +3,7 @@
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu;
 using SharpEmu.Libs.Gpu.Vulkan;
@@ -17,6 +18,12 @@ public static partial class AgcExports
 {
     private sealed class GearsScratch { public ulong Address; public bool InUse; }
     private static readonly ConditionalWeakTable<ICpuMemory, List<GearsScratch>> GearsScratchPools = new();
+    private sealed class GearsComputeCache
+    {
+        public readonly Dictionary<string, byte[]> Programs = new(StringComparer.Ordinal);
+        public int Bytes;
+    }
+    private static readonly ConditionalWeakTable<ICpuMemory, GearsComputeCache> GearsComputeCaches = new();
 
     private static bool IsPinnedGearsProgram(Gen5ShaderProgram program, int length, string hash)
     {
@@ -88,12 +95,49 @@ public static partial class AgcExports
             var evaluation = new Gen5ShaderEvaluation(snapshot.InitialScalarRegisters, snapshot.ScalarRegisters, snapshot.ImageBindings,
                 bindings, snapshot.EvaluationComputeSystemRegisters, snapshot.RuntimeScalarRegisters?.ToHashSet(), snapshot.VertexInputs);
             var runtimeScalars = Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_RUNTIME_SCALARS") == "1";
-            if (!Gen5SpirvTranslator.TryCompileComputeShader(exportState, evaluation, 128, 1, 1, out var compute, out error,
+            // This key is deliberately conservative: retain full binding addresses,
+            // byte contents and layouts. Only initial SGPR VALUES are excluded,
+            // because the runtime module loads those from the per-dispatch buffer.
+            // The program bytes are already pinned above; store no borrowed
+            // evaluation arrays, guest contexts or GPU handles in the cache.
+            var cacheKey = runtimeScalars ? JsonSerializer.Serialize(new
+            {
+                vertexCount, _storageBufferOffsetAlignment, exportState.Program.Address,
+                exportState.ComputeSystemRegisters, EvaluationSystem = snapshot.EvaluationComputeSystemRegisters,
+                InitialCount = snapshot.InitialScalarRegisters.Length,
+                Bindings = bindings.Select(b => new { b.ScalarAddress, b.BaseAddress, b.DataLength, b.Writable,
+                    b.WriteBackToGuest, b.InstructionPcs, Hash = Convert.ToHexString(SHA256.HashData(b.Data.AsSpan(0,b.DataLength))) }),
+                Views = snapshot.VertexInputs.Select(v => new { v.Pc, v.Location, v.ComponentCount, v.DataFormat,
+                    v.NumberFormat, v.BaseAddress, v.Stride, v.OffsetBytes, v.PerInstance, v.AliasPcs })
+            }) : null;
+            var cache = GearsComputeCaches.GetValue(ctx.Memory, _ => new());
+            byte[]? computeSpirv = null;
+            if (cacheKey is not null) lock (cache) cache.Programs.TryGetValue(cacheKey, out computeSpirv);
+            var cacheHit = computeSpirv is not null;
+            bool CompileCurrent(out Gen5SpirvShader compiled, out string reason) =>
+                Gen5SpirvTranslator.TryCompileComputeShader(exportState, evaluation, 128, 1, 1, out compiled, out reason,
                 totalGlobalBufferCount: bindings.Count + (runtimeScalars ? 1 : 0),
                 initialScalarBufferIndex: runtimeScalars ? bindings.Count : -1,
                 exportOutput: new(outputBinding, slots, 2), triangleOutput: new(outputBinding, (uint)primitiveFirst, slots, 0),
                 nggBatchInputs: new(outputBinding, (uint)descriptorFirst, outputBinding, (uint)sourceFirst, (uint)batch.GroupCount, 128, 32),
-                storageBufferOffsetAlignment: _storageBufferOffsetAlignment)) return false;
+                storageBufferOffsetAlignment: _storageBufferOffsetAlignment);
+            if (computeSpirv is null)
+            {
+                if (!CompileCurrent(out var compute, out error)) return false;
+                computeSpirv = compute.Spirv;
+                if (cacheKey is not null) lock (cache)
+                {
+                    if (cache.Programs.Count < 32 && computeSpirv.Length <= 8 * 1024 * 1024 - cache.Bytes && !cache.Programs.ContainsKey(cacheKey))
+                    { cache.Programs.Add(cacheKey, computeSpirv); cache.Bytes += computeSpirv.Length; }
+                }
+            }
+            else if (Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_VERIFY_TRANSLATION_CACHE") == "1")
+            {
+                if (!CompileCurrent(out var fresh, out error)) return false;
+                if (!computeSpirv.AsSpan().SequenceEqual(fresh.Spirv))
+                { error = "gears-ngg cached translation differs from fresh runtime translation"; return false; }
+                Console.Error.WriteLine("[LOADER][INFO] agc.experimental_gears_ngg translation_cache_verified");
+            }
             if (!gpu.TryCompilePixelShader(pixelState, pixelEvaluation, [new(0, 0, Gen5PixelOutputKind.Float)], out var pixel, out error,
                 totalGlobalBufferCount: 1, scalarRegisterBufferIndex: 0, pixelInputEnable: inputEnable,
                 pixelInputAddress: inputAddress, pixelInputCntl: inputControl.ToArray())) return false;
@@ -129,7 +173,7 @@ public static partial class AgcExports
                 var runtimeBytes = PackRuntimeScalarStateUnpooled(snapshot.InitialScalarRegisters, bindings);
                 computeBuffers.Add(new(0, runtimeBytes, runtimeBytes.Length, false));
             }
-            var computeSequence = gpu.SubmitComputeDispatch(exportState.Program.Address, new VulkanCompiledGuestShader(compute.Spirv), [],
+            var computeSequence = gpu.SubmitComputeDispatch(exportState.Program.Address, new VulkanCompiledGuestShader(computeSpirv), [],
                 computeBuffers,
                 (uint)batch.GroupCount, 1, 1, 0, 0, 0, 128, 1, 1, false, true, slots, 1, 1);
             if (computeSequence <= 0) { error = "gears-ngg compute enqueue failed"; return false; }
@@ -167,7 +211,7 @@ public static partial class AgcExports
                 finally { lock (pool) scratch.InUse = false; }
             }, "gears-ngg-native-export-consume", guestTargets);
             if (consume <= readback) { error = "gears-ngg consume enqueue failed"; return false; }
-            Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg queued seq={drawSequence} compute={computeSequence} readback={readback} consume={consume}");
+            Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg queued seq={drawSequence} compute={computeSequence} readback={readback} consume={consume} translation_cache={(cacheHit ? "hit" : "miss")}");
             return true;
         }
         finally { if (!submitted) lock (pool) scratch.InUse = false; }
