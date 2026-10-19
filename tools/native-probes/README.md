@@ -140,7 +140,7 @@ Expected captures are red/blue/red. The initial reproducer failed at LOD 1 becau
 standalone Vulkan upload allocated only one mip. The fix transports independent CPU
 snapshots for the lower levels and uploads each to its own image subresource.
 
-Scope: CPU-authored linear 2D RGBA8 UNORM/sRGB or BC1/BC3/BC7 UNORM, implicit width-derived pitch, with no existing backend
+Scope: CPU-authored linear 2D RGBA8 or BC7 UNORM/sRGB, or BC1/BC3 UNORM, implicit width-derived pitch, with no existing backend
 image at that address. Tiled, array, storage and GPU-written mip
 chains retain their existing behavior. Full chains retain per-draw CPU snapshots,
 but exact matches reuse an immutable Vulkan upload. The separate cache compares

@@ -566,6 +566,14 @@ int _start(void) {
     reg(0x76,0xd,(u32)(texture>>40)|(181u<<20)|(3u<<30));
     reg(0x76,0xe,1u|(7u<<14));
     reg(0x76,0x10,7);
+#ifdef TEST_MIP_SRGB
+    texel[0]=0x40; texel[1]=0x40810200; // blue=128, alpha=128
+    for(u32 y=0;y<2;y++) for(u32 x=0;x<2;x++) {
+        u32 block=64+y*64+x*4;
+        texel[block]=0x00102040; texel[block+1]=0x40800000; // red=128, alpha=128
+    }
+    reg(0x76,0xd,(u32)(texture>>40)|(182u<<20)|(3u<<30));
+#endif
 #endif
 #ifdef TEST_MIP_BC1
     // BC1: 8-byte blocks, 256-byte rows. 4x4 mip1 precedes 8x8 mip0.
@@ -731,6 +739,9 @@ int _start(void) {
     texel[0]=64; texel[2]=0xf800; // lower mip becomes red, alpha 64
 #elif defined(TEST_MIP_BC7)
     texel[0]=0x001fffc0; texel[1]=0x20400000; // red lower mip, alpha 64
+#ifdef TEST_MIP_SRGB
+    texel[0]=0x00081040; // red=64, alpha=64; RGB decodes, alpha stays linear
+#endif
 #elif defined(TEST_MIP_2D)
 #ifdef TEST_MIP_ODD
     texel[1]=0xff0000ff; // second visible texel; storage padding stays green

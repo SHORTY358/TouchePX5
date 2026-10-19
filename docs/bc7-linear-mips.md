@@ -28,6 +28,24 @@ was not accepted as image verification. The subsequent complete run passes.
 
 Unit cases cover odd block dimensions, truncated chains publishing no partial
 result, snapshot ownership and rows wider than 256 bytes. Library suite: 1414.
-Only CPU-authored linear non-array sampled mip chains are added. BC7 sRGB,
-tiled/array/storage/GPU-written mip chains and non-mode-6 numerical decoding
+Only CPU-authored linear non-array sampled mip chains are added.
+
+## sRGB follow-up
+
+Unified format 182 (BC7 sRGB, NumberType 9) now uses the same full-chain storage
+reader. The unchanged native guest first failed its red-base pixel oracle on the
+previous runtime; `artifacts/bc7-srgb-before/report.json` retains the failure,
+guest/runtime hashes and original capture hashes. After the fix the same guest
+hash passes `Test-TouchePX5-Triangle.ps1 -MipBc7 -MipSrgb`, recorded in
+`artifacts/smoke-triangle-texture-select-mip-srgb-bc7/verification.json`.
+
+Encoded RGB endpoints 128/128/64 must decode to approximately 55/55/13 on the
+UNORM output, while alpha remains exactly 128/128/64. The three native captures
+pass independent whole-frame coverage/color/alpha checks. A non-decoding color
+oracle, an opaque-alpha oracle with the correct RGB decoding, a blank image and
+the wrong expected color all fail. This distinguishes color-space behavior from
+mere upload success. One cache hit and two full-chain uploads are required.
+BC7 UNORM and RGBA8 sRGB native regressions pass; library suite: 1416/1416.
+
+Tiled/array/storage/GPU-written mip chains and non-mode-6 numerical decoding
 fixtures remain outside this evidence.

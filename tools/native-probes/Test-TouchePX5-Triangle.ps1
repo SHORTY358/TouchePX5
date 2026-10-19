@@ -43,7 +43,7 @@ if($DmaImageComputeStore) { $root += '-store' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
 if($MipBc7) {
-    if($MipBc3 -or $MipBc1 -or $MipSrgb -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC7 mip probe requires its standalone layout.' }
+    if($MipBc3 -or $MipBc1 -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC7 mip probe requires its standalone layout (optional sRGB).' }
     $Mip=$true
 }
 if($MipBc3) {
@@ -551,7 +551,7 @@ public static class TextureUvVerifierV3 {
         try { [DmaImageVerifierV1]::Check($gpuBytes,$width,$height,(-not $expectBlue)) | Out-Null } catch { $rejectedWrongColor=$true }
         if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'DMA image verifier accepted a negative control.' }
     } elseif($MipSrgb -or $MipBc3 -or $MipBc7) {
-        $encoded=if($MipBc7) { 254 } elseif($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
+        $encoded=if($MipBc7 -and -not $MipSrgb) { 254 } elseif($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
         $expectedAlpha=if(($MipBc3 -or $MipBc7) -and $frameIndex -eq 3) { 64 } else { 128 }
         $srgbOutput=$capture -match 'Srgb\.bgra$'
         $coloredPixels=[UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,[bool]$MipSrgb,$expectedAlpha)
@@ -562,8 +562,8 @@ public static class TextureUvVerifierV3 {
         }
         if($MipBc3 -or $MipBc7) {
             $rejectedOpaque=$false
-            try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$false,255) | Out-Null } catch { $rejectedOpaque=$true }
-            if(-not $rejectedOpaque) { throw 'BC3 mip output passed the incorrect opaque-alpha oracle.' }
+            try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,[bool]$MipSrgb,255) | Out-Null } catch { $rejectedOpaque=$true }
+            if(-not $rejectedOpaque) { throw 'Compressed mip output passed the incorrect opaque-alpha oracle.' }
         }
         if($frameIndex -eq 1) {
             $rejectedBlank=$false; $rejectedWrongColor=$false
@@ -673,7 +673,7 @@ public static class TextureUvVerifierV3 {
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash
         RunnerSha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash
-        NegativeControls=$(if($MipSrgb) { 'Blank frame and incorrect non-decoding oracle rejected' } elseif($MipBc3 -or $MipBc7) { 'Blank frame, incorrect expected color and opaque alpha rejected' } else { 'Blank frame and incorrect expected color rejected' })
+        NegativeControls=$(if($MipSrgb -and $MipBc7) { 'Blank frame, incorrect expected color, non-decoding and opaque alpha rejected' } elseif($MipSrgb) { 'Blank frame and incorrect non-decoding oracle rejected' } elseif($MipBc3 -or $MipBc7) { 'Blank frame, incorrect expected color and opaque alpha rejected' } else { 'Blank frame and incorrect expected color rejected' })
         AffineOracleRejected=[bool]$Perspective
         NearestOracleRejected=[bool]$LinearFilter
         Log=$log

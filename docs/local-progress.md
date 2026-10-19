@@ -23,6 +23,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **BC7 sRGB full CPU mip chains now preserve decoded RGB and linear alpha.**
+  The same native guest fails before the runtime change and passes afterward;
+  before hashes/failure are in `artifacts/bc7-srgb-before/report.json`.
+  `Test-TouchePX5-Triangle.ps1 -MipBc7 -MipSrgb` verifies three actual GPU frames,
+  encoded RGB 128/128/64 with alpha 128/128/64, one cache hit and two uploads.
+  Incorrect non-decoding RGB and opaque-alpha oracles independently reject.
+  Report: `artifacts/smoke-triangle-texture-select-mip-srgb-bc7/verification.json`.
+  BC7 UNORM and RGBA8 sRGB native regressions pass; library suite 1416/1416.
+  Only format 182 / NumberType 9 is added to the existing bounded CPU linear
+  non-array sampled path; no claim about tiled/GPU-written chains or games.
+
 - **CPU-authored linear BC7 UNORM mip chains now upload and sample all levels.**
   Before-change native fixture shows the lower blue level where the red base
   should be; retained in `artifacts/bc7-before/report.json`. Same guest ELF after

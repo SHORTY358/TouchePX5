@@ -10792,7 +10792,8 @@ public static partial class AgcExports
         if (!isStorage && !isArrayed && descriptor.Type == Gen5TextureType2D &&
             descriptor.TileMode == 0 &&
             ((descriptor.Format == 10 && descriptor.NumberType is 0 or 9) ||
-             (descriptor.Format is 169 or 173 or 181 && descriptor.NumberType == 0)) &&
+             (descriptor.Format is 169 or 173 or 181 && descriptor.NumberType == 0) ||
+             (descriptor.Format == 182 && descriptor.NumberType == 9)) &&
             descriptor.ResourceMipLevels > 1 &&
             !GuestGpu.Current.TryGetGuestImageExtent(descriptor.Address, out _, out _, out _) &&
             TryReadLinearMipChain(ctx.Memory, descriptor.Address, descriptor.Width,
@@ -11304,7 +11305,7 @@ public static partial class AgcExports
     {
         chain = [];
         if (address == 0 || width == 0 || height == 0 || width > 8192 || height > 8192 ||
-            pitch != width || levels < 2 || levels > 14 || format is not (10 or 169 or 173 or 181))
+            pitch != width || levels < 2 || levels > 14 || format is not (10 or 169 or 173 or 181 or 182))
             return false;
         uint maxLevels = 1;
         for (var dimension = Math.Max(width, height); dimension > 1; dimension >>= 1) maxLevels++;
@@ -11314,7 +11315,7 @@ public static partial class AgcExports
         // AddrLib converts compressed dimensions to blocks before computing
         // mip storage. Vulkan copy row lengths remain expressed in texels.
         var blockExtent = format == 10 ? 1u : 4u;
-        var elementBytes = format switch { 169 => 8u, 173 or 181 => 16u, _ => 4u };
+        var elementBytes = format switch { 169 => 8u, 173 or 181 or 182 => 16u, _ => 4u };
         var elementWidth = (width + blockExtent - 1) / blockExtent;
         var elementHeight = (height + blockExtent - 1) / blockExtent;
         // AMD AddrLib Gfx10Lib::HwlComputeSurfaceInfoLinear packs the smallest
