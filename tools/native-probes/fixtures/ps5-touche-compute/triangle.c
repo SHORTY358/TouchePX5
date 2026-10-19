@@ -553,6 +553,20 @@ int _start(void) {
     reg(0x76,0xe,1u|(7u<<14)); // 8x8 base, 4x4 lower level
     reg(0x76,0x10,7);
 #endif
+#ifdef TEST_MIP_BC7
+    // BC7 mode 6, identical RGBA endpoints, p-bits and indices zero.
+    // The 7-bit endpoint fields expand to RGB=254 and alpha=128.
+    // 4x4 mip1 precedes 8x8 mip0, each block row padded to 256 bytes.
+    for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
+    texel[0]=0x40; texel[1]=0x4081fff8; // blue lower mip
+    for(u32 y=0;y<2;y++) for(u32 x=0;x<2;x++) {
+        u32 block=64+y*64+x*4;
+        texel[block]=0x001fffc0; texel[block+1]=0x40800000; // red base mip
+    }
+    reg(0x76,0xd,(u32)(texture>>40)|(181u<<20)|(3u<<30));
+    reg(0x76,0xe,1u|(7u<<14));
+    reg(0x76,0x10,7);
+#endif
 #ifdef TEST_MIP_BC1
     // BC1: 8-byte blocks, 256-byte rows. 4x4 mip1 precedes 8x8 mip0.
     for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
@@ -715,6 +729,8 @@ int _start(void) {
 #endif
 #elif defined(TEST_MIP_BC3)
     texel[0]=64; texel[2]=0xf800; // lower mip becomes red, alpha 64
+#elif defined(TEST_MIP_BC7)
+    texel[0]=0x001fffc0; texel[1]=0x20400000; // red lower mip, alpha 64
 #elif defined(TEST_MIP_2D)
 #ifdef TEST_MIP_ODD
     texel[1]=0xff0000ff; // second visible texel; storage padding stays green

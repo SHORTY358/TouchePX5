@@ -23,6 +23,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **CPU-authored linear BC7 UNORM mip chains now upload and sample all levels.**
+  Before-change native fixture shows the lower blue level where the red base
+  should be; retained in `artifacts/bc7-before/report.json`. Same guest ELF after
+  the fix passes red-base / blue-lower / rewritten-red-lower with alpha 128/128/64.
+  Native proof: `artifacts/smoke-triangle-texture-select-mip-bc7/verification.json`,
+  three 1920x1061 captures, independent coverage/color/alpha and negative controls;
+  cache hit 1 / full uploads 2. BC3 regression also passes. Unit suite 1414/1414.
+  The reader admits format 181 with 16-byte 4x4 blocks through the existing GFX10
+  reverse-mip/256-byte-row path. Source references, exact subset and failed
+  window-unavailable attempt are in `docs/bc7-linear-mips.md`.
+  BC7 sRGB, other storage layouts and broad game compatibility are not claimed.
+
 - **Late native screenshots now match independent interior-lighting reference for the exact presented ticket.**
   The selected frame's last draw binds a diagnostic-only capture prefix to its
   accepted presentation ticket. That ticket retains the original flipArg; only

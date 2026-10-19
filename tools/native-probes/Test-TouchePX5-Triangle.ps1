@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$DmaImageComputeStore, [switch]$DmaImageComputeRead, [switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImageComputeStore, [switch]$DmaImageComputeRead, [switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipBc7, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
 if($DmaImageComputeStore) { $DmaImageComputeRead=$true }
 if($DmaImageComputeRead) { $DmaImageSamplePreserved=$true }
@@ -42,6 +42,10 @@ if($DmaImageComputeRead) { $root += '-compute-read' }
 if($DmaImageComputeStore) { $root += '-store' }
 if($MipBaseOnly -and $MipLowerView) { throw 'Choose only one restricted mip view.' }
 if($MipOdd) { $Mip2D=$true }
+if($MipBc7) {
+    if($MipBc3 -or $MipBc1 -or $MipSrgb -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC7 mip probe requires its standalone layout.' }
+    $Mip=$true
+}
 if($MipBc3) {
     if($MipBc1 -or $MipSrgb -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC3 mip probe requires its standalone layout.' }
     $Mip=$true
@@ -78,6 +82,7 @@ if($Mip) { $root += '-mip' }
 if($MipSrgb) { $root += '-srgb' }
 if($MipBc1) { $root += '-bc1' }
 if($MipBc3) { $root += '-bc3' }
+if($MipBc7) { $root += '-bc7' }
 if($MipBaseOnly) { $root += '-base-only' }
 if($MipLowerView) { $root += '-lower-view' }
 if($Mip2D) { $root += '-2d' }
@@ -113,6 +118,7 @@ if($Mip) { $defines += '-DTEST_MIP=1' }
 if($MipSrgb) { $defines += '-DTEST_MIP_SRGB=1' }
 if($MipBc1) { $defines += '-DTEST_MIP_BC1=1' }
 if($MipBc3) { $defines += '-DTEST_MIP_BC3=1' }
+if($MipBc7) { $defines += '-DTEST_MIP_BC7=1' }
 if($MipBaseOnly) { $defines += '-DTEST_MIP_BASE_ONLY=1' }
 if($MipLowerView) { $defines += '-DTEST_MIP_LOWER_VIEW=1' }
 if($Mip2D) { $defines += '-DTEST_MIP_2D=1' }
@@ -334,7 +340,7 @@ public static class TrianglePixelVerifierV5 {
 }
 "@
     }
-    if(($MipSrgb -or $MipBc3) -and -not ('UniformMipVerifierV2' -as [type])) {
+    if(($MipSrgb -or $MipBc3 -or $MipBc7) -and -not ('UniformMipVerifierV2' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
 public static class UniformMipVerifierV2 {
@@ -544,9 +550,9 @@ public static class TextureUvVerifierV3 {
         try { [DmaImageVerifierV1]::Check([byte[]]::new(320*180*4),320,180,$expectBlue) | Out-Null } catch { $rejectedBlank=$true }
         try { [DmaImageVerifierV1]::Check($gpuBytes,$width,$height,(-not $expectBlue)) | Out-Null } catch { $rejectedWrongColor=$true }
         if(-not $rejectedBlank -or -not $rejectedWrongColor) { throw 'DMA image verifier accepted a negative control.' }
-    } elseif($MipSrgb -or $MipBc3) {
-        $encoded=if($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
-        $expectedAlpha=if($MipBc3 -and $frameIndex -eq 3) { 64 } else { 128 }
+    } elseif($MipSrgb -or $MipBc3 -or $MipBc7) {
+        $encoded=if($MipBc7) { 254 } elseif($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
+        $expectedAlpha=if(($MipBc3 -or $MipBc7) -and $frameIndex -eq 3) { 64 } else { 128 }
         $srgbOutput=$capture -match 'Srgb\.bgra$'
         $coloredPixels=[UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,[bool]$MipSrgb,$expectedAlpha)
         if($MipSrgb) {
@@ -554,7 +560,7 @@ public static class TextureUvVerifierV3 {
             try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$false,$expectedAlpha) | Out-Null } catch { $rejectedNoDecode=$true }
             if(-not $rejectedNoDecode) { throw 'sRGB mip output passed the incorrect non-decoding oracle.' }
         }
-        if($MipBc3) {
+        if($MipBc3 -or $MipBc7) {
             $rejectedOpaque=$false
             try { [UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,$false,255) | Out-Null } catch { $rejectedOpaque=$true }
             if(-not $rejectedOpaque) { throw 'BC3 mip output passed the incorrect opaque-alpha oracle.' }
@@ -586,7 +592,7 @@ public static class TextureUvVerifierV3 {
     } else {
         $coloredPixels=[TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,$expectBlue,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend)
     }
-    if($frameIndex -eq 1 -and -not $TextureUv -and -not $MipSrgb -and -not $MipBc3) {
+    if($frameIndex -eq 1 -and -not $TextureUv -and -not $MipSrgb -and -not $MipBc3 -and -not $MipBc7) {
         $rejectedBlank=$false; $rejectedWrongColor=$false
         try { [TrianglePixelVerifierV5]::Check([byte[]]::new(320*180*4),320,180,$false,[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedBlank=$true }
         try { [TrianglePixelVerifierV5]::Check($gpuBytes,$width,$height,(-not $expectBlue),[bool]$Scissor,($IndexBits -ne 0),[bool]$Blend) | Out-Null } catch { $rejectedWrongColor=$true }
@@ -660,13 +666,14 @@ public static class TextureUvVerifierV3 {
         MipSrgb=[bool]$MipSrgb
         MipBc1=[bool]$MipBc1
         MipBc3=[bool]$MipBc3
-        OpaqueAlphaOracleRejected=[bool]$MipBc3
+        MipBc7=[bool]$MipBc7
+        OpaqueAlphaOracleRejected=[bool]($MipBc3 -or $MipBc7)
         NonDecodingOracleRejected=[bool]$MipSrgb
         ExecutableSha256=(Get-FileHash -LiteralPath 'C:\Dev\TouchePX5\artifacts\bin\Release\net10.0\win-x64\TouchePx5.exe').Hash
         GuestSha256=(Get-FileHash -LiteralPath $guest).Hash
         SourceSha256=(Get-FileHash -LiteralPath (Join-Path $fixture 'triangle.c')).Hash
         RunnerSha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash
-        NegativeControls=$(if($MipSrgb) { 'Blank frame and incorrect non-decoding oracle rejected' } elseif($MipBc3) { 'Blank frame, incorrect expected color and opaque alpha rejected' } else { 'Blank frame and incorrect expected color rejected' })
+        NegativeControls=$(if($MipSrgb) { 'Blank frame and incorrect non-decoding oracle rejected' } elseif($MipBc3 -or $MipBc7) { 'Blank frame, incorrect expected color and opaque alpha rejected' } else { 'Blank frame and incorrect expected color rejected' })
         AffineOracleRejected=[bool]$Perspective
         NearestOracleRejected=[bool]$LinearFilter
         Log=$log

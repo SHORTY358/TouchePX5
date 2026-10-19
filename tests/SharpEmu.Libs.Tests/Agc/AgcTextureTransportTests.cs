@@ -13,6 +13,7 @@ public sealed class AgcTextureTransportTests
     [Theory]
     [InlineData(169u, 128u)]
     [InlineData(173u, 64u)]
+    [InlineData(181u, 64u)]
     public void LinearCompressedMipChainUsesBlockStorageAndTexelCopyPitch(uint format, uint copyPitch)
     {
         const ulong address = 0x40000;
@@ -35,6 +36,8 @@ public sealed class AgcTextureTransportTests
     [Theory]
     [InlineData(169, 767)] // BC1 8x8 + 4x4 requires 768 padded bytes
     [InlineData(173, 767)] // BC3 has the same padded footprint at this size
+    [InlineData(181, 767)] // BC7 also uses 16-byte 4x4 blocks
+    [InlineData(182, 768)] // BC7 sRGB remains outside this subset
     [InlineData(174, 768)] // BC3 sRGB remains outside this subset
     [InlineData(170, 768)] // BC1 sRGB is not yet in the supported subset
     [InlineData(171, 768)] // BC2 layout has not been implemented here
@@ -45,15 +48,17 @@ public sealed class AgcTextureTransportTests
         Assert.Empty(chain);
     }
 
-    [Fact]
-    public void LinearBc3MipChainAlignsRowsLargerThan256Bytes()
+    [Theory]
+    [InlineData(173u)]
+    [InlineData(181u)]
+    public void LinearSixteenByteCompressedMipChainAlignsRowsLargerThan256Bytes(uint format)
     {
         const ulong address = 0x40000;
         var memory = new FakeCpuMemory(address, 1280);
         // 65x5 => 17x2 blocks (512-byte rows); lower 9x1 blocks (256-byte row).
         Assert.True(memory.TryWrite(address, new byte[] { 11 }));
         Assert.True(memory.TryWrite(address + 256, new byte[] { 22 }));
-        Assert.True(AgcExports.TryReadLinearMipChain(memory, address, 65, 5, 65, 2, 173, out var chain));
+        Assert.True(AgcExports.TryReadLinearMipChain(memory, address, 65, 5, 65, 2, format, out var chain));
         Assert.Equal(new uint[] { 65, 32 }, chain.Select(m => m.Width));
         Assert.Equal(new uint[] { 5, 2 }, chain.Select(m => m.Height));
         Assert.Equal(new uint[] { 128, 64 }, chain.Select(m => m.Pitch));
