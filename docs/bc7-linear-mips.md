@@ -49,3 +49,25 @@ BC7 UNORM and RGBA8 sRGB native regressions pass; library suite: 1416/1416.
 
 Tiled/array/storage/GPU-written mip chains and non-mode-6 numerical decoding
 fixtures remain outside this evidence.
+
+## Fractional LOD and trilinear filtering
+
+`Test-TouchePX5-Triangle.ps1 -MipBc7 -MipSrgb -MipTrilinear` selects linear
+minification/magnification and mip interpolation. The first draw samples LOD0;
+the next two use LOD0.5 before/after rewriting the lower level. Independent RGB
+expectations decode each endpoint before interpolation and quantize only the
+final RGBA8 UNORM result. Expected RGBA is approximately (55,0,0,128),
+(28,0,28,128), then (34,0,0,96). The existing Vulkan sampler path already supports
+this behavior; no runtime change was needed after the sRGB-chain fix.
+
+`artifacts/smoke-triangle-texture-select-mip-srgb-bc7-trilinear/verification.json`
+passes three 1920x1061 native captures, one cache hit and two uploads. Negative
+controls reject filtering encoded RGB before decoding, either nearest mip,
+stale lower-mip content, opaque alpha, missing RGB decoding and blank frames.
+BC7 sRGB nearest-mip regression also passes with the extended runner.
+The new case is included in the native GPU aggregate.
+
+See the primary [Khronos sampling specification](https://github.com/KhronosGroup/Vulkan-Docs/blob/main/chapters/textures.adoc)
+for mip weights and filtering. Constant-color blocks isolate inter-level
+filtering; this does not independently certify varying texel interpolation,
+implicit derivative LOD, anisotropy or other BC7 block modes.

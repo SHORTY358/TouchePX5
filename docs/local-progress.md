@@ -23,6 +23,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Native BC7 sRGB LOD0.5 now has independent inter-mip filtering evidence.**
+  `Test-TouchePX5-Triangle.ps1 -MipBc7 -MipSrgb -MipTrilinear` passes actual
+  red / mixed red-blue / rewritten red output, with alpha 128/128/96.
+  Report: `artifacts/smoke-triangle-texture-select-mip-srgb-bc7-trilinear/verification.json`.
+  Negative controls reject filtering before RGB decoding, either nearest mip,
+  stale lower content, opaque alpha and missing RGB decoding. One cache hit and
+  two uploads are required. Existing sampler behavior already passes; this is
+  added evidence and aggregate coverage, not an additional runtime fix.
+  Constant blocks isolate mip interpolation; implicit derivative LOD and varying
+  within-level texel filtering are outside this particular case.
+
 - **Five-minute capture-free native Gears run now retains actual worker-resource evidence.**
   `artifacts/gears-native-timing/20261019-120700-318/timing-report.json` records
   15256 presented tickets; 286.746 measured seconds after warmup, mean 51.432/s,

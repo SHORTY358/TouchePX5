@@ -539,6 +539,9 @@ int _start(void) {
     reg(0x76,0x11,1<<4); // max mip=1
     reg(0x76,0x15,256u<<12); // sampler max LOD=1
     reg(0x76,0x16,1u<<26); // nearest mip selection
+#ifdef TEST_MIP_TRILINEAR
+    reg(0x76,0x16,(2u<<26)|(1u<<20)|(1u<<22)); // linear texels and mip interpolation
+#endif
     reg(0x76,0x18,0); // sample mip0
 #ifdef TEST_MIP_BC3
     // BC3: alpha endpoints/selectors precede RGB565 endpoints/selectors.
@@ -642,6 +645,9 @@ int _start(void) {
     reg(0x76,0x18,0x3f400000); // sample blue at (0.75,0.75)
 #ifdef TEST_MIP
     reg(0x76,0x18,0x3f800000); // sample mip1
+#ifdef TEST_MIP_TRILINEAR
+    reg(0x76,0x18,0x3f000000); // explicit LOD 0.5: equal decoded mip contribution
+#endif
 #endif
 #else
     texel[0]=0xffff0000; // same descriptor/address, now blue
