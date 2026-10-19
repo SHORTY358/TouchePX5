@@ -7,6 +7,12 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
+if (args.Length == 2 && args[0] == "--native-frame")
+{
+    NativeFrameAudit.Run(args[1]);
+    return;
+}
+
 if (args.Length is 4 or 5 && args[0] == "--queued-compute")
 {
     if (args.Length == 5 && args[4] != "--partial-limit") throw new ArgumentException("Unknown queued audit option");

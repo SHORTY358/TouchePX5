@@ -23,6 +23,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Four actual GPU outputs from live native frame 100 now pass an independent numerical check.**
+  The opt-in audit captures only a selected frame's four draws after ordered GPU
+  readback and before their unchanged graphics consumption. It retains owned
+  original GS/PS snapshots, initial/actual output words, consumed indices and
+  file hashes. No new dispatch supplies the audited output.
+  `Test-GearsNativeNumerical.ps1 -FrameOrdinal 100` passes at
+  `artifacts/gears-native-numerical/20261019-111605-973/native-numerical-report.json`.
+  Draw sequences 401..404 contain 3/1200/600/600 source vertices. All **70036 words**
+  match independent double-precision GLSL position/normal/color equations and
+  exact primitive/input/guard words; 16821 floating words use the existing
+  relative-or-absolute tolerance 2e-5. All 2403 consumed indices match the original
+  nonindexed triangle-list connectivity. Deliberately wrong positions and stale
+  primitive validity are rejected in every draw. Pinned original shader hashes,
+  consecutive frame identity and capture-file integrity are checked separately.
+  This validates late native pre-raster exports; screenshot pixels and the whole
+  rendered frame are explicitly NOT certified by this numerical report.
+  The original native loop and captured-image wrapper also pass in this run.
+  Next: carry captured viewport/depth state into an independent pixel reference
+  and correlate it with the exact native presented frame.
+
 - **Capture-free Gears timing now has a reproducible, explicitly experimental route.**
   `Measure-GearsNativeNgg.ps1` disables screenshot readback, excludes three seconds
   after the first present as warmup and reports host completion intervals.

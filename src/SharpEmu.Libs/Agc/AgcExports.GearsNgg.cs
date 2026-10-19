@@ -242,6 +242,8 @@ public static partial class AgcExports
                             { BinaryPrimitives.WriteUInt32LittleEndian(indices.AsSpan(nextIndex * 4), id); nextIndex++; }
                         }
                     }
+                    CaptureCompletedGearsDraw((ulong)drawSequence, vertexCount, snapshot, pixelSnapshot,
+                        auxiliary, result, indices, inputEnable, inputAddress, inputControl);
                     gpu.SubmitOffscreenTranslatedDraw(pixel!, [], [new(scratch.Address+0x3FC00, scalarBytes, scalarBytes.Length, false)], 2,
                         guestTargets, bridge!, vertexCount, 1, 4, new(indices, indices.Length, true, false),
                         views.Select(v => new GuestVertexBuffer(v.Location,v.ComponentCount,v.DataFormat,v.NumberFormat,v.BaseAddress,v.Stride,v.OffsetBytes,vertices,vertices.Length,false)).ToArray(),
