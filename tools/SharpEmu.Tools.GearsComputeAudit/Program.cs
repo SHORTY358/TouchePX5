@@ -7,9 +7,9 @@ using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
 
-if (args.Length == 2 && args[0] == "--native-frame")
+if (args.Length == 2 && args[0] is "--native-frame" or "--native-frame-with-pixels")
 {
-    NativeFrameAudit.Run(args[1]);
+    NativeFrameAudit.Run(args[1], args[0] == "--native-frame-with-pixels");
     return;
 }
 

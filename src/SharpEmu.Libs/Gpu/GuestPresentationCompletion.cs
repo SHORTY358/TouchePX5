@@ -16,14 +16,18 @@ internal sealed class GuestPresentationCompletion
     private readonly Action<bool, long> _notify;
     private int _outcome;
 
-    internal GuestPresentationCompletion(Action<bool, long> notify, long minimumPresentIntervalTicks = 0)
+    internal GuestPresentationCompletion(Action<bool, long> notify, long minimumPresentIntervalTicks = 0, long? flipArg = null)
     {
         _notify = notify;
         MinimumPresentIntervalTicks = Math.Max(0, minimumPresentIntervalTicks);
+        FlipArg = flipArg;
         Active.TryAdd(this, 0);
     }
 
     internal long MinimumPresentIntervalTicks { get; }
+    internal long? FlipArg { get; }
+    // Optional diagnostic identity, assigned before enqueueing this ticket.
+    internal string? DiagnosticCapturePrefix { get; set; }
 
     public bool IsCancelled => Volatile.Read(ref _outcome) == 2;
 

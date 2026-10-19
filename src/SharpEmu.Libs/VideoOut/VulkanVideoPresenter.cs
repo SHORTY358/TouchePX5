@@ -18785,6 +18785,8 @@ internal static unsafe class VulkanVideoPresenter
         private bool _windowPresentationDeferred;
         private Presentation? _retryPresentation;
         private GuestPresentationCadence _guestPresentationCadence;
+        private bool _forceDiagnosticPresentationReadback;
+        private GuestRect? _diagnosticPresentationBlit;
         private readonly int _diagnosticFlipDelayMs =
             int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_DIAGNOSTIC_FLIP_DELAY_MS"), out var delay)
                 ? Math.Clamp(delay, 0, 5000) : 0;
@@ -19189,6 +19191,8 @@ internal static unsafe class VulkanVideoPresenter
                 _retryPresentation = presentation;
                 return;
             }
+            _forceDiagnosticPresentationReadback = presentation.Completion?.DiagnosticCapturePrefix is not null;
+            _diagnosticPresentationBlit = null;
             if (_hostSurface is not null)
             {
                 if (presentation.IsSplash && presentation.Pixels is not null)
@@ -19545,7 +19549,7 @@ internal static unsafe class VulkanVideoPresenter
                 WaitFrameSlot(frameSlot);
                 if (_swapchainReadbackPending)
                 {
-                    TraceSwapchainReadback();
+                    TraceSwapchainReadback(presentation);
                 }
 
                 while (_pendingAliasImageDumps.TryDequeue(out var aliasImage))
@@ -22155,6 +22159,8 @@ internal static unsafe class VulkanVideoPresenter
                     &clearRange);
             }
 
+            if (_forceDiagnosticPresentationReadback)
+                _diagnosticPresentationBlit = new((int)destinationX, (int)destinationY, destinationWidth, destinationHeight);
             var sourceOffsets = new ImageBlit.SrcOffsetsBuffer
             {
                 Element0 = new Offset3D(0, 0, 0),
@@ -22299,7 +22305,7 @@ internal static unsafe class VulkanVideoPresenter
             EndDebugLabel(_commandBuffer);
         }
 
-        private void TraceSwapchainReadback()
+        private void TraceSwapchainReadback(Presentation presentation)
         {
             var profileStart = _slowdownDiagnosticsSeconds > 0 ? Stopwatch.GetTimestamp() : 0;
             _swapchainReadbackPending = false;
@@ -22343,6 +22349,16 @@ internal static unsafe class VulkanVideoPresenter
                     $"hash=0x{hash:X16}");
 
                 var dumpDir = Environment.GetEnvironmentVariable("SHARPEMU_GUEST_IMAGE_DUMP_DIR");
+                if (presentation.Completion?.DiagnosticCapturePrefix is { } prefix)
+                {
+                    var path = $"{prefix}-{_extent.Width}x{_extent.Height}-{_swapchainFormat}.bgra";
+                    File.WriteAllBytes(path, bytes);
+                    File.WriteAllText(prefix + "-info.json", System.Text.Json.JsonSerializer.Serialize(new {
+                        presentation.Sequence, presentation.GuestImageAddress, presentation.GuestImageVersion,
+                        FlipArg = presentation.Completion?.FlipArg,
+                        presentation.Width, presentation.Height, OutputWidth = _extent.Width, OutputHeight = _extent.Height,
+                        Format = _swapchainFormat.ToString(), Blit = _diagnosticPresentationBlit, Path = path, Presented = true }));
+                }
                 if (!string.IsNullOrWhiteSpace(dumpDir))
                 {
                     Directory.CreateDirectory(dumpDir);
@@ -22378,7 +22394,7 @@ internal static unsafe class VulkanVideoPresenter
             var interval = SwapchainDumpInterval();
             var triggerReady = !_traceGuestImagesAtFlip || !_traceGuestImageTriggerEnabled ||
                                File.Exists(_traceGuestImageTriggerFile!);
-            var capture = triggerReady && ShouldTracePresentedGuestImageContentsForDiagnostics() &&
+            var capture = _forceDiagnosticPresentationReadback || triggerReady && ShouldTracePresentedGuestImageContentsForDiagnostics() &&
                           (!_tracedPresentedSwapchain || interval > 0 && presentedCount % interval == 0);
             _tracedPresentedSwapchain |= capture;
             return capture;

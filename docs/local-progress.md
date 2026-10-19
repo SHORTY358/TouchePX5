@@ -23,6 +23,35 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Late native screenshots now match independent interior-lighting reference for the exact presented ticket.**
+  The selected frame's last draw binds a diagnostic-only capture prefix to its
+  accepted presentation ticket. That ticket retains the original flipArg; only
+  its successful host present writes the screenshot plus source image/version,
+  viewport target extent and actual blit rectangle. Default tickets do not force
+  readback. Native GS/PS snapshots now also retain hashed render state.
+  The pixel checker requires the pinned unblended UNORM, uncullled full-target
+  LESS_OR_EQUAL-depth subset. It uses independent GLSL exports, captured negative
+  viewport height and exact blit rather than guessing an aspect-fit rectangle.
+
+  Native frame 100 (`artifacts/gears-native-numerical/20261019-112720-006`)
+  matched 102370 reference-selected interior pixels, worst channel error 1
+  with tolerance 3/255. A deliberately corrupted pixel fails the same checker.
+  Final ticket-argument cross-check and an injected present retry also pass at
+  `20261019-113204-097`: version 101 is retained across swapchain recreation;
+  102105 interior pixels match. Later frame **1000** passes at
+  `20261019-113358-102`: all 70036 export/primitive/guard words and 2403 indices
+  match; 102364 interior pixels match, worst channel error 1. The corrupted image
+  negative control rejects one pixel with channel error 231.
+  The earlier 30-second attempt simply reached only 958 presents, so it correctly
+  could not supply frame 1000; the succeeding run uses a 45-second deadline and
+  samples ordinary screenshots every 300 presents to limit storage overhead.
+
+  Output reports hash the exact presented image and identity metadata. Frame
+  edges, occlusion boundaries, background/rasterization conformance and general
+  commercial titles are NOT certified; NativeImagePixelsVerified remains false,
+  with a separate NativeInteriorLightingVerified field. All checks still require
+  opt-in pinned NGG/runtime-scalar/FIFO modes. Library suite remains 1410/1410.
+
 - **Four actual GPU outputs from live native frame 100 now pass an independent numerical check.**
   The opt-in audit captures only a selected frame's four draws after ordered GPU
   readback and before their unchanged graphics consumption. It retains owned

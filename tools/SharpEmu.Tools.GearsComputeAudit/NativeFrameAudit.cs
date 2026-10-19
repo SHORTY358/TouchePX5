@@ -8,13 +8,15 @@ using SharpEmu.ShaderCompiler.Vulkan;
 
 internal static class NativeFrameAudit
 {
-    public static void Run(string root)
+    public static void Run(string root, bool checkPixels = false)
     {
         var directories = Directory.GetDirectories(root, "draw-*").OrderBy(d => d, StringComparer.Ordinal).ToArray();
         if (directories.Length != 4) throw new InvalidOperationException("Exactly four native frame draws required");
         uint[] counts = [3, 1200, 600, 600];
         ulong? firstSequence = null;
         var reports = new List<object>();
+        var referenceWords = new List<uint>(); var referenceIndices = new List<uint>();
+        JsonElement? capturedRender = null;
         foreach (var (directory, ordinal) in directories.Select((d, i) => (d, i)))
         {
             var hashes = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(Path.Combine(directory, "hashes.json")))!;
@@ -34,6 +36,16 @@ internal static class NativeFrameAudit
             if (firstSequence == 0 || (firstSequence - 1) % 4 != 0 || context.DrawSequence != firstSequence + (ulong)ordinal || context.DrawCount != counts[ordinal])
                 throw new InvalidOperationException("Not one consecutive original Gears frame");
             using var capture = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "capture.json")));
+            if (checkPixels)
+            {
+                var renderFile = Path.Combine(directory, "render.json");
+                if (!hashes.TryGetValue("render.json", out var renderHash) || Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(renderFile))) != renderHash)
+                    throw new InvalidOperationException("Native render-state integrity mismatch");
+                using var render = JsonDocument.Parse(File.ReadAllText(renderFile));
+                if (capturedRender is { } previous && previous.GetRawText() != render.RootElement.GetRawText())
+                    throw new InvalidOperationException("Native per-draw render state differs");
+                capturedRender = render.RootElement.Clone();
+            }
             if (!capture.RootElement.GetProperty("GpuReadbackCompleted").GetBoolean() ||
                 capture.RootElement.GetProperty("DrawSequence").GetUInt64() != context.DrawSequence ||
                 capture.RootElement.GetProperty("FrameOrdinal").GetUInt64() != (context.DrawSequence - 1) / 4)
@@ -68,6 +80,12 @@ internal static class NativeFrameAudit
             if (failures != 0) throw new InvalidOperationException($"Native GLSL export reference differs at {context.DrawSequence}: {failures} words");
             var expectedIndices = Enumerable.Range(0, (int)context.DrawCount).Select(i => (uint)(i / 126 * 128 + i % 126)).ToArray();
             if (!indices.SequenceEqual(expectedIndices)) throw new InvalidOperationException("Native consumed connectivity differs from original triangle list");
+            if (ordinal != 0)
+            {
+                var outputBase = (uint)(referenceWords.Count / 12);
+                referenceWords.AddRange(expected.Take((int)slots * 12));
+                referenceIndices.AddRange(expectedIndices.Select(i => i + outputBase));
+            }
             var wrongPosition = actual.ToArray();
             wrongPosition[0] = BitConverter.SingleToUInt32Bits(BitConverter.UInt32BitsToSingle(wrongPosition[0]) + 1f);
             var stalePrimitive = actual.ToArray(); stalePrimitive[primitiveFirst + 4] = 2;
@@ -77,12 +95,66 @@ internal static class NativeFrameAudit
                 FloatWords = floatWords.Length, IndexCount = indices.Length, Mismatches = failures,
                 WrongPositionRejected = true, StalePrimitiveRejected = true });
         }
+        if (checkPixels) CompareNativePixels(root, firstSequence!.Value, capturedRender!.Value, referenceWords, referenceIndices);
         File.WriteAllText(Path.Combine(root, "native-numerical-report.json"), JsonSerializer.Serialize(new {
-            Scope = "Completed live native Gears GS exports versus independent double-precision GLSL equations and triangle-list connectivity; no re-dispatch or numerical screenshot validation",
+            Scope = checkPixels ? "Completed live native Gears GLSL exports plus exact-ticket native interior lighting pixels; edge/rasterization conformance excluded" :
+                "Completed live native Gears GS exports versus independent double-precision GLSL equations and triangle-list connectivity; no re-dispatch or numerical screenshot validation",
             FrameOrdinal = (firstSequence!.Value-1)/4, Draws = reports, NumericalExportsVerified = true,
-            ConsumedIndicesVerified = true, NativeImagePixelsVerified = false
+            ConsumedIndicesVerified = true, NativeImagePixelsVerified = false,
+            NativeInteriorLightingVerified = checkPixels,
+            PresentedCaptureHashes = checkPixels ? new[] { "frame-flip.json", "native-present-info.json", "lighting-reference-report.json",
+                Path.GetFileName(Directory.GetFiles(root, "native-present-*.bgra").Single()) }
+                .ToDictionary(name => name, name => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, name))))) : null
         }));
         Console.WriteLine($"PASS native frame {(firstSequence!.Value-1)/4}: four completed original GS outputs and consumed indices match independent reference");
+    }
+
+    private static void CompareNativePixels(string root, ulong firstSequence, JsonElement render, List<uint> words, List<uint> indices)
+    {
+        using var flip = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "frame-flip.json")));
+        using var present = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "native-present-info.json")));
+        var target = render.GetProperty("Target"); var state = render.GetProperty("RenderState");
+        var info = present.RootElement; var identity = flip.RootElement;
+        if (identity.GetProperty("LastDrawSequence").GetUInt64() != firstSequence + 3 ||
+            identity.GetProperty("FrameOrdinal").GetUInt64() != (firstSequence-1)/4 ||
+            identity.GetProperty("Address").GetUInt64() != target.GetProperty("Address").GetUInt64() ||
+            identity.GetProperty("FlipArg").GetInt64() != info.GetProperty("FlipArg").GetInt64() ||
+            info.GetProperty("GuestImageAddress").GetUInt64() != target.GetProperty("Address").GetUInt64() ||
+            !info.GetProperty("Presented").GetBoolean()) throw new InvalidOperationException("Native presented-frame identity differs");
+        var targetWidth = target.GetProperty("Width").GetDouble(); var targetHeight = target.GetProperty("Height").GetDouble();
+        if (targetWidth != info.GetProperty("Width").GetDouble() || targetHeight != info.GetProperty("Height").GetDouble() ||
+            target.GetProperty("Format").GetUInt32() != 10 || target.GetProperty("NumberType").GetUInt32() != 0 ||
+            info.GetProperty("Format").GetString() != "B8G8R8A8Unorm" ||
+            state.GetProperty("Scissor").ValueKind != JsonValueKind.Null ||
+            state.GetProperty("Blends").EnumerateArray().Any(b => b.GetProperty("Enable").GetBoolean() || b.GetProperty("WriteMask").GetUInt32() != 15) ||
+            state.GetProperty("Raster").EnumerateObject().Any(v => v.Value.GetBoolean()))
+            throw new InvalidOperationException("Native pixel reference requires the captured unblended, uncullled, full-target UNORM subset");
+        var depth = state.GetProperty("Depth"); var view = state.GetProperty("Viewport"); var blit = info.GetProperty("Blit");
+        if (!depth.GetProperty("TestEnable").GetBoolean() || !depth.GetProperty("WriteEnable").GetBoolean() ||
+            depth.GetProperty("CompareOp").GetUInt32() != 3 || depth.GetProperty("ClearEnable").GetBoolean() ||
+            depth.GetProperty("StencilTestEnable").GetBoolean() || view.GetProperty("MinDepth").GetDouble() != 0 || view.GetProperty("MaxDepth").GetDouble() != 1)
+            throw new InvalidOperationException("Unsupported native depth/reference state");
+        var raster = new NativeRaster(targetWidth, targetHeight, view.GetProperty("X").GetDouble(), view.GetProperty("Y").GetDouble(),
+            view.GetProperty("Width").GetDouble(), view.GetProperty("Height").GetDouble(), blit.GetProperty("X").GetDouble(),
+            blit.GetProperty("Y").GetDouble(), blit.GetProperty("Width").GetDouble(), blit.GetProperty("Height").GetDouble());
+        var inputs = Path.Combine(root, "pixel-reference"); Directory.CreateDirectory(inputs);
+        File.WriteAllText(Path.Combine(inputs, "actual.json"), JsonSerializer.Serialize(words));
+        File.WriteAllText(Path.Combine(inputs, "remapped-indices.json"), JsonSerializer.Serialize(indices));
+        var image = info.GetProperty("Path").GetString()!;
+        var expectedImage = Path.Combine(Path.GetFullPath(root),
+            $"native-present-{info.GetProperty("OutputWidth").GetUInt32()}x{info.GetProperty("OutputHeight").GetUInt32()}-B8G8R8A8Unorm.bgra");
+        if (!Path.GetFullPath(image).Equals(expectedImage, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Native screenshot is not the selected audit artifact");
+        LightingReference.Compare(inputs, image, raster);
+        using var lighting = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "lighting-reference-report.json")));
+        if (!lighting.RootElement.GetProperty("InteriorLightingMatches").GetBoolean()) throw new InvalidOperationException("Native presented interior pixels differ from independent reference");
+        var bad = File.ReadAllBytes(image); var sample = lighting.RootElement.GetProperty("FirstCheckedPixel").GetInt32();
+        for (var c = 0; c < 3; c++) bad[sample * 4 + c] = (byte)(255 - bad[sample * 4 + c]);
+        var control = Path.Combine(root, "pixel-negative"); Directory.CreateDirectory(control);
+        var badFile = Path.Combine(control, Path.GetFileName(image)); File.WriteAllBytes(badFile, bad);
+        LightingReference.Compare(inputs, badFile, raster);
+        using var rejected = JsonDocument.Parse(File.ReadAllText(Path.Combine(control, "lighting-reference-report.json")));
+        if (rejected.RootElement.GetProperty("InteriorLightingMatches").GetBoolean()) throw new InvalidOperationException("Corrupt native image negative control passed");
     }
 
     private static void VerifyProgram(Gen5ShaderReplaySnapshot snapshot, int length, string expectedHash)

@@ -1411,7 +1411,7 @@ public static class VideoOutExports
                 ResolveFramePacingRate(port.FlipRate, Volatile.Read(ref _frameLimit));
             completion = new GuestPresentationCompletion((presented, timestamp) =>
                 ResolveFlip(port, id, bufferIndex, flipArg, submitted, presented, timestamp),
-                presentationRate == 0 ? 0 : Stopwatch.Frequency / presentationRate);
+                presentationRate == 0 ? 0 : Stopwatch.Frequency / presentationRate, flipArg);
             port.PendingFlips.Add(id, completion);
             return 0;
         }

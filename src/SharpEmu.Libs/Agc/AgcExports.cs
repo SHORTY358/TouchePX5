@@ -4448,6 +4448,7 @@ public static partial class AgcExports
                 {
                     try
                     {
+                        BindGearsAuditPresentation(state.ReplayDrawSequence, flipArg, handle, displayBufferIndex, completion!);
                         if (VideoOutExports.TryGetDisplayBufferInfo(
                                 handle,
                                 displayBufferIndex,

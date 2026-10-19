@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Vulkan;
+using SharpEmu.Libs.Gpu;
+using SharpEmu.Libs.VideoOut;
 
 namespace SharpEmu.Libs.Agc;
 
@@ -13,7 +15,7 @@ public static partial class AgcExports
     private static void CaptureCompletedGearsDraw(ulong sequence, uint vertexCount,
         Gen5ShaderReplaySnapshot export, Gen5ShaderReplaySnapshot pixel,
         byte[] initial, byte[] actual, byte[] indices, uint inputEnable,
-        uint inputAddress, IReadOnlyList<uint> inputControl)
+        uint inputAddress, IReadOnlyList<uint> inputControl, GuestRenderState? renderState, GuestRenderTarget target)
     {
         var root = Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_NATIVE_AUDIT_DIR");
         if (string.IsNullOrWhiteSpace(root)) return;
@@ -39,11 +41,29 @@ public static partial class AgcExports
         Write("initial.json", Words(initial));
         Write("actual.json", Words(actual));
         Write("indices.json", Words(indices));
+        Write("render.json", new { RenderState = renderState, Target = target });
         Write("capture.json", new { Scope = "Original native pinned Gears inputs and completed GPU exports before graphics consumption; no independent verification implied",
             FrameOrdinal = frame, DrawSequence = sequence, DrawCount = vertexCount, GpuReadbackCompleted = true });
-        var files = new[] { "gs.replay.json", "ps.replay.json", "initial.json", "actual.json", "indices.json", "capture.json" };
+        var files = new[] { "gs.replay.json", "ps.replay.json", "initial.json", "actual.json", "indices.json", "capture.json", "render.json" };
         Write("hashes.json", files.ToDictionary(name => name,
             name => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(directory, name))))));
         Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg native_audit seq={sequence} frame={frame} path={directory}");
+    }
+
+    private static void BindGearsAuditPresentation(ulong lastDraw, long flipArg, int handle, int index,
+        GuestPresentationCompletion completion)
+    {
+        var root = Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_NATIVE_AUDIT_DIR");
+        if (string.IsNullOrWhiteSpace(root) ||
+            Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_GEARS_NGG") != "1" ||
+            !uint.TryParse(Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_NATIVE_AUDIT_FRAME"), out var frame) ||
+            frame > 10000 || lastDraw != ((ulong)frame + 1) * 4) return;
+        if (!VideoOutExports.TryGetDisplayBufferInfo(handle, index, out var buffer))
+            throw new InvalidOperationException("Selected audit flip has no display buffer");
+        Directory.CreateDirectory(root);
+        completion.DiagnosticCapturePrefix = Path.Combine(root, "native-present");
+        File.WriteAllText(Path.Combine(root, "frame-flip.json"), JsonSerializer.Serialize(new {
+            FrameOrdinal = frame, LastDrawSequence = lastDraw, FlipArg = flipArg,
+            Address = buffer.Address, Width = buffer.Width, Height = buffer.Height }));
     }
 }

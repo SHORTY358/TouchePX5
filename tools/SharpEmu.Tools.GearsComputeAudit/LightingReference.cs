@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 using System.Text.Json;
 
+internal sealed record NativeRaster(double TargetWidth, double TargetHeight,
+    double ViewX, double ViewY, double ViewWidth, double ViewHeight,
+    double BlitX, double BlitY, double BlitWidth, double BlitHeight);
+
 internal static class LightingReference
 {
     public static void CompareFrame(string computeFrameReport, string imageFile)
@@ -27,7 +31,7 @@ internal static class LightingReference
         Compare(referenceInputs, imageFile);
     }
 
-    public static void Compare(string computeDirectory, string imageFile)
+    public static void Compare(string computeDirectory, string imageFile, NativeRaster? native = null)
     {
         var words = JsonSerializer.Deserialize<uint[]>(File.ReadAllText(Path.Combine(computeDirectory, "actual.json")))!;
         var indices = JsonSerializer.Deserialize<uint[]>(File.ReadAllText(Path.Combine(computeDirectory, "remapped-indices.json")))!;
@@ -36,9 +40,10 @@ internal static class LightingReference
         var actual = File.ReadAllBytes(imageFile);
         if (actual.Length != width * height * 4) throw new InvalidOperationException("Wrong image extent");
         var reference = new byte[actual.Length];
-        var depth = Enumerable.Repeat(double.PositiveInfinity, width * height).ToArray();
+        var depth = Enumerable.Repeat(native is null ? double.PositiveInfinity : 1.0, width * height).ToArray();
         var confidence = new bool[depth.Length];
-        var scale = Math.Min(width / 640.0, height / 360.0);
+        var scale = native is null ? Math.Min(width / 640.0, height / 360.0) :
+            Math.Min(native.BlitWidth / native.TargetWidth, native.BlitHeight / native.TargetHeight);
         var offsetX = (width - 640 * scale) / 2;
         var offsetY = (height - 360 * scale) / 2;
         double F(uint bits) => BitConverter.UInt32BitsToSingle(bits);
@@ -47,8 +52,10 @@ internal static class LightingReference
         {
             var a = Vertex(indices[tri]); var b = Vertex(indices[tri + 1]); var c = Vertex(indices[tri + 2]);
             if (a[3] <= 0 || b[3] <= 0 || c[3] <= 0) throw new InvalidOperationException("Reference requires positive W");
-            double X(double[] v) => offsetX + (v[0] / v[3] + 1) * 320 * scale;
-            double Y(double[] v) => offsetY + (v[1] / v[3] + 1) * 180 * scale;
+            double X(double[] v) => native is null ? offsetX + (v[0] / v[3] + 1) * 320 * scale :
+                native.BlitX + (native.ViewX + (v[0] / v[3] + 1) * native.ViewWidth / 2) * native.BlitWidth / native.TargetWidth;
+            double Y(double[] v) => native is null ? offsetY + (v[1] / v[3] + 1) * 180 * scale :
+                native.BlitY + (native.ViewY + (v[1] / v[3] + 1) * native.ViewHeight / 2) * native.BlitHeight / native.TargetHeight;
             var ax = X(a); var ay = Y(a); var bx = X(b); var by = Y(b); var cx = X(c); var cy = Y(c);
             var area = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
             if (Math.Abs(area) < 1e-10) continue;
@@ -64,7 +71,7 @@ internal static class LightingReference
                 if (u < 0 || v < 0 || w < 0) continue;
                 var z = u * a[2] / a[3] + v * b[2] / b[3] + w * c[2] / c[3];
                 var pixel = y * width + x;
-                if (z < 0 || z > 1 || z >= depth[pixel]) continue;
+                if (z < 0 || z > 1 || (native is null ? z >= depth[pixel] : z > depth[pixel])) continue;
                 depth[pixel] = z;
                 // The screenshot scales a 640x360 target. Stay three source
                 // pixels away from triangle edges to exclude sampling/coverage
@@ -84,7 +91,7 @@ internal static class LightingReference
                 reference[pixel * 4 + 3] = 255;
             }
         }
-        var checkedPixels = 0; var mismatchedPixels = 0; var worstError = 0;
+        var checkedPixels = 0; var mismatchedPixels = 0; var worstError = 0; var firstCheckedPixel = -1;
         for (var pixel = 0; pixel < depth.Length; pixel++)
         {
             if (!confidence[pixel]) continue;
@@ -104,6 +111,7 @@ internal static class LightingReference
             }
             if (!stable) continue;
             checkedPixels++;
+            if (firstCheckedPixel < 0) firstCheckedPixel = pixel;
             var error = Enumerable.Range(0, 3).Max(c => Math.Abs(actual[pixel * 4 + c] - reference[pixel * 4 + c]));
             if (error > 3) mismatchedPixels++;
             worstError = Math.Max(worstError, error);
@@ -111,8 +119,10 @@ internal static class LightingReference
         var directory = Path.GetDirectoryName(imageFile)!;
         File.WriteAllBytes(Path.Combine(directory, $"reference-{width}x{height}.bgra"), reference);
         File.WriteAllText(Path.Combine(directory, "lighting-reference-report.json"), JsonSerializer.Serialize(new {
-            Scope = "Independent GLSL lighting/depth reference with inferred aspect-fit presentation; diagnostic only, not rasterization conformance",
+            Scope = native is null ? "Independent GLSL lighting/depth reference with inferred aspect-fit presentation; diagnostic only, not rasterization conformance" :
+                "Independent GLSL interior lighting/depth reference with captured native viewport and exact presented blit; triangle/occlusion edges excluded, not rasterization conformance",
             CheckedInteriorPixels = checkedPixels, MismatchedPixels = mismatchedPixels, WorstChannelError = worstError,
+            FirstCheckedPixel = firstCheckedPixel,
             ChannelTolerance = 3, EdgeMarginSourcePixels = 3, ReferenceColorContinuityRequired = true,
             InteriorLightingMatches = checkedPixels >= 10000 && mismatchedPixels == 0, LightingVerified = false
         }));

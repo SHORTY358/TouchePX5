@@ -45,6 +45,7 @@ public sealed class VideoOutFlipLifecycleTests
     {
         using var port = new Port();
         var ticket = port.Begin(123);
+        Assert.Equal(123L, ticket.FlipArg);
         Assert.Equal((0UL, 1, -1L), port.Status());
         Assert.Equal(1, port.Pending());
         Assert.False(port.TakeEvent(out _));
