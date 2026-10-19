@@ -24,6 +24,40 @@ public static partial class AgcExports
         public int Bytes;
     }
     private static readonly ConditionalWeakTable<ICpuMemory, GearsComputeCache> GearsComputeCaches = new();
+    private static readonly ConditionalWeakTable<ICpuMemory, GearsComputeCache> GearsGraphicsCaches = new();
+    private delegate bool GearsGraphicsCompiler(out IGuestCompiledShader? shader, out string error);
+
+    private static bool TryCompileGearsGraphics(ICpuMemory memory, string? key, string stage,
+        GearsGraphicsCompiler compile, out IGuestCompiledShader? shader, out string error, out bool hit)
+    {
+        shader = null; error = string.Empty; hit = false;
+        var cache = GearsGraphicsCaches.GetValue(memory, _ => new());
+        byte[]? payload = null;
+        if (key is not null) lock (cache) cache.Programs.TryGetValue(key, out payload);
+        hit = payload is not null;
+        if (payload is null)
+        {
+            if (!compile(out shader, out error) || shader is null) return false;
+            payload = shader.Payload;
+            if (key is not null) lock (cache)
+            {
+                if (cache.Programs.Count < 32 && payload.Length <= 8 * 1024 * 1024 - cache.Bytes && !cache.Programs.ContainsKey(key))
+                { cache.Programs.Add(key, payload); cache.Bytes += payload.Length; }
+            }
+        }
+        else
+        {
+            if (Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_VERIFY_TRANSLATION_CACHE") == "1")
+            {
+                if (!compile(out var fresh, out error) || fresh is null) return false;
+                if (!payload.AsSpan().SequenceEqual(fresh.Payload))
+                { error = $"gears-ngg cached {stage} translation differs from fresh translation"; return false; }
+                Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg {stage}_cache_verified");
+            }
+            shader = new VulkanCompiledGuestShader(payload);
+        }
+        return true;
+    }
 
     private static bool IsPinnedGearsProgram(Gen5ShaderProgram program, int length, string hash)
     {
@@ -138,9 +172,13 @@ public static partial class AgcExports
                 { error = "gears-ngg cached translation differs from fresh runtime translation"; return false; }
                 Console.Error.WriteLine("[LOADER][INFO] agc.experimental_gears_ngg translation_cache_verified");
             }
-            if (!gpu.TryCompilePixelShader(pixelState, pixelEvaluation, [new(0, 0, Gen5PixelOutputKind.Float)], out var pixel, out error,
+            bool CompilePixel(out IGuestCompiledShader? compiled, out string reason) =>
+                gpu.TryCompilePixelShader(pixelState, pixelEvaluation, [new(0, 0, Gen5PixelOutputKind.Float)], out compiled, out reason,
                 totalGlobalBufferCount: 1, scalarRegisterBufferIndex: 0, pixelInputEnable: inputEnable,
-                pixelInputAddress: inputAddress, pixelInputCntl: inputControl.ToArray())) return false;
+                pixelInputAddress: inputAddress, pixelInputCntl: inputControl.ToArray());
+            var pixelKey = runtimeScalars ? "ps:" + JsonSerializer.Serialize(new
+                { pixelState.Program.Address, InitialCount = pixelSnapshot.InitialScalarRegisters.Length, inputEnable, inputAddress, inputControl }) : null;
+            if (!TryCompileGearsGraphics(ctx.Memory, pixelKey, "pixel", CompilePixel, out var pixel, out error, out var pixelHit)) return false;
             var vertices = new byte[checked((int)slots * 48)];
             var bridgeInstructions = new List<Gen5ShaderInstruction>(); var views = new List<Gen5VertexInputBinding>();
             for (uint location = 0; location < 3; location++)
@@ -153,9 +191,12 @@ public static partial class AgcExports
                 [Gen5Operand.Vector(first), Gen5Operand.Vector(first+1), Gen5Operand.Vector(first+2), Gen5Operand.Vector(first+3)], [], new Gen5ExportControl(target, mask, false, false, false)));
             Export(12, 12, 0, 15); Export(16, 32, 4, 15); Export(20, 33, 8, 3);
             bridgeInstructions.Add(new(24, Gen5ShaderEncoding.Sopp, "SEndpgm", [], [], [], null));
-            if (!gpu.TryCompileVertexShader(new(new(0, bridgeInstructions), [], null),
-                new(new uint[256], new uint[256], [], [], VertexInputs: views), out var bridge, out error,
-                totalGlobalBufferCount: 1, requiredVertexOutputCount: 2)) return false;
+            bool CompileBridge(out IGuestCompiledShader? compiled, out string reason) =>
+                gpu.TryCompileVertexShader(new(new(0, bridgeInstructions), [], null),
+                new(new uint[256], new uint[256], [], [], VertexInputs: views), out compiled, out reason,
+                totalGlobalBufferCount: 1, requiredVertexOutputCount: 2);
+            var bridgeKey = runtimeScalars ? $"vs:{scratch.Address:X}:{slots}" : null;
+            if (!TryCompileGearsGraphics(ctx.Memory, bridgeKey, "bridge", CompileBridge, out var bridge, out error, out var bridgeHit)) return false;
             var target = targets[0];
             var guestTargets = new GuestRenderTarget[] { new(target.Address, target.Width, target.Height, target.Format, target.NumberType,
                 MipLevels: target.MipLevel+1, BaseArrayLayer: target.BaseArrayLayer, LayerCount: target.LayerCount,
@@ -211,7 +252,7 @@ public static partial class AgcExports
                 finally { lock (pool) scratch.InUse = false; }
             }, "gears-ngg-native-export-consume", guestTargets);
             if (consume <= readback) { error = "gears-ngg consume enqueue failed"; return false; }
-            Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg queued seq={drawSequence} compute={computeSequence} readback={readback} consume={consume} translation_cache={(cacheHit ? "hit" : "miss")}");
+            Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg queued seq={drawSequence} compute={computeSequence} readback={readback} consume={consume} translation_cache={(cacheHit ? "hit" : "miss")} pixel_cache={(pixelHit ? "hit" : "miss")} bridge_cache={(bridgeHit ? "hit" : "miss")}");
             return true;
         }
         finally { if (!submitted) lock (pool) scratch.InUse = false; }

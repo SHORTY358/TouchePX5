@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-10-17
+# Local engineering checkpoint — 2026-10-19
 
 ## Workspace relocation
 
@@ -22,6 +22,22 @@ playability have not been demonstrated. There is no supported whole-emulator com
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **The pinned native path also reuses pixel and transport-vertex translations.**
+  A separate context-owned graphics cache retains only raw SPIR-V, bounded to
+  32 variants / 8 MiB (key metadata additional). Runtime-scalar mode only; baked
+  baseline still translates fresh. The pixel key includes its original address,
+  register count and full input mapping. The fixed transport key includes scratch
+  address and slot extent. Existing compute cache limits remain separate.
+  `artifacts/gears-native-ngg/20261019-105010-521/native-ngg-report.json` compares
+  every reused stage against fresh compilation: 228 compute, 247 original pixel
+  and 233 transport-vertex matches, no mismatch or native loop failure.
+  A normal 30-second run `20261019-105051-106` presents 561 tickets and preserves
+  clean late-frame gear shapes (last capture visually checked). Its 2222 compute,
+  2247 pixel and 2229 bridge cache hits eliminate repeated translations, but this
+  throughput observation does NOT establish improvement over the earlier 603-frame
+  run. Library tests remain 1404/1404; CLI builds with existing SHEM006 warning.
+  Next: measure remaining stalls and independently check late-frame fidelity.
 
 - **Bounded compute-translation reuse now works in runtime-scalar Gears.**
   The cache belongs to the CPU-memory context and retains only SPIR-V byte arrays,

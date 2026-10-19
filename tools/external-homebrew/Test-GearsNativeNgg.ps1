@@ -37,6 +37,11 @@ try {
     $cacheHits=[regex]::Matches($log,'translation_cache=hit').Count
     $verifiedHits=[regex]::Matches($log,'translation_cache_verified').Count
     if($VerifyTranslationCache -and ($verifiedHits -lt 4 -or $verifiedHits -ne $cacheHits)) { throw 'Every reused compute translation must match a fresh compilation' }
+    $pixelHits=[regex]::Matches($log,'pixel_cache=hit').Count
+    $bridgeHits=[regex]::Matches($log,'bridge_cache=hit').Count
+    $pixelVerified=[regex]::Matches($log,'pixel_cache_verified').Count
+    $bridgeVerified=[regex]::Matches($log,'bridge_cache_verified').Count
+    if($VerifyTranslationCache -and ($pixelHits -lt 4 -or $bridgeHits -lt 4 -or $pixelVerified -ne $pixelHits -or $bridgeVerified -ne $bridgeHits)) { throw 'Every reused pixel/bridge translation must match a fresh compilation' }
     @{Scope='Bounded original native Gears with opt-in pinned GS/PS NGG expansion, owned scratch and ordered producer/readback/graphics; not commercial-game compatibility'
         NativeRun=$run.FullName;InputSha256=$nativeReport.InputSha256
         CapturedFrames=$frames.Count;DistinctFrameHashes=@($hashes.Sha256 | Select-Object -Unique).Count
@@ -49,6 +54,8 @@ try {
         RuntimeComputeScalars=[bool]$RuntimeScalars
         CaptureEvery=$CaptureEvery
         ComputeTranslationCacheHits=$cacheHits;FreshTranslationComparisons=$verifiedHits
+        PixelTranslationCacheHits=$pixelHits;PixelFreshComparisons=$pixelVerified
+        BridgeTranslationCacheHits=$bridgeHits;BridgeFreshComparisons=$bridgeVerified
         TerminatedAtDeadline=$nativeReport.TerminatedAtDeadline;ExperimentalModeOnly=$true;Frames=$hashes
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$output/native-ngg-report.json" -Encoding UTF8
     Write-Output "PASS actual native NGG frames change without frame-loop failure: $output"
