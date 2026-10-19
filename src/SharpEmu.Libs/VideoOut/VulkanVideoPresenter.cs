@@ -4630,6 +4630,7 @@ internal static unsafe class VulkanVideoPresenter
         // fence timeout (~3s → ~0.3 FPS).
         private readonly Queue<PendingGuestSubmission> _abandonedGuestSubmissions = new();
         private long _lastSlowdownDiagnosticsTicks;
+        private readonly Dictionary<string, (long Count, long Ticks, long MaxTicks, long Deferred)> _workTiming = new();
         private long _diagnosticCompletedSubmissions;
         private long _diagnosticSlowSubmissions;
         private double _diagnosticLongestSubmissionMs;
@@ -7292,6 +7293,14 @@ internal static unsafe class VulkanVideoPresenter
             }
         }
 
+        private void RecordWorkTiming(string category, long ticks, bool deferred = false)
+        {
+            if (_slowdownDiagnosticsSeconds == 0) return;
+            _workTiming.TryGetValue(category, out var previous);
+            _workTiming[category] = (previous.Count + 1, previous.Ticks + ticks,
+                Math.Max(previous.MaxTicks, ticks), previous.Deferred + (deferred ? 1 : 0));
+        }
+
         private void LogSlowdownDiagnosticsIfDue()
         {
             if (_slowdownDiagnosticsSeconds == 0)
@@ -7352,6 +7361,10 @@ internal static unsafe class VulkanVideoPresenter
             _diagnosticSlowSubmissions = 0;
             _diagnosticLongestSubmissionMs = 0;
             _diagnosticLongestSubmission = "none";
+            foreach (var (category, timing) in _workTiming.OrderBy(p => p.Key, StringComparer.Ordinal))
+                Console.Error.WriteLine(FormattableString.Invariant(
+                    $"[LOADER][INFO] vk.work_timing category={category} count={timing.Count} host_ms={timing.Ticks * 1000.0 / Stopwatch.Frequency:F3} max_ms={timing.MaxTicks * 1000.0 / Stopwatch.Frequency:F3} deferred={timing.Deferred}"));
+            _workTiming.Clear();
         }
 
         private void WaitForAllGuestSubmissionsForCpuVisibility()
@@ -13959,11 +13972,14 @@ internal static unsafe class VulkanVideoPresenter
 
         private void CreateStagingBuffer(ulong size)
         {
+            // This staging buffer is a GPU-to-CPU screenshot destination.
+            // Prefer CPU-cached reads while retaining coherent-memory fallback.
             _stagingBuffer = CreateBuffer(
                 size,
                 BufferUsageFlags.TransferSrcBit | BufferUsageFlags.TransferDstBit,
                 MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                out _stagingMemory);
+                out _stagingMemory,
+                preferredMemoryFlags: MemoryPropertyFlags.HostCachedBit);
             _stagingSize = size;
         }
 
@@ -18732,6 +18748,7 @@ internal static unsafe class VulkanVideoPresenter
 
         private void Render(double _)
         {
+            var profileStart = _slowdownDiagnosticsSeconds > 0 ? Stopwatch.GetTimestamp() : 0;
             try
             {
                 RenderCore();
@@ -18745,6 +18762,10 @@ internal static unsafe class VulkanVideoPresenter
                 {
                     throw;
                 }
+            }
+            finally
+            {
+                if (profileStart != 0) RecordWorkTiming("render-tick", Stopwatch.GetTimestamp() - profileStart);
             }
         }
 
@@ -18972,7 +18993,7 @@ internal static unsafe class VulkanVideoPresenter
                 var deferGuestWork = false;
 
                 var traceWork = ShouldTracePresentedGuestImageContentsForDiagnostics();
-                var workStart = traceWork ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
+                var workStart = traceWork || _slowdownDiagnosticsSeconds > 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
                 if (traceWork && work is VulkanComputeGuestDispatch or VulkanOffscreenGuestDraw)
                 {
                     Console.Error.WriteLine(
@@ -19052,7 +19073,15 @@ internal static unsafe class VulkanVideoPresenter
 
                 if (workStart != 0)
                 {
-                    var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - workStart)
+                    var elapsedTicks = System.Diagnostics.Stopwatch.GetTimestamp() - workStart;
+                    RecordWorkTiming(work switch
+                    {
+                        VulkanOrderedGuestAction { DebugName: "gears-ngg-native-export-consume" } => "ngg-consume",
+                        VulkanOrderedGuestAction { DebugName: "gears-ngg-native-export-readback" } => "ngg-readback",
+                        VulkanOrderedGuestAction => "ordered-state",
+                        _ => work.GetType().Name
+                    }, elapsedTicks, deferGuestWork);
+                    var elapsedMs = elapsedTicks
                         * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                     if (elapsedMs > 250.0)
                     {
@@ -22272,6 +22301,7 @@ internal static unsafe class VulkanVideoPresenter
 
         private void TraceSwapchainReadback()
         {
+            var profileStart = _slowdownDiagnosticsSeconds > 0 ? Stopwatch.GetTimestamp() : 0;
             _swapchainReadbackPending = false;
             var byteCount = checked((ulong)_extent.Width * _extent.Height * 4);
             void* mapped;
@@ -22280,7 +22310,12 @@ internal static unsafe class VulkanVideoPresenter
                 "vkMapMemory(swapchain readback)");
             try
             {
-                var bytes = new ReadOnlySpan<byte>(mapped, checked((int)byteCount));
+                // Upload staging memory may be write-combined/uncached for CPU
+                // reads. Copy once with the bulk path, then scan cached owned
+                // bytes instead of performing millions of mapped byte loads.
+                // The same snapshot is also the file payload, without a second
+                // read of GPU-visible memory.
+                var bytes = new ReadOnlySpan<byte>(mapped, checked((int)byteCount)).ToArray();
                 var nonzeroBytes = 0L;
                 var nonblackPixels = 0L;
                 ulong hash = 14695981039346656037UL;
@@ -22315,7 +22350,7 @@ internal static unsafe class VulkanVideoPresenter
                     var path = Path.Combine(
                         dumpDir,
                         $"present-{seq:D4}-{_extent.Width}x{_extent.Height}-{_swapchainFormat}.bgra");
-                    File.WriteAllBytes(path, bytes.ToArray());
+                    File.WriteAllBytes(path, bytes);
                     Console.Error.WriteLine($"[LOADER][TRACE] vk.swapchain_dump path={path}");
 					// Continuous readback is intentionally opt-in: each 1080p frame
 					// is several megabytes and synchronously waits for the GPU.
@@ -22331,6 +22366,7 @@ internal static unsafe class VulkanVideoPresenter
             finally
             {
                 _vk.UnmapMemory(_device, _stagingMemory);
+                if (profileStart != 0) RecordWorkTiming("swapchain-readback", Stopwatch.GetTimestamp() - profileStart);
             }
         }
 

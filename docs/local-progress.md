@@ -23,6 +23,26 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Diagnostic screenshots no longer scan uncached mapped memory byte by byte.**
+  Opt-in slowdown diagnostics now aggregate host wall time by bounded work
+  category (including deferred attempts), whole render tick and screenshot
+  readback. These are host durations, NOT GPU timestamps or CPU utilization.
+  Run `runs/20261019-105617-839` exposed 550–630 ms whole-tick stalls outside
+  individual draw/compute/readback work. The screenshot scanner was reading an
+  upload-style staging mapping directly for every channel before copying it
+  for file output. It now bulk-copies one owned snapshot, scans and writes that
+  same array, and prefers coherent CPU-cached memory for the screenshot buffer
+  with the existing compatible fallback. GPU completion/flip ordering is unchanged.
+
+  Same 12-second native configuration, runtime scalars and one capture per
+  30 presents: `20261019-105811-719` passed after the owned-copy change,
+  296 presented tickets, maximum observed interval 118.1129 ms. With cached
+  staging preference, `20261019-105942-925` passed with 319 presented tickets
+  and maximum 72.1739 ms; per-window screenshot-readback maxima 35–41 ms.
+  These sample runs support a reduction of diagnostic stalls; they do NOT
+  measure capture-free gameplay performance. Next measure without screenshots
+  separately, preserving explicit image-fidelity evidence from captured runs.
+
 - **The pinned native path also reuses pixel and transport-vertex translations.**
   A separate context-owned graphics cache retains only raw SPIR-V, bounded to
   32 variants / 8 MiB (key metadata additional). Runtime-scalar mode only; baked
