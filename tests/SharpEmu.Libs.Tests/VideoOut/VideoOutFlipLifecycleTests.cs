@@ -13,6 +13,33 @@ namespace SharpEmu.Libs.Tests.VideoOut;
 [Collection("VideoOut flip session")]
 public sealed class VideoOutFlipLifecycleTests
 {
+    [Theory]
+    [InlineData(Generation.Gen4)]
+    [InlineData(Generation.Gen5)]
+    public async Task ExperimentalPayloadPolicyIsCapturedPerGen5PortOnly(Generation generation)
+    {
+        const string variable = "TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "1");
+            using var port = new Port(generation);
+            Environment.SetEnvironmentVariable(variable, previous);
+            port.Begin(100).Presented();
+            port.Begin(101).Presented();
+            await DrainNotifications();
+            Assert.True(port.TakeEvent(out var first));
+            Assert.Equal(generation == Generation.Gen5 ? 100UL : 101UL, first >> 16);
+            if (generation == Generation.Gen5)
+            {
+                Assert.True(port.TakeEvent(out var second));
+                Assert.Equal(101UL, second >> 16);
+            }
+            Assert.False(port.TakeEvent(out _));
+        }
+        finally { Environment.SetEnvironmentVariable(variable, previous); }
+    }
+
     [Fact]
     public async Task AcceptedFlipRemainsPendingUntilPresented_ThenSignalsExactlyOnce()
     {
@@ -169,9 +196,9 @@ public sealed class VideoOutFlipLifecycleTests
         private bool _closed;
         public int Handle { get; }
 
-        public Port()
+        public Port(Generation generation = Generation.Gen5)
         {
-            _context = new CpuContext(_memory, Generation.Gen5);
+            _context = new CpuContext(_memory, generation);
             Handle = VideoOutExports.VideoOutOpen(_context);
             Assert.True(Handle > 0);
             _context[CpuRegister.Rdi] = MemoryBase;

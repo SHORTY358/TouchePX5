@@ -1,0 +1,57 @@
+# Copyright (C) 2026 Touche PX5 Project
+# SPDX-License-Identifier: GPL-2.0-or-later
+param([ValidateRange(10,60)][int]$TimeoutSeconds=30,[ValidateRange(0,10)][int]$WarmupSeconds=3,[switch]$PreserveFlipPayloads)
+$ErrorActionPreference='Stop'
+if($WarmupSeconds -ge $TimeoutSeconds-3) { throw 'Leave at least three seconds after warmup' }
+$repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+$variables=@('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG','TOUCHEPX5_GEARS_RUNTIME_SCALARS',
+    'TOUCHEPX5_GEARS_VERIFY_TRANSLATION_CACHE','SHARPEMU_LOG_VIDEOOUT','SHARPEMU_TRACE_GUEST_IMAGES',
+    'SHARPEMU_GUEST_IMAGE_DUMP_DIR','SHARPEMU_SWAPCHAIN_DUMP_EVERY','SHARPEMU_SLOWDOWN_DIAGNOSTICS_SECONDS',
+    'TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO')
+$saved=@{}
+foreach($name in $variables) { $saved[$name]=[Environment]::GetEnvironmentVariable($name) }
+try {
+    foreach($name in $variables) { [Environment]::SetEnvironmentVariable($name,$null) }
+    $env:TOUCHEPX5_EXPERIMENTAL_GEARS_NGG='1'
+    $env:TOUCHEPX5_GEARS_RUNTIME_SCALARS='1'
+    $env:SHARPEMU_LOG_VIDEOOUT='1'
+    $env:TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO=if($PreserveFlipPayloads) { '1' } else { '0' }
+    & "$PSScriptRoot/Invoke-GearsNative.ps1" -PublicInitAbi -BootDiagnostics -LegacyDefaultsAbi -ShaderAperture -TimeoutSeconds $TimeoutSeconds
+    $runs=Join-Path $repo 'artifacts/external-homebrew/gears-toolchain/gears-shader-aperture-windows/runs'
+    $run=Get-ChildItem -LiteralPath $runs -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $native=Get-Content -LiteralPath "$($run.FullName)/report.json" -Raw | ConvertFrom-Json
+    if(-not $native.TerminatedAtDeadline -and $native.ExitCode -ne 0) { throw "Native process failed before its deadline: $($run.FullName)" }
+    $log=Get-Content -LiteralPath "$($run.FullName)/stderr.log" -Raw
+    if($log -match 'GEARS_EVENT_FAILURE|GEARS_LOOP_FAILURE|GEARS_PARKED|experimental_gears_ngg (consume|schedule) failed|experimental_flip_fifo delivery rejected|unsupported graphics workgroup barrier|ORBIS_GEN2_ERROR_CPU_TRAP|vk.device_lost') { throw "Native frame loop failed: $($run.FullName)" }
+    if($log -match 'vk.swapchain_dump|vk.swapchain_image') { throw 'Timing run unexpectedly read back a diagnostic screenshot' }
+    $ticks=@([regex]::Matches($log,'videoout.resolve_flip[^\r\n]*present_ticks=(\d+)') | ForEach-Object { [long]$_.Groups[1].Value })
+    if($ticks.Count -lt 16) { throw 'Insufficient actual presentation completions' }
+    $frequency=[Diagnostics.Stopwatch]::Frequency
+    $start=$ticks[0]+$WarmupSeconds*$frequency
+    $measured=@($ticks | Where-Object { $_ -ge $start })
+    if($measured.Count -lt 16) { throw 'Insufficient post-warmup completions' }
+    $intervals=@(for($i=1;$i -lt $measured.Count;$i++) {
+        if($measured[$i] -le $measured[$i-1]) { throw 'Non-monotonic presentation clock' }
+        ($measured[$i]-$measured[$i-1])*1000.0/$frequency
+    })
+    $ordered=@($intervals | Sort-Object)
+    function Percentile([double]$p) { $ordered[[Math]::Max(0,[Math]::Ceiling($ordered.Count*$p)-1)] }
+    $seconds=($measured[-1]-$measured[0])/[double]$frequency
+    $output=Join-Path $repo ('artifacts/gears-native-timing/'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
+    New-Item -ItemType Directory -Path $output -Force | Out-Null
+    @{Scope='Capture-free host presentation-completion timing for pinned opt-in native Gears; not GPU timestamps, image fidelity, commercial compatibility or a calibrated benchmark'
+        SourceCommit=$native.SourceCommit;NativeRun=$run.FullName;InputSha256=$native.InputSha256
+        RuntimeFiles=$native.RuntimeFiles;WarmupSeconds=$WarmupSeconds;ClockFrequency=$frequency
+        TotalPresentedTickets=$ticks.Count;MeasuredPresentedTickets=$measured.Count
+        MeasuredSeconds=$seconds;MeanPresentationRate=($measured.Count-1)/$seconds
+        MinimumIntervalMs=$ordered[0];MedianIntervalMs=(Percentile .5)
+        P95IntervalMs=(Percentile .95);P99IntervalMs=(Percentile .99);MaximumIntervalMs=$ordered[-1]
+        DiagnosticImageReadbackObserved=$false;ImageFidelityVerified=$false
+        ExperimentalPayloadPreservingEvents=[bool]$PreserveFlipPayloads
+        TerminatedAtDeadline=$native.TerminatedAtDeadline;NativeLoopFailureObserved=$false
+        NativeStderrSha256=(Get-FileHash -LiteralPath "$($run.FullName)/stderr.log").Hash
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$output/timing-report.json" -Encoding UTF8
+    Write-Output "PASS bounded capture-free presentation timing: $output"
+} finally {
+    foreach($name in $variables) { [Environment]::SetEnvironmentVariable($name,$saved[$name]) }
+}

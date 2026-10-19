@@ -23,6 +23,37 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Capture-free Gears timing now has a reproducible, explicitly experimental route.**
+  `Measure-GearsNativeNgg.ps1` disables screenshot readback, excludes three seconds
+  after the first present as warmup and reports host completion intervals.
+  Without a payload-preserving policy, original paced delivery still fails exact
+  retirement at frame 13 (`runs/20261019-110121-555`) and frame 25
+  (`110401-764`). Thus previous capture-heavy passes did NOT settle the event
+  contract. Unconditional import-context/stack dumps at imports 1020..1040 are
+  now correctly gated by the existing periodic-trace option; removing those
+  intrusive diagnostics alone does not resolve token replacement.
+
+  Optional `TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO=1` is snapshotted for Gen5 ports only
+  and retains each actually presented flip payload in arrival order. Default
+  coalescing, Gen4 and vblank behavior remain unchanged. Six regressions cover
+  FIFO/default behavior, capacity rejection without replacing prior tokens,
+  deletion and per-port generation isolation: library suite **1410/1410**.
+  Its 16-entry unread host guard is experimental, not a claimed console limit;
+  overflow emits a failure, not a fabricated completion. Rationale, pinned
+  external implementation reference and hardware-evidence limits are documented
+  in `docs/gears-flip-delivery-experiment.md`. No upstream title/shader changed.
+
+  Opt-in capture-free 30-second measurement `20261019-110810-890` passes at
+  53.148 mean presents/s after warmup. Sixty-second measurement
+  `artifacts/gears-native-timing/20261019-111028-223/timing-report.json` passes
+  with 3047 total tickets and 53.813/s over its 53.630-second post-warmup span;
+  median 17.033 ms, p95 27.965 ms, p99 35.507 ms, max 66.213 ms.
+  These are bounded host-completion timings, not GPU timestamps or commercial
+  game performance. Separate captured FIFO run `20261019-110904-927` passes with
+  315 tickets / six distinct frames; last frame visually checked, clean gears.
+  Next: independent numerical late-frame fidelity and broader event-retirement
+  evidence before changing any default; the FIFO policy stays OFF by default.
+
 - **Diagnostic screenshots no longer scan uncached mapped memory byte by byte.**
   Opt-in slowdown diagnostics now aggregate host wall time by bounded work
   category (including deferred attempts), whole render tick and screenshot

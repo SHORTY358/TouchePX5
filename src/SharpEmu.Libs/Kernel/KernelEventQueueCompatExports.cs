@@ -1235,7 +1235,8 @@ public static class KernelEventQueueCompatExports
         ulong ident,
         short filter,
         ulong eventHint,
-        ulong userData)
+        ulong userData,
+        bool preservePayloads = false)
     {
         EventQueueState state;
         lock (_eventQueueGate)
@@ -1254,7 +1255,16 @@ public static class KernelEventQueueCompatExports
 
             var count = 1UL;
             var pendingIndex = events.FindIndex(ident, filter);
-            if (pendingIndex >= 0)
+            if (preservePayloads)
+            {
+                // Experimental payload-preserving display delivery. This is a
+                // host resource guard, not a claimed console queue capacity.
+                var matching = 0;
+                for (var i = 0; i < events.Count; i++)
+                    if (events[i].Ident == ident && events[i].Filter == filter) matching++;
+                if (matching >= 16) return false;
+            }
+            else if (pendingIndex >= 0)
             {
                 count = Math.Min(((events[pendingIndex].Data >> 12) & 0xFUL) + 1, 0xFUL);
             }
@@ -1269,7 +1279,7 @@ public static class KernelEventQueueCompatExports
                 eventData,
                 userData);
 
-            if (pendingIndex >= 0)
+            if (!preservePayloads && pendingIndex >= 0)
             {
                 events[pendingIndex] = triggeredEvent;
             }

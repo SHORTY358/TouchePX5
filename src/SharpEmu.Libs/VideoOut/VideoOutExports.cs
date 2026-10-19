@@ -216,6 +216,7 @@ public static class VideoOutExports
     private sealed class VideoOutPortState
     {
         public required int Handle { get; init; }
+        public bool PreserveFlipPayloads { get; init; }
         public int FlipRate { get; set; }
         public ulong VblankCount { get; set; }
         public ulong FlipCount { get; set; }
@@ -304,6 +305,8 @@ public static class VideoOutExports
             _ports[handle] = new VideoOutPortState
             {
                 Handle = handle,
+                PreserveFlipPayloads = ctx.TargetGeneration == Generation.Gen5 &&
+                    Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO") == "1",
                 OpenTimestamp = openedAt,
                 LastVblankTimestamp = openedAt,
             };
@@ -1443,9 +1446,11 @@ public static class VideoOutExports
             // The notifier runs outside all GPU locks; the kernel event queue does
             // not call back into VideoOut while holding its own lock.
             foreach (var registration in port.FlipEvents)
-                _ = KernelEventQueueCompatExports.TriggerDisplayEvent(
+                if (!KernelEventQueueCompatExports.TriggerDisplayEvent(
                     registration.Equeue, SceVideoOutInternalEventFlip,
-                    OrbisKernelEventFilterVideoOut, hint, registration.UserData);
+                    OrbisKernelEventFilterVideoOut, hint, registration.UserData, port.PreserveFlipPayloads) &&
+                    port.PreserveFlipPayloads)
+                    Console.Error.WriteLine("[LOADER][ERROR] videoout.experimental_flip_fifo delivery rejected");
         }
     }
 

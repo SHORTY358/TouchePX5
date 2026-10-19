@@ -1,18 +1,19 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 param([ValidateRange(5,60)][int]$TimeoutSeconds=12,[switch]$RuntimeScalars,[switch]$VerifyTranslationCache,
-    [ValidateRange(1,600)][int]$CaptureEvery=5)
+    [ValidateRange(1,600)][int]$CaptureEvery=5,[switch]$PreserveFlipPayloads)
 $ErrorActionPreference='Stop'
 if($VerifyTranslationCache -and -not $RuntimeScalars) { throw 'Translation cache verification requires runtime scalars' }
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $output=Join-Path $repo ('artifacts/gears-native-ngg/'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
-$variables=@('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG','TOUCHEPX5_GEARS_RUNTIME_SCALARS','TOUCHEPX5_GEARS_VERIFY_TRANSLATION_CACHE','SHARPEMU_LOG_VIDEOOUT','SHARPEMU_TRACE_GUEST_IMAGES','SHARPEMU_GUEST_IMAGE_DUMP_DIR','SHARPEMU_SWAPCHAIN_DUMP_EVERY')
+$variables=@('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG','TOUCHEPX5_GEARS_RUNTIME_SCALARS','TOUCHEPX5_GEARS_VERIFY_TRANSLATION_CACHE','TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO','SHARPEMU_LOG_VIDEOOUT','SHARPEMU_TRACE_GUEST_IMAGES','SHARPEMU_GUEST_IMAGE_DUMP_DIR','SHARPEMU_SWAPCHAIN_DUMP_EVERY')
 $saved=@{}
 foreach($name in $variables) { $saved[$name]=[Environment]::GetEnvironmentVariable($name) }
 try {
     $env:TOUCHEPX5_EXPERIMENTAL_GEARS_NGG='1'
     $env:TOUCHEPX5_GEARS_RUNTIME_SCALARS=if($RuntimeScalars) { '1' } else { '0' }
     $env:TOUCHEPX5_GEARS_VERIFY_TRANSLATION_CACHE=if($VerifyTranslationCache) { '1' } else { '0' }
+    $env:TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO=if($PreserveFlipPayloads) { '1' } else { '0' }
     $env:SHARPEMU_LOG_VIDEOOUT='1'
     $env:SHARPEMU_TRACE_GUEST_IMAGES='present'
     $env:SHARPEMU_GUEST_IMAGE_DUMP_DIR=$output
@@ -21,8 +22,9 @@ try {
     $runs=Join-Path $repo 'artifacts/external-homebrew/gears-toolchain/gears-shader-aperture-windows/runs'
     $run=Get-ChildItem -LiteralPath $runs -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     $nativeReport=Get-Content -LiteralPath "$($run.FullName)/report.json" -Raw | ConvertFrom-Json
+    if(-not $nativeReport.TerminatedAtDeadline -and $nativeReport.ExitCode -ne 0) { throw "Native process failed before its deadline: $($run.FullName)" }
     $log=Get-Content -LiteralPath "$($run.FullName)/stderr.log" -Raw
-    if($log -match 'GEARS_EVENT_FAILURE|GEARS_LOOP_FAILURE|GEARS_PARKED|experimental_gears_ngg (consume|schedule) failed|unsupported graphics workgroup barrier') {
+    if($log -match 'GEARS_EVENT_FAILURE|GEARS_LOOP_FAILURE|GEARS_PARKED|experimental_gears_ngg (consume|schedule) failed|experimental_flip_fifo delivery rejected|unsupported graphics workgroup barrier|ORBIS_GEN2_ERROR_CPU_TRAP|vk.device_lost') {
         throw "Native NGG run failed; inspect $($run.FullName)"
     }
     $frames=@(Get-ChildItem -LiteralPath $output -Filter 'present-*.bgra' | Sort-Object Name)
@@ -52,6 +54,7 @@ try {
         NativePresentedImagesVerified=$true;FrameImagesChange=$true;OwnershipFailureObserved=$false
         RenderingFidelityAutomaticallyVerified=$false
         RuntimeComputeScalars=[bool]$RuntimeScalars
+        ExperimentalPayloadPreservingEvents=[bool]$PreserveFlipPayloads
         CaptureEvery=$CaptureEvery
         ComputeTranslationCacheHits=$cacheHits;FreshTranslationComparisons=$verifiedHits
         PixelTranslationCacheHits=$pixelHits;PixelFreshComparisons=$pixelVerified
