@@ -555,6 +555,11 @@ int _start(void) {
     reg(0x76,0xd,(u32)(texture>>40)|(173u<<20)|(3u<<30));
     reg(0x76,0xe,1u|(7u<<14)); // 8x8 base, 4x4 lower level
     reg(0x76,0x10,7);
+#ifdef TEST_MIP_SRGB
+    texel[2]=0x0010; // RGB565 B=16 expands to 132
+    for(u32 y=0;y<2;y++) for(u32 x=0;x<2;x++) texel[64+y*64+x*4+2]=0x8000;
+    reg(0x76,0xd,(u32)(texture>>40)|(174u<<20)|(3u<<30));
+#endif
 #endif
 #ifdef TEST_MIP_BC7
     // BC7 mode 6, identical RGBA endpoints, p-bits and indices zero.
@@ -586,6 +591,11 @@ int _start(void) {
     reg(0x76,0xd,(u32)(texture>>40)|(169u<<20)|(3u<<30));
     reg(0x76,0xe,1u|(7u<<14)); // width=8, height=8
     reg(0x76,0x10,7); // pitch=8 before block-row alignment
+#ifdef TEST_MIP_SRGB
+    texel[0]=0x0010;
+    texel[64]=texel[66]=texel[128]=texel[130]=0x8000;
+    reg(0x76,0xd,(u32)(texture>>40)|(170u<<20)|(3u<<30));
+#endif
 #ifdef TEST_MIP_2D
     // 16x16 red base follows an 8x8 lower level with four distinct blocks.
     for(u32 i=0;i<sizeof(texel)/sizeof(texel[0]);i++) texel[i]=0;
@@ -740,9 +750,15 @@ int _start(void) {
     texel[66]=0xf800; // lower mip's bottom-right block changes to red
 #else
     texel[0]=0xf800; // only the lower compressed block changes to red
+#ifdef TEST_MIP_SRGB
+    texel[0]=0x4000; // RGB565 R=8 expands to 66 before sRGB decoding
+#endif
 #endif
 #elif defined(TEST_MIP_BC3)
     texel[0]=64; texel[2]=0xf800; // lower mip becomes red, alpha 64
+#ifdef TEST_MIP_SRGB
+    texel[2]=0x4000;
+#endif
 #elif defined(TEST_MIP_BC7)
     texel[0]=0x001fffc0; texel[1]=0x20400000; // red lower mip, alpha 64
 #ifdef TEST_MIP_SRGB

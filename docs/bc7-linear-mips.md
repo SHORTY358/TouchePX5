@@ -71,3 +71,25 @@ See the primary [Khronos sampling specification](https://github.com/KhronosGroup
 for mip weights and filtering. Constant-color blocks isolate inter-level
 filtering; this does not independently certify varying texel interpolation,
 implicit derivative LOD, anisotropy or other BC7 block modes.
+
+## BC1/BC3 sRGB follow-up
+
+The same omission affected unified formats 170 (BC1 sRGB, 8-byte blocks) and
+174 (BC3 sRGB, 16-byte blocks). Both now admit NumberType 9 in the bounded
+CPU-authored linear sampled-chain path. Before-change failures and hashes are
+retained in `artifacts/bc1-srgb-before/report.json` and
+`artifacts/bc3-srgb-before/report.json`; guest hashes match the passing inputs.
+
+`Test-TouchePX5-Triangle.ps1 -MipBc1 -MipSrgb` and `-MipBc3 -MipSrgb` both pass
+three 1920x1061 captures. RGB565 endpoint fields 16 and 8 expand to encoded
+132 and 66, so decoded expected channels on the UNORM target are 59/59/14.
+BC1 alpha stays 255; BC3 alpha is independently checked at 128/128/64.
+Both reject blank/wrong-color/non-decoding expectations; BC3 also rejects an
+opaque-alpha expectation with correct RGB decoding. One unchanged reuse and
+two uploads are required. Native BC3 UNORM regression passes.
+
+Reports are under `artifacts/smoke-triangle-texture-select-mip-srgb-bc1` and
+`artifacts/smoke-triangle-texture-select-mip-srgb-bc3`. Odd block extents,
+truncation and wide 16-byte-block rows are covered; library suite 1419/1419.
+These fixed endpoint-zero blocks do not certify every BC1/BC3 selector or alpha
+mode. Storage, array, tiled and GPU-authored chains remain outside this addition.

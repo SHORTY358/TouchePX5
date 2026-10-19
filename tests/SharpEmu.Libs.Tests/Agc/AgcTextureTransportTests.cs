@@ -12,7 +12,9 @@ public sealed class AgcTextureTransportTests
 {
     [Theory]
     [InlineData(169u, 128u)]
+    [InlineData(170u, 128u)]
     [InlineData(173u, 64u)]
+    [InlineData(174u, 64u)]
     [InlineData(181u, 64u)]
     [InlineData(182u, 64u)]
     public void LinearCompressedMipChainUsesBlockStorageAndTexelCopyPitch(uint format, uint copyPitch)
@@ -39,8 +41,8 @@ public sealed class AgcTextureTransportTests
     [InlineData(173, 767)] // BC3 has the same padded footprint at this size
     [InlineData(181, 767)] // BC7 also uses 16-byte 4x4 blocks
     [InlineData(182, 767)] // BC7 sRGB uses the same storage footprint
-    [InlineData(174, 768)] // BC3 sRGB remains outside this subset
-    [InlineData(170, 768)] // BC1 sRGB is not yet in the supported subset
+    [InlineData(174, 767)] // BC3 sRGB requires the same complete padded chain
+    [InlineData(170, 767)] // BC1 sRGB also rejects truncated storage
     [InlineData(171, 768)] // BC2 layout has not been implemented here
     public void UnsupportedOrTruncatedCompressedChainPublishesNothing(uint format, int size)
     {
@@ -51,6 +53,7 @@ public sealed class AgcTextureTransportTests
 
     [Theory]
     [InlineData(173u)]
+    [InlineData(174u)]
     [InlineData(181u)]
     [InlineData(182u)]
     public void LinearSixteenByteCompressedMipChainAlignsRowsLargerThan256Bytes(uint format)

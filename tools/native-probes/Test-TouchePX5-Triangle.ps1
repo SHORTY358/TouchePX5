@@ -48,11 +48,11 @@ if($MipBc7) {
     $Mip=$true
 }
 if($MipBc3) {
-    if($MipBc1 -or $MipSrgb -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC3 mip probe requires its standalone layout.' }
+    if($MipBc1 -or $MipOdd -or $Mip2D -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure -or $Scissor -or $IndexBits) { throw 'BC3 mip probe requires its standalone layout (optional sRGB).' }
     $Mip=$true
 }
 if($MipBc1) {
-    if($MipSrgb -or $MipOdd -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure) { throw 'BC1 mip probe supports only its default or 2D layout.' }
+    if($MipOdd -or $MipBaseOnly -or $MipLowerView -or $MipCachePressure) { throw 'BC1 mip probe supports only its default or 2D layout (optional sRGB in the default layout).' }
     $Mip=$true
 }
 if($MipSrgb) {
@@ -609,8 +609,8 @@ public static class TextureUvVerifierV3 {
         try { [TrilinearMipVerifierV1]::Check([byte[]]::new($gpuBytes.Length),$width,$height,$frameIndex,0) | Out-Null } catch { $rejectedBlank=$true }
         if(-not $rejectedBlank) { throw 'Trilinear verifier accepted a blank frame' }
     } elseif($MipSrgb -or $MipBc3 -or $MipBc7) {
-        $encoded=if($MipBc7 -and -not $MipSrgb) { 254 } elseif($MipBc3) { 255 } elseif($frameIndex -eq 3) { 64 } else { 128 }
-        $expectedAlpha=if(($MipBc3 -or $MipBc7) -and $frameIndex -eq 3) { 64 } else { 128 }
+        $encoded=if($MipBc7 -and -not $MipSrgb) { 254 } elseif($MipBc3 -and -not $MipSrgb) { 255 } elseif(($MipBc1 -or $MipBc3) -and $MipSrgb) { if($frameIndex -eq 3) { 66 } else { 132 } } elseif($frameIndex -eq 3) { 64 } else { 128 }
+        $expectedAlpha=if($MipBc1) { 255 } elseif(($MipBc3 -or $MipBc7) -and $frameIndex -eq 3) { 64 } else { 128 }
         $srgbOutput=$capture -match 'Srgb\.bgra$'
         $coloredPixels=[UniformMipVerifierV2]::Check($gpuBytes,$width,$height,$expectBlue,$encoded,$srgbOutput,[bool]$MipSrgb,$expectedAlpha)
         if($MipSrgb) {

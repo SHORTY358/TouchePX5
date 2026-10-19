@@ -23,6 +23,17 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **BC1 and BC3 sRGB CPU-authored linear mip chains now sample all levels correctly.**
+  Formats 170/174 with NumberType 9 use the existing block-aware reader.
+  Both unchanged guests fail before the fix and pass afterward; before reports
+  are in `artifacts/bc1-srgb-before` and `artifacts/bc3-srgb-before`.
+  Native `-MipBc1 -MipSrgb` and `-MipBc3 -MipSrgb` each verify three GPU frames,
+  decoded RGB 59/59/14, exact alpha (BC1 255; BC3 128/128/64), one cache hit and
+  two uploads. Blank/wrong-color/non-decoding controls reject; BC3 also rejects
+  opaque alpha. Reports are under their `smoke-triangle-texture-select-mip-srgb-*`
+  directories. BC3 UNORM regression passes; library suite 1419/1419.
+  This is the same bounded linear sampled path, not general texture support.
+
 - **Native BC7 sRGB LOD0.5 now has independent inter-mip filtering evidence.**
   `Test-TouchePX5-Triangle.ps1 -MipBc7 -MipSrgb -MipTrilinear` passes actual
   red / mixed red-blue / rewritten red output, with alpha 128/128/96.

@@ -140,7 +140,7 @@ Expected captures are red/blue/red. The initial reproducer failed at LOD 1 becau
 standalone Vulkan upload allocated only one mip. The fix transports independent CPU
 snapshots for the lower levels and uploads each to its own image subresource.
 
-Scope: CPU-authored linear 2D RGBA8 or BC7 UNORM/sRGB, or BC1/BC3 UNORM, implicit width-derived pitch, with no existing backend
+Scope: CPU-authored linear 2D RGBA8/BC1/BC3/BC7 UNORM/sRGB, implicit width-derived pitch, with no existing backend
 image at that address. Tiled, array, storage and GPU-written mip
 chains retain their existing behavior. Full chains retain per-draw CPU snapshots,
 but exact matches reuse an immutable Vulkan upload. The separate cache compares
@@ -205,7 +205,9 @@ RGB565 endpoint and zero selectors, making the expected colors exact. Rows occup
 256 bytes; the lower level uses offset 0, the base starts at 256, and total storage
 is 768 bytes. The old path failed the first frame; the block-aware full-chain
 reader passes all three pixel checks and requires one cache hit / two uploads.
-BC1 sRGB, other BC formats, arrays and tiled mip chains are outside this change.
+This original BC1 case covers UNORM; the sRGB follow-up is in
+[`docs/bc7-linear-mips.md`](../../docs/bc7-linear-mips.md). Other BC formats,
+arrays and tiled mip chains are outside this change.
 Four additional unit cases cover odd 9x9 block storage, texel-unit copy pitch,
 independent snapshots and rejection of truncated/unsupported formats.
 
@@ -237,7 +239,8 @@ The 256-byte block row is expressed as 64 texels in Vulkan copies. The pixel ora
 checks exact alpha independently from color and rejects opaque-alpha, wrong-color
 and blank-image expectations. The unchanged draw reuses its upload; a lower-level
 rewrite creates a fresh upload. This tests endpoint selection, not interpolated
-BC3 alpha selectors or every BC3 encoding. BC3 sRGB remains outside this change.
+BC3 alpha selectors or every BC3 encoding. The sRGB follow-up and BC7 cases are
+documented in [`docs/bc7-linear-mips.md`](../../docs/bc7-linear-mips.md).
 
 `-Indirect` adds the twenty-third case, using the depth scenario. Four DRAW_INDIRECT
 records follow a poison zero-count record; nonzero byte offsets must select each
