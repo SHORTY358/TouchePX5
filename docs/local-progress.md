@@ -23,6 +23,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Five-minute capture-free native Gears run now retains actual worker-resource evidence.**
+  `artifacts/gears-native-timing/20261019-120700-318/timing-report.json` records
+  15256 presented tickets; 286.746 measured seconds after warmup, mean 51.432/s,
+  p95 28.884 ms, p99 36.364 ms. No native frame-loop failure or screenshot readback.
+  287 samples belong to the exact mitigated emulator child, not its launcher.
+  First/last 20-second private-memory medians 740968448/731303936 bytes;
+  observed maximum 752390144 bytes, maximum working set 350224384 bytes.
+  Earlier two-minute run also passes. Initial launcher-only memory observation
+  is explicitly rejected in its separate qualification record. See
+  `docs/gears-native-resources.md` for commands, identities and limits.
+  This remains opt-in pinned NGG/runtime-scalars/FIFO, not default game support;
+  host samples do not prove absence of leaks or measure GPU-local memory.
+
 - **BC7 sRGB full CPU mip chains now preserve decoded RGB and linear alpha.**
   The same native guest fails before the runtime change and passes afterward;
   before hashes/failure are in `artifacts/bc7-srgb-before/report.json`.

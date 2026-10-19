@@ -1,7 +1,8 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param([ValidateRange(1,60)][int]$TimeoutSeconds=20,[switch]$PublicInitAbi,[switch]$BootDiagnostics,[switch]$LegacyDefaultsAbi,[switch]$ShaderAperture)
+param([ValidateRange(1,600)][int]$TimeoutSeconds=20,[switch]$PublicInitAbi,[switch]$BootDiagnostics,[switch]$LegacyDefaultsAbi,[switch]$ShaderAperture,
+ [ValidateSet(0,250,500,1000,2000,5000)][int]$ResourceSampleIntervalMilliseconds=0,[switch]$PassThru)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . "$repo/tools/native-probes/RuntimeManifest.ps1"
@@ -34,10 +35,48 @@ $report=[ordered]@{SourceCommit=(& git -C $repo rev-parse HEAD); SourceChanges=@
  TraceVideoOut=$env:SHARPEMU_LOG_VIDEOOUT; TraceAgc=$env:SHARPEMU_LOG_AGC;
  Scope='Bounded bootstrap investigation; window creation, process exit and build success are not rendering evidence'}
 $process=$null
+$resourceSamples=[Collections.Generic.List[object]]::new()
+$resourceClock=[Diagnostics.Stopwatch]::new()
+$resourceWorker=$null
+function Add-ResourceSample {
+ $process.Refresh()
+ if($process.HasExited) { return }
+ # The Windows CLI is a small launcher. Attribute emulator allocations to its
+ # mitigated worker, identified by both ancestry and the internal CLI flag.
+ if($null -eq $script:resourceWorker) {
+  $children=@(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($process.Id)" |
+   Where-Object { $_.Name -eq [IO.Path]::GetFileName($exe) -and $_.CommandLine -match '--sharpemu-mitigated-child(?:\s|$)' })
+  if($children.Count -gt 1) { throw 'Ambiguous mitigated emulator worker' }
+  if($children.Count -eq 0) { return }
+  $script:resourceWorker=[Diagnostics.Process]::GetProcessById([int]$children[0].ProcessId)
+ }
+ $script:resourceWorker.Refresh()
+ if($script:resourceWorker.HasExited) { return }
+ $resourceSamples.Add([ordered]@{
+  ElapsedSeconds=$resourceClock.Elapsed.TotalSeconds
+  ProcessId=$script:resourceWorker.Id;Role='MitigatedEmulatorChild';LauncherProcessId=$process.Id
+  WorkingSetBytes=$script:resourceWorker.WorkingSet64; PrivateBytes=$script:resourceWorker.PrivateMemorySize64
+  Handles=$script:resourceWorker.HandleCount; Threads=$script:resourceWorker.Threads.Count
+  CpuSeconds=$script:resourceWorker.TotalProcessorTime.TotalSeconds
+  LauncherWorkingSetBytes=$process.WorkingSet64;LauncherPrivateBytes=$process.PrivateMemorySize64
+ })
+}
 try {
  $arguments=@('--generation=ps5','--cpu-engine=native','--fps-limit=60','--log-level=debug','--trace-imports=64',('--log-file="'+$log+'"'),('"'+$inputFile+'"'))
  $process=Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $app -WindowStyle Hidden -PassThru -RedirectStandardOutput "$out/stdout.log" -RedirectStandardError "$out/stderr.log"
- if(-not $process.WaitForExit($TimeoutSeconds*1000)) {
+ $resourceClock.Start()
+ if($ResourceSampleIntervalMilliseconds -eq 0) {
+  $exited=$process.WaitForExit($TimeoutSeconds*1000)
+ } else {
+  while(-not $process.HasExited -and $resourceClock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+   Add-ResourceSample
+   $remaining=[Math]::Max(1,[Math]::Ceiling(($TimeoutSeconds-$resourceClock.Elapsed.TotalSeconds)*1000))
+   if($process.WaitForExit([int][Math]::Min($ResourceSampleIntervalMilliseconds,$remaining))) { break }
+  }
+  Add-ResourceSample
+  $exited=$process.HasExited
+ }
+ if(-not $exited) {
   $report.TerminatedAtDeadline=$true
   & taskkill.exe /PID $process.Id /T /F | Out-Null
   $process.WaitForExit(5000) | Out-Null
@@ -46,6 +85,9 @@ try {
 } finally {
  if($null -ne $process -and -not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
  $report.FinishedUtc=[DateTime]::UtcNow.ToString('o')
+ $report.ResourceSamplingIntervalMilliseconds=$ResourceSampleIntervalMilliseconds
+ $report.ResourceSamples=$resourceSamples.ToArray()
+ $report.ObservedProcessSeconds=$resourceClock.Elapsed.TotalSeconds
  if(Test-Path $log) {
   $runtimeText=Get-Content $log -Raw
   if($runtimeText -match 'execution completed\. Result=(\w+)') { $report.ExecutionResult=$Matches[1] }
@@ -57,5 +99,7 @@ try {
  }
  $report | ConvertTo-Json -Depth 8 | Set-Content "$out/report.json" -Encoding UTF8
  if($null -ne $process) { $process.Dispose() }
+ if($null -ne $resourceWorker) { $resourceWorker.Dispose() }
 }
 Write-Output "Gears boot evidence: $out"
+if($PassThru) { [pscustomobject]@{NativeRun=$out;ReportPath=(Join-Path $out 'report.json')} }
