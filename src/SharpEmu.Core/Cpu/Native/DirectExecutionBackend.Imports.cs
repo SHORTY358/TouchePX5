@@ -352,9 +352,12 @@ public sealed partial class DirectExecutionBackend
 			}
 		}
 		bool flag0 = importStubEntry.SuppressStrlenTrace;
-		bool flag = num7 >= 2156221920u && num7 <= 2156225024u;
-		bool flag2 = num7 >= 2156351360u && num7 <= 2156352080u;
-		bool flag3 = num >= 1020 && num <= 1040;
+		// These narrow boot probes are diagnostic only. Unconditional stack
+		// reads and synchronous log flushes around imports 1020..1040 can stall
+		// an otherwise untraced guest long enough to miss display events.
+		bool flag = _logPeriodicImports && num7 >= 2156221920u && num7 <= 2156225024u;
+		bool flag2 = _logPeriodicImports && num7 >= 2156351360u && num7 <= 2156352080u;
+		bool flag3 = _logPeriodicImports && num >= 1020 && num <= 1040;
 		bool flag4 = !string.IsNullOrWhiteSpace(_importFilter);
 		bool flag5 = false;
 		ExportedFunction? matchedExport = importStubEntry.Export;
