@@ -23,6 +23,20 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original BSP GS results now feed the original two-texture PS, with independent pixel/discard proof.**
+  Four-case compute proof: `artifacts/xash3d-compute/20261021-035355-147`.
+  Graphics proof: `artifacts/xash3d-graphics/20261021-035905-198/execution-report.json`.
+  A transport-only VS copies verified GS output into original PS inputs; background
+  and textured passes share one controlled 640x360 target. Independent GLSL
+  reference matches 46756 interior pixels (43401 opaque, 3355 discard) and 165329
+  exterior pixels. Zero mismatches; worst channel error 1 at tolerance 2/255.
+  Wrong missing-lightmap/swapped-texture/black-discard models reject. Corrupting
+  one reference-selected interior pixel rejects exactly one check; positive hashes
+  remain intact. PNG visually inspected. Source-derived inputs, not native title
+  capture; raster/texel boundaries excluded. No native Xash3D process is verified.
+  Next: bounded original renderer/title bootstrap and its real resource states,
+  retaining the existing native shader gates until those states are validated.
+
 - **Original Xash3D textured BSP GS now executes numerically on the actual GPU.**
   Source-derived identity/projective three-vertex cases and a 132-vertex/two-group
   case pass `artifacts/xash3d-compute/20261021-034744-942/execution-report.json`.

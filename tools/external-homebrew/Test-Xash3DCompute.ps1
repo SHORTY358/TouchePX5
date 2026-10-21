@@ -20,7 +20,7 @@ function Invoke-CheckedGpu([string]$directory,[string]$expected,[string]$storage
     }
 }
 $reports=@()
-foreach($case in @('identity','projective','two-groups')) {
+foreach($case in @('identity','projective','two-groups','background')) {
     $dir=Join-Path $out $case
     $hashes=[ordered]@{}
     foreach($file in @('expected.json','original-bsp-compute.spv','fixture-report.json','storage-fixture.json','initial.json','limits.json')) { $hashes[$file]=(Get-FileHash -LiteralPath "$dir/$file").Hash }

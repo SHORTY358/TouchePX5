@@ -3,5 +3,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/SharpEmu.ShaderCompiler/SharpEmu.ShaderCompiler.csproj" />
     <ProjectReference Include="../../src/SharpEmu.ShaderCompiler.Vulkan/SharpEmu.ShaderCompiler.Vulkan.csproj" />
+    <ProjectReference Include="../../src/SharpEmu.Libs/SharpEmu.Libs.csproj" />
   </ItemGroup>
 </Project>

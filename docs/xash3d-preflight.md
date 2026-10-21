@@ -53,8 +53,8 @@ This is decode coverage, not original shader execution or verified discard.
 2. Completed: source-derived BSP inputs with original GS, identity/nonidentity
    matrices, position/UV streams and independent GLSL export expectations.
 3. Completed for the bounded subset below: actual GPU NGG outputs and indices.
-4. Supply original PS resource-table inputs, base texture and lightmap; compare
-   actual pixels and alpha-discard behavior with an independent reference.
+4. Completed for the source-derived fixture below: original PS resource table,
+   base texture/lightmap, actual pixels and independent alpha-discard reference.
 5. Only then consider a bounded native renderer package and full Xash3D startup.
    Native game boot, engine PRXs, real content and full host checks remain separate.
 
@@ -91,3 +91,41 @@ The three cases use explicit 128-thread/32-lane transport groups, not a claim
 about console scheduling. They are source-derived inputs, not native title
 captures. This proof produces GPU geometry/parameters/connectivity; the original
 textured pixel stage and final scene pixels are the next separate gate.
+
+## Original GS → original textured PS proof
+
+The compute fixture additionally retains a source-derived background case with
+the original GLSL control branch and matching triangle geometry. The latest
+four-case compute run is `artifacts/xash3d-compute/20261021-035355-147`.
+Its matrices, source streams, descriptor table, results and primitive indices are
+hashed. Third-vertex Z is positive so the identity triangle stays in Vulkan's
+clip-depth range for the controlled graphics check.
+
+`Test-Xash3DGraphics.ps1 -ManifestPath <original manifest> -ComputeRoot
+<completed four-case compute directory>` passes at
+`artifacts/xash3d-graphics/20261021-035905-198/execution-report.json`.
+The original 316-byte PS consumes two independent 2x2 textures through its
+original resource-table loads and sampling sites. A vertex bridge only transports
+completed GS positions, UVs and control; it does not recalculate geometry.
+The first draw supplies a colored background on that geometry, and the second
+samples base color/lightmap with one alpha-cutout texel. Ordered target readbacks
+retain the actual 640x360 RGBA image before presentation scaling.
+
+An independent GLSL reference recomputes clip coordinates and interpolated UVs
+from the source fixture, with the explicitly selected positive-height viewport.
+46756 interior pixels pass, including 43401 opaque and 3355 discarded pixels;
+165329 exterior pixels remain clear. Five base/lightmap texel pairs are seen.
+There are zero mismatches at tolerance 2/255; worst channel error is 1. Raster
+edges and nearest-texel boundaries are excluded and whole-image conformance is
+not claimed.
+
+Wrong models without the lightmap or with the textures exchanged reject 43401
+pixels; replacing discard with a black write rejects 3355. A copy with one
+reference-selected interior pixel corrupted fails exactly one numerical check,
+while original captures retain their hashes. The colored background distinguishes
+real discard from writing a zero-initialized output. A diagnostic PNG was visually
+inspected at `textured-bsp.png` in that directory.
+
+This is original shader execution on source-derived test data through the
+backend. It is not a native Xash3D process, engine PRX integration, real map,
+full texture-format/LOD compatibility or commercial-title compatibility.

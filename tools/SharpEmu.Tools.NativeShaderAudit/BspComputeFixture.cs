@@ -59,15 +59,17 @@ internal static class BspComputeFixture
         // a column-major mat4, a vec4 control, and 32-byte position/baseUV/lightUV.
         float[][] triangle = [ [-0.8f,-0.6f,0.25f,0.125f,0.25f,0.75f,0.875f,-99],
             [0.7f,-0.4f,0.75f,0.625f,0.25f,0.25f,0.75f,-99],
-            [-0.2f,0.9f,-0.5f,0.25f,0.875f,0.75f,0.125f,-99] ];
+            [-0.2f,0.9f,0.5f,0.25f,0.875f,0.75f,0.125f,-99] ];
         float[] control = [0.2f,0.4f,0.6f,1];
         var cases = new Dictionary<string, float[]> {
             ["identity"] = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
             ["projective"] = [0.8f,0.13f,-0.2f,0.15f, -0.17f,1.1f,0.09f,-0.05f, 0.21f,-0.11f,0.6f,0.03f, 0.09f,-0.17f,0.2f,1]
         };
         cases.Add("two-groups",cases["projective"]);
+        cases.Add("background",cases["identity"]);
         foreach (var (name, matrix) in cases)
         {
+            var caseControl = name=="background" ? new float[] {0.1f,0.2f,0.3f,0} : control;
             var vertices = name != "two-groups" ? triangle : Enumerable.Range(0,132).Select(v => new float[] {
                 (v%11-5)*0.13f,(v%7-3)*0.17f,(v%5-2)*0.11f,
                 (v%13+0.5f)/13,(v%17+0.25f)/17,(v%19+0.125f)/19,(v%23+0.375f)/23,-99
@@ -76,7 +78,7 @@ internal static class BspComputeFixture
             Directory.CreateDirectory(directory);
             var initial = new uint[256];
             for (var i = 0; i < 16; i++) initial[9+i] = Bits(matrix[i]);
-            for (var i = 0; i < 4; i++) initial[25+i] = Bits(control[i]);
+            for (var i = 0; i < 4; i++) initial[25+i] = Bits(caseControl[i]);
             initial[29] = (uint)tableAddress;
             uint[] descriptor = [(uint)streamAddress,32u<<16,(uint)vertices.Length,0xFAC];
             var stream = vertices.SelectMany(v => v.Select(Bits)).ToArray();
@@ -105,7 +107,7 @@ internal static class BspComputeFixture
                 for (var component = 0; component < 4; component++)
                 {
                     expected[slot*12+4+component] = Bits(vertices[vertex][3+component]);
-                    expected[slot*12+8+component] = Bits(control[component]);
+                    expected[slot*12+8+component] = Bits(caseControl[component]);
                 }
             }
             for(var first=0;first<vertices.Length;first+=126)
@@ -135,7 +137,7 @@ internal static class BspComputeFixture
                 FloatWords=floatWords,FloatTolerance=0.00002});
             Write(directory,"fixture-report.json",new {
                 Scope="Source-derived BSP GLSL reference and explicit NGG transport; not captured title state or hardware scheduling",
-                OriginalGsSha256=hash,MatrixColumnMajor=matrix,Control=control,Vertices=vertices,
+                OriginalGsSha256=hash,MatrixColumnMajor=matrix,Control=caseControl,Vertices=vertices,
                 VertexCount=vertices.Length,GroupCount=batch.GroupCount,SourceFirstWord=sourceFirst,
                 OutputSlots=slots,PrimitiveFirstWord=primitiveFirst,ShaderCompiled=true,GpuExecuted=false,RenderingVerified=false
             });

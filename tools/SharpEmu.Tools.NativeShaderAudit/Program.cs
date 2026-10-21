@@ -16,6 +16,16 @@ if (args.Length == 2 && args[0] == "--consume-bsp")
     BspComputeFixture.Consume(args[1]);
     return;
 }
+if(args.Length==4 && args[0]=="--bsp-graphics")
+{
+    BspGraphics.Run(args[1],args[2],args[3]);
+    return;
+}
+if(args.Length==3 && args[0]=="--verify-bsp-pixels")
+{
+    BspPixelReference.Verify(args[1],args[2]);
+    return;
+}
 if (args.Length != 2) throw new ArgumentException("usage: NativeShaderAudit <PAL manifest.json> <output directory> | --bsp-compute <manifest> <output>");
 var manifestPath = Path.GetFullPath(args[0]);
 var root = Path.GetDirectoryName(manifestPath)!;
