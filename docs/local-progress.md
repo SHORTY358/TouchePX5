@@ -23,6 +23,21 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original native BSP PS and resource tables pass controlled pixel sampling.**
+  `artifacts/xash3d-native-textures/20261021-043823-794/execution-report.json`
+  retains original native PS, actual resource/sampler/table inputs and hash-checked
+  source bundle texels. The production linear-mip reader supplies the 7-level
+  64x64 base chain and 64x7 lightmap; all 4096 base texels additionally match an
+  independent source palette equation. Actual native PS input-enable/address=2
+  and full parameters work. Sixteen constant-UV controlled tiles match 199424
+  interior pixels, max error 1 (tolerance 2). Missing lightmap, black discard and
+  swapped R/B models reject 15/1/12 cells; changing one copied pixel rejects one
+  check. Raw target PNG visually inspected; it is intentionally dark because
+  original synthetic lighting is dark. This qualifies native resources at base
+  LOD, not perspective sampling, mip minification or native scene rendering.
+  Next: bounded native indexed NGG scheduling, checked primitive consumption,
+  original texture ownership and real target/depth/flip behavior.
+
 - **Original BSP GS now passes on captured native indexed clear/world inputs.**
   `artifacts/xash3d-native-compute/20261021-043327-663/execution-report.json`
   verifies both 3348-word outputs on the real GPU. Native stream/indices are

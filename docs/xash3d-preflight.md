@@ -203,3 +203,30 @@ This is offline replay of original native inputs, not native draw scheduling,
 camera visibility, full engine execution or native scene pixels. The existing
 production gate continues to reject indexed BSP NGG. Next is actual native
 descriptor/sampler/resource qualification and pixel inputs before scheduling.
+
+## Original native pixel resources on controlled tiles
+
+`Test-Xash3DNativeTextures.ps1 -ComputeRoot <completed native compute proof>`
+passes at `artifacts/xash3d-native-textures/20261021-043823-794`.
+It verifies original native run/capture/map hashes and original 316-byte PS,
+retains actual table/descriptor/sampler words and native pixel inputs (2/2),
+then uploads source-bundle resource bytes with the existing production mip
+reader. Native descriptor addresses must match TEXP/TEXM and LMPX chunks.
+All 4096 base texels also match the independent upstream tiny_bsp palette
+equation, rather than using the production transfer as its own oracle.
+
+The source resources are a seven-level 64x64 RGBA8 base chain with repeat and
+trilinear sampler, plus a 64x7 bilinear/clamped lightmap. Sixteen controlled,
+constant-UV tiles sample base texel centers, use original completed GS control
+colors and retain alpha discard over original clear color. One tile tests repeat.
+All 199424 interior pixels match at tolerance 2/255; worst channel error is 1.
+Missing-lightmap, black-discard and swapped-R/B models reject 15/1/12 cells.
+A copied image with one selected pixel changed rejects exactly one check;
+positive captures retain hashes. The lossless PNG was visually inspected.
+
+Tile clip positions are controlled diagnostic geometry, not native world
+positions. Pixel bytes come from the original source bundle, not a GPU texture
+readback. This proves the original native PS/table/resource route at base LOD;
+it does not establish perspective/minifying LOD behavior or native scene pixels.
+The tiny regression map's original camera points horizontally above its small
+floor; its captured clip coordinates alone cannot promise a visible world scene.

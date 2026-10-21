@@ -6,6 +6,16 @@ using System.Text.Json;
 using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 
+if(args.Length==2 && args[0]=="--verify-native-bsp-textures")
+{
+    NativeBspTextures.VerifyCapture(args[1]);
+    return;
+}
+if(args.Length==3 && args[0]=="--native-bsp-textures")
+{
+    NativeBspTextures.Run(args[1],args[2]);
+    return;
+}
 if(args.Length==2 && args[0]=="--consume-native-bsp")
 {
     NativeBspCompute.Consume(args[1]);
