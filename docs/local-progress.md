@@ -23,6 +23,19 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Hollow Knight upstream playtest setup (2026-10-21):** the user confirmed
+  they do not currently have PS5 game files. Prepared the official Windows
+  `KytyPS5-2026-10-21-4644c52` release in the separate sibling directory
+  `D:\Dev\PS5-Playtest\KytyPS5-2026-10-21-4644c52`; archive SHA-256 matches
+  GitHub's asset digest `6efd3dc2cd53693c23ce878f2b4505ffa8e383321234f3931b8211ec2f86efc6`.
+  Paths were checked before extraction. `kyty_emulator.exe --help` returned 0
+  and reported commit `4644c52`; no game or GUI success is claimed.
+  `D:\Dev\PS5-Playtest\Start-Kyty.cmd` opens the included launcher when used.
+  User asked where to obtain the game; explained that PS Store delivers to a
+  console, while this test needs prepared PS5 game files (not the PC version).
+  Do not resume unrelated BSP work or repeat completed setup while the input
+  game files remain missing. No game download/purchase or console dump occurred.
+
 - **2026-10-21 user video/research priority:** read
   `docs/research-2026-10-21-ps5-on-windows.md` before continuing BSP development.
   The user's 116 s video mixes a PS5-hosted Wine/Proton/Windows-like desktop,
