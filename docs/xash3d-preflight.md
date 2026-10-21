@@ -129,3 +129,54 @@ inspected at `textured-bsp.png` in that directory.
 This is original shader execution on source-derived test data through the
 backend. It is not a native Xash3D process, engine PRX integration, real map,
 full texture-format/LOD compatibility or commercial-title compatibility.
+
+## Standalone native renderer bootstrap, 2026-10-21
+
+`Prepare-Xash3DNativeInputs.ps1` uses eight unchanged upstream shader pairs and
+the upstream `tests/test_bake_bsp.py:tiny_bsp()` factory through its original
+baker. The 36008-byte synthetic bundle hashes to
+`02bc5133a6fdcf74cff3d33878664f247304e22e40ed0194b54a85d7faf5ea5e`.
+Input report: `artifacts/xash3d-native-inputs/20261021-040759-513/report.json`.
+No Valve assets, submodules or full engine are required for this diagnostic.
+
+`Build-Xash3DRendererWindows.ps1` compiles the 60-source upstream inventory,
+two log sources and genuine `ref_agc_gpu_texture_cache.c` (missing from upstream's
+native list although required by its skybox object). All runtime checks remain.
+Clang 18 retains -Wall/-Wextra/-Werror with only the SDK v0.42 qualified `_Generic`
+math macro diagnostic suppressed. Two unused optional-feature locals are
+acknowledged with `(void)`. Inputs/objects/app files/overlays are hashed.
+SDK verification compares 2923 files against the already pinned archive.
+
+This is an explicit emulator consumer ABI variant: public init revision 8,
+legacy HLE 127/78 defaults with a 12-byte type/index record. It does not establish
+the original firmware 12.02 ABI. Optional `-ShaderAperture` requests BSP at
+0x200000000 and shader data at 0x210000000 through fixed public memory mappings;
+original high-address checks remain. Baseline low tables fail at `bsp_scene`
+in run `artifacts/xash3d-native-runs/20261021-041725-908`.
+
+With those mappings, the original six-word indexed writer contract exposed HLE
+`sceAgcDcbDrawIndex` rejection of initiator 5 and unwanted five-word INDEX_BASE/SIZE
+prefixes. Pinned OpenAGC `3c7e8072f0d7684e930454794fd5c02056946d73`
+`src/game_compat.c` q88lQ+GP5Yk emits only a six-word DRAW_INDEX_2 with the low
+caller initiator word. Touche now does the same; it does not infer arbitrary
+64-bit modifier/hardware execution semantics from that reference.
+Ten focused checks cover exact cursor, address/count/initiator, tail preservation
+and insufficient capacity without partial writes; full library suite 1422/1422
+passes. CLI Release build succeeds; test rebuild retains existing SHEM006.
+Native index16 GPU probe still shows red/blue output.
+
+The before/after runs use the same SELF; `NativeBuild.SelfSha256` in each
+execution report records its identity. Before writer fix run `20261021-042031-398` fails compose
+frame 0, callback -16. After fix `20261021-042343-396` submits real 109-dword
+DCBs and indexed clear/world counts 3/6. It then fails translation on the
+original GS SBarrier at PC 0x24 and parks with callback -22; no native scene
+pixels are verified and no shader gate is broadened.
+
+`Invoke-Xash3DRenderer.ps1` verifies source/build/app/runtime identities, sets only
+scoped diagnostic variables, restores them, and bounds its own process tree.
+It stops early after the instrumented retained-resource park instead of flooding
+the log with unresolved `pause` calls. `-CaptureInputs` uses the existing bounded
+replay facility for two native draws. Captures under
+`artifacts/xash3d-native-runs/20261021-042616-243/replay` retain original GS/PS
+state, resources and actual u16 indices; they are inputs, not GPU completion.
+Next is independent captured-input computation, then pixel/depth/resource checks.

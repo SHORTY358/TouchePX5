@@ -2221,19 +2221,11 @@ public static partial class AgcExports
         var indexAddress = ctx[CpuRegister.Rdx];
         var modifier = (uint)ctx[CpuRegister.Rcx];
 
-        // Zero is the ordinary indexed-draw initiator used by public
-        // homebrew. Retain the previously accepted title variant as well.
-        if (commandBufferAddress == 0 || modifier is not (0 or 0x4000_0000))
-        {
-            return ReturnPointer(ctx, 0);
-        }
-
-        if (!TryAllocateCommandDwords(ctx, commandBufferAddress, 5, out var baseCommand) ||
-            !TryWriteUInt32(ctx, baseCommand, Pm4(3, ItIndexBase, 0)) ||
-            !TryWriteUInt32(ctx, baseCommand + 4, (uint)indexAddress) ||
-            !TryWriteUInt32(ctx, baseCommand + 8, (uint)(indexAddress >> 32)) ||
-            !TryWriteUInt32(ctx, baseCommand + 12, Pm4(2, ItIndexBufferSize, 0)) ||
-            !TryWriteUInt32(ctx, baseCommand + 16, indexCount))
+        // Preserve the caller's low initiator word. Upstream homebrew and
+        // OpenAGC's q88lQ+GP5Yk writer both require one six-dword packet;
+        // prepended INDEX_BASE/SIZE commands violate strict cursor contracts.
+        // This does not qualify arbitrary initiators for draw execution.
+        if (commandBufferAddress == 0)
         {
             return ReturnPointer(ctx, 0);
         }
@@ -2256,8 +2248,8 @@ public static partial class AgcExports
 
         TraceAgc(
             $"agc.dcb_draw_index buf=0x{commandBufferAddress:X16} " +
-            $"base=0x{baseCommand:X16} draw=0x{drawCommand:X16} " +
-            $"count={indexCount} index=0x{indexAddress:X16}");
+            $"draw=0x{drawCommand:X16} count={indexCount} " +
+            $"index=0x{indexAddress:X16} initiator=0x{modifier:X8}");
 
         return ReturnPointer(ctx, drawCommand);
     }

@@ -23,6 +23,30 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Standalone native Xash3D BSP renderer now reaches actual indexed command submission.**
+  Original eight shader pairs and an upstream synthetic BSP fixture build with the
+  existing Windows toolchain. Source remains clean/pinned; no Valve data or full
+  engine is used. Builder stages explicit init/default ABI and optional fixed
+  table-aperture overlays; original checks remain. Baseline
+  `artifacts/xash3d-native-runs/20261021-041725-908` rejects low-address BSP tables.
+  Fixed mappings pass scene setup but expose an actual HLE indexed writer bug:
+  before `20261021-042031-398` parks at compose frame 0/callback -16. Writer now
+  emits exactly six dwords with the caller's low initiator word, matching pinned
+  OpenAGC's q88lQ+GP5Yk contract. No extra INDEX_BASE/SIZE prefix; no artificial
+  initiator whitelist. Ten focused writer checks and full library suite
+  **1422/1422** pass. Native index16 red/blue pixel regression passes.
+  Existing native Gears frame 100 exports/indices and 102221 interior pixels
+  still pass at `artifacts/gears-native-numerical/20261021-042744-159` (max error 0;
+  corrupted-pixel control rejects).
+  Identical SELF after fix `20261021-042343-396` submits 109-dword DCBs, including
+  real indexed clear/world draws (3/6 indices). Rendering remains blocked by the
+  original GS's NGG workgroup barrier; existing Gears execution gate is unchanged.
+  `20261021-042616-243` captures both original shader inputs and 16-bit indices
+  for the first two native draws using the existing bounded replay facility.
+  Full engine, native scene pixels and arbitrary initiator semantics are unverified.
+  Next: audit the captured native indexed GS inputs/exports, then establish
+  texture/interpolation/depth contracts before any broader execution gate.
+
 - **Original BSP GS results now feed the original two-texture PS, with independent pixel/discard proof.**
   Four-case compute proof: `artifacts/xash3d-compute/20261021-035355-147`.
   Graphics proof: `artifacts/xash3d-graphics/20261021-035905-198/execution-report.json`.
