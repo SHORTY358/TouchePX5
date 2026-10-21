@@ -23,6 +23,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original Xash3D textured BSP GS now executes numerically on the actual GPU.**
+  Source-derived identity/projective three-vertex cases and a 132-vertex/two-group
+  case pass `artifacts/xash3d-compute/20261021-034744-942/execution-report.json`.
+  All 13376 words match independent GLSL expectations: tolerant clip positions,
+  exact base/lightmap UVs, control, primitive records and inactive guards. Checked
+  remapping consumes 3/3/132 actual indices. Wrong base-U input and reset second-
+  group source IDs both reject; group-ID failures stay within second-group exports.
+  Inputs, SPIR-V, results and source shader are hashed and retained.
+  This is explicit compute expansion with source-derived inputs, not a native
+  Xash3D frame or hardware scheduler. Original PS sampling/discard and a graphics
+  consumer are next; the production native Gears gate remains unchanged.
+
 - **Shader decoding now retains reachable exit blocks after the first s_endpgm.**
   The original Xash3D textured PS exposed a missing 16-byte alpha-discard branch:
   before audit decoded 300/316 bytes, after audit covers 316/316 (68 instructions).

@@ -49,11 +49,10 @@ This is decode coverage, not original shader execution or verified discard.
 
 ## Next concrete gates
 
-1. Retain the shader fix and regress existing native Gears and branched pixels.
-2. Construct a clearly labelled source-derived BSP input fixture: original GS,
-   identity/nonidentity matrices, position/UV streams and independent GLSL export
-   expectations. Do not label these inputs as captured title state.
-3. Verify actual GPU NGG output/indices before adding a graphics consumer.
+1. Completed: retain shader fix and regress native Gears and branched pixels.
+2. Completed: source-derived BSP inputs with original GS, identity/nonidentity
+   matrices, position/UV streams and independent GLSL export expectations.
+3. Completed for the bounded subset below: actual GPU NGG outputs and indices.
 4. Supply original PS resource-table inputs, base texture and lightmap; compare
    actual pixels and alpha-discard behavior with an independent reference.
 5. Only then consider a bounded native renderer package and full Xash3D startup.
@@ -61,3 +60,34 @@ This is decode coverage, not original shader execution or verified discard.
 
 Keep the Gears shader gate in place; adding an unrelated hash without its input,
 output and lifetime proof is not an implementation of this new pipeline.
+
+## Source-derived GS execution proof
+
+`tools/external-homebrew/Test-Xash3DCompute.ps1 -ManifestPath
+artifacts/xash3d-shaders/20261019-122045-187/bsp_textured.manifest.json` passes at
+`artifacts/xash3d-compute/20261021-034744-942/execution-report.json`.
+
+The original 288-byte GS is compiled unchanged through the existing explicit
+NGG compute transport and executed on the actual Vulkan GPU. Independent GLSL
+reference inputs use identity and projective matrices with three vertices, then
+a non-repeating 132-vertex stream across two explicit groups. Expected positions
+come from column-major `mat4 * vec4`; base/lightmap UVs and control parameters
+come directly from the separately declared source streams/constants.
+
+All 13376 output/primitive/input/guard words across the three cases match;
+positions permit at most 2e-5 relative-or-absolute error, UVs/control/connectivity
+and idle guards remain bit-exact. Other input storage buffers must remain
+unchanged. The checked remapper consumes 3/3/132 actual indices from completed
+GPU primitive records, not regenerated geometry.
+
+Changing the first vertex's base-U input fails its original expected output.
+Resetting second-group source IDs to 0..5 also fails, exclusively within that
+group's vertex-export range; only the expected source-table words are updated
+for this negative control. Hashes cover original shader, matrix/vertex fixture,
+SPIR-V, expected/actual data, remapped indices and driver logs; positive inputs
+must remain unchanged while execution runs.
+
+The three cases use explicit 128-thread/32-lane transport groups, not a claim
+about console scheduling. They are source-derived inputs, not native title
+captures. This proof produces GPU geometry/parameters/connectivity; the original
+textured pixel stage and final scene pixels are the next separate gate.
