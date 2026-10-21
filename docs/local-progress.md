@@ -23,6 +23,18 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **2026-10-21 user video/research priority:** read
+  `docs/research-2026-10-21-ps5-on-windows.md` before continuing BSP development.
+  The user's 116 s video mixes a PS5-hosted Wine/Proton/Windows-like desktop,
+  KytyPS5/Hollow Knight, PSBox cloud streaming and console game patches.
+  Current upstream KytyPS5 and SharpEmu have specific Windows Hollow Knight
+  reports; reproduce one on a legally supplied dump before further isolated
+  homebrew work. Saved video frames, local CPU ASR transcript, primary-source
+  snapshots/release metadata and a direct Vulkan-device query are under
+  `artifacts/research-video-20261021/`. GTX 1060 reports Vulkan 1.4.312 but no
+  EXT mesh shaders. No retail-game success was demonstrated locally by this
+  research. Existing external Kyty checkout remains at September 9 `b531329`.
+
 - **Bounded native BSP clear/world rendering now runs behind a separate opt-in.**
   `TOUCHEPX5_EXPERIMENTAL_BSP_NGG=1` admits only the pinned BSP GS/PS, observed
   u16 3/6-index topology, 32-byte streams, one RGBA8 target and 64x64 seven-level
