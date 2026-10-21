@@ -6,6 +6,16 @@ using System.Text.Json;
 using SharpEmu.HLE;
 using SharpEmu.ShaderCompiler;
 
+if(args.Length==2 && args[0]=="--consume-native-bsp")
+{
+    NativeBspCompute.Consume(args[1]);
+    return;
+}
+if(args.Length==4 && args[0]=="--native-bsp-compute")
+{
+    NativeBspCompute.Create(args[1],args[2],args[3]);
+    return;
+}
 if (args.Length == 3 && args[0] == "--bsp-compute")
 {
     BspComputeFixture.Create(args[1], args[2]);

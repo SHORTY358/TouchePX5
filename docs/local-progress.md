@@ -23,6 +23,22 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Original BSP GS now passes on captured native indexed clear/world inputs.**
+  `artifacts/xash3d-native-compute/20261021-043327-663/execution-report.json`
+  verifies both 3348-word outputs on the real GPU. Native stream/indices are
+  checked against the built synthetic BSP; original shaders and capture hashes
+  are required. Independent GLSL matrix equations match clip positions; UV,
+  control, primitive connectivity and inactive guards match bitwise. The world
+  subgroup retains four shared vertices for six actual u16 indices; completed
+  remapping returns the original topology. Changing its second primitive rejects
+  exactly two primitive export words, and changing a captured JSON copy rejects
+  before execution by hash. Captures come from
+  `artifacts/xash3d-native-runs/20261021-043116-952`.
+  This is offline replay of actual native inputs through an explicit transport;
+  production indexed NGG scheduling/native scene rendering remain unimplemented.
+  Next: original PS with actual native texture descriptors/samplers and source
+  bundle pixel bytes, then native indexed scheduling with verified ownership.
+
 - **Standalone native Xash3D BSP renderer now reaches actual indexed command submission.**
   Original eight shader pairs and an upstream synthetic BSP fixture build with the
   existing Windows toolchain. Source remains clean/pinned; no Valve data or full

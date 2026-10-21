@@ -180,3 +180,26 @@ replay facility for two native draws. Captures under
 `artifacts/xash3d-native-runs/20261021-042616-243/replay` retain original GS/PS
 state, resources and actual u16 indices; they are inputs, not GPU completion.
 Next is independent captured-input computation, then pixel/depth/resource checks.
+
+## Captured native indexed geometry proof
+
+`Test-Xash3DNativeCompute.ps1` verifies the run evidence hashes and unchanged BSP
+GS, then reads the first indexed clear and world draws. World vertex/index bytes
+must exactly match VERT/INDX chunks of the hash-checked built synthetic bundle;
+clear geometry and identity matrix must match upstream source. No translated
+instruction is used to calculate the independent GLSL matrix/UV/control oracle.
+
+Proof: `artifacts/xash3d-native-compute/20261021-043327-663/execution-report.json`,
+from native run `artifacts/xash3d-native-runs/20261021-043116-952`.
+Both 3348-word export/primitive/guard arrays match on the actual GPU. The audit
+explicitly retains 3 vertices/1 primitive for clear and 4 shared vertices/2
+primitives for world, using captured u16 topology 0,1,2,0,2,3. Completed primitive
+remapping preserves it. Positions use tolerance 2e-5; all other words are exact.
+Changing only the second primitive's shared-vertex source rejects exactly two
+words in that primitive's export record. A changed captured-input copy rejects
+at hash validation before fixture creation. Original evidence is preserved.
+
+This is offline replay of original native inputs, not native draw scheduling,
+camera visibility, full engine execution or native scene pixels. The existing
+production gate continues to reject indexed BSP NGG. Next is actual native
+descriptor/sampler/resource qualification and pixel inputs before scheduling.
