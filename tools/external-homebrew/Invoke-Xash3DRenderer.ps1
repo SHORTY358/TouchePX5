@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$BuildRoot,
       [ValidateRange(2,30)][int]$TimeoutSeconds=12,
-      [switch]$ExperimentalNgg,[switch]$CaptureInputs)
+      [switch]$ExperimentalNgg,[switch]$CaptureInputs,[switch]$ExperimentalBsp,[switch]$PreserveFlipPayloads,[switch]$CaptureFrames,[switch]$AuditNgg,[switch]$PassThru)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . "$repo/tools/native-probes/RuntimeManifest.ps1"
@@ -23,6 +23,9 @@ $out=Join-Path $repo ('artifacts/xash3d-native-runs/'+[DateTime]::UtcNow.ToStrin
 New-Item -ItemType Directory -Path $out | Out-Null
 $saved=@{}
 foreach($name in @('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG','SHARPEMU_LOG_AGC','SHARPEMU_LOG_VIDEOOUT',
+    'TOUCHEPX5_EXPERIMENTAL_BSP_NGG','TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO','SHARPEMU_TRACE_GUEST_WRITES',
+    'TOUCHEPX5_BSP_NATIVE_AUDIT_DIR',
+    'SHARPEMU_TRACE_GUEST_WRITE_ORDINAL','SHARPEMU_GUEST_IMAGE_DUMP_DIR','SHARPEMU_OVERLAY',
     'TOUCHEPX5_SHADER_REPLAY_DIR','TOUCHEPX5_SHADER_REPLAY_ADDRESS','TOUCHEPX5_SHADER_REPLAY_DRAW_COUNT','TOUCHEPX5_SHADER_REPLAY_SEQUENCE_LIMIT')) { $saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process') }
 $process=$null
 $report=[ordered]@{
@@ -33,11 +36,21 @@ $report=[ordered]@{
     ExperimentalNgg=[bool]$ExperimentalNgg;NativeRendererInvoked=$false
     TerminatedAtDeadline=$false;StoppedAfterDiagnosticPark=$false;ExitCode=$null;ExecutionResult=$null;BootstrapFailureStage=$null
     CaptureInputs=[bool]$CaptureInputs
+    ExperimentalBsp=[bool]$ExperimentalBsp;PreserveFlipPayloads=[bool]$PreserveFlipPayloads
     NativeRenderingVerified=$false;FullEngineExecuted=$false;GameAssetsUsed=$false
     Scope='Bounded diagnostic of original standalone BSP renderer with explicit consumer ABI overlay; not full Xash3D or Half-Life compatibility'
 }
 try {
-    [Environment]::SetEnvironmentVariable('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG',$(if($ExperimentalNgg){'1'}else{$null}),'Process')
+    [Environment]::SetEnvironmentVariable('TOUCHEPX5_EXPERIMENTAL_GEARS_NGG',$(if($ExperimentalNgg -or $ExperimentalBsp){'1'}else{$null}),'Process')
+    $env:TOUCHEPX5_EXPERIMENTAL_BSP_NGG=$(if($ExperimentalBsp){'1'}else{$null})
+    $env:TOUCHEPX5_EXPERIMENTAL_FLIP_FIFO=$(if($PreserveFlipPayloads){'1'}else{$null})
+    $env:TOUCHEPX5_BSP_NATIVE_AUDIT_DIR=$(if($AuditNgg){Join-Path $out 'ngg-audit'}else{$null})
+    if($CaptureFrames) {
+        $env:SHARPEMU_TRACE_GUEST_WRITES='0x10080000'
+        $env:SHARPEMU_TRACE_GUEST_WRITE_ORDINAL='1:2'
+        $env:SHARPEMU_GUEST_IMAGE_DUMP_DIR=Join-Path $out 'frames'
+        $env:SHARPEMU_OVERLAY='0'
+    }
     $env:SHARPEMU_LOG_AGC='1';$env:SHARPEMU_LOG_VIDEOOUT='1'
     $env:TOUCHEPX5_SHADER_REPLAY_DIR=$(if($CaptureInputs){Join-Path $out 'replay'}else{$null})
     $env:TOUCHEPX5_SHADER_REPLAY_SEQUENCE_LIMIT='2'
@@ -96,3 +109,4 @@ try {
     if($null -ne $process) { $process.Dispose() }
 }
 Write-Output "Native BSP renderer diagnostic evidence: $out"
+if($PassThru){[pscustomobject]@{NativeRun=$out;ReportPath=(Join-Path $out 'execution-report.json')}}

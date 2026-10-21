@@ -23,6 +23,39 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **Bounded native BSP clear/world rendering now runs behind a separate opt-in.**
+  `TOUCHEPX5_EXPERIMENTAL_BSP_NGG=1` admits only the pinned BSP GS/PS, observed
+  u16 3/6-index topology, 32-byte streams, one RGBA8 target and 64x64 seven-level
+  base + 64x7 lightmap. The invocation wrapper also enables the existing exact
+  Gears immediate-DMA ABI and experimental flip FIFO; defaults stay unchanged.
+  Indexed transport preserves shared vertices/order (69 shader tests pass).
+  `Test-Xash3DNativeFrame.ps1` proof:
+  `artifacts/xash3d-native-runs/20261021-045926-479-independent-reference/execution-report.json`.
+  332 presented tickets; actual first native compute exports and consumed indices
+  match independent GLSL expectations. Changed copied native export rejects
+  exactly one word. No shader translation/consume/loop errors in this bounded run.
+  Real clear/world targets differ; a visible synthetic textured floor was visually
+  inspected in `20261021-045248-973/frames/native-bsp.png`. Scene pixels have not
+  yet been numerically compared and full engine/title compatibility is unverified.
+  Full library tests 1424/1424; native Gears frame 100 still passes exports,
+  indices and 102129 interior pixels (max error 1) at
+  `artifacts/gears-native-numerical/20261021-045856-397`.
+
+- **Native camera math no longer falls through to companion libc zero stubs.**
+  `atan2f`, `asinf`, `cosf` now use proper single-precision XMM arguments/results.
+  Same native numerical probe fails before at
+  `artifacts/native-camera-math/runs/20261021-045009-700` and passes all four
+  checks after at `20261021-045108-073`. Dispatch checks also cover signed zero,
+  NaN and infinity for Gen4/Gen5. The visible-scene input is an explicit optional
+  60-degree look-down camera direction in the synthetic bundle header; geometry,
+  textures and original payload CRC remain unchanged. Input report
+  `artifacts/xash3d-native-inputs/20261021-045212-587/report.json`; native build
+  `artifacts/xash3d-native/20261021-045234-641/native-report.json`.
+  Next engineering step: independent native scene-pixel comparison and negative
+  gate coverage, then broader indexed meshes. On 2026-10-21 the user redirected
+  the immediate task to reviewing a supplied video and current public PS5-on-PC
+  projects; complete that source investigation before further integration.
+
 - **Original native BSP PS and resource tables pass controlled pixel sampling.**
   `artifacts/xash3d-native-textures/20261021-043823-794/execution-report.json`
   retains original native PS, actual resource/sampler/table inputs and hash-checked

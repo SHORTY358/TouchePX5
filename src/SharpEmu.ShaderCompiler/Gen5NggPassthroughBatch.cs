@@ -53,6 +53,44 @@ public sealed class Gen5NggPassthroughBatch
         return Create(groups);
     }
 
+    /// <summary>
+    /// Bounded indexed transport for the same no-API-GS triangle-list mode.
+    /// Preserve primitive order and deduplicate source IDs within each explicit
+    /// group of at most 42 triangles. Shared vertices crossing groups are
+    /// intentionally repeated. This is not hardware cache/scheduling behavior.
+    /// </summary>
+    public static Gen5NggPassthroughBatch CreateIndexedTriangleList(ReadOnlySpan<uint> indices,
+        uint vertexRecordCount, int baseVertex = 0, uint instanceId = 0)
+    {
+        if(indices.Length is 0 or >2394 || indices.Length%3!=0)
+            throw new ArgumentException("Require 1..798 complete indexed triangles",nameof(indices));
+        if(vertexRecordCount==0) throw new ArgumentOutOfRangeException(nameof(vertexRecordCount));
+        var groups=new List<(Gen5NggMergedGroup Counts,Gen5NggSourceVertex[] Vertices,Gen5NggSourceTriangle[] Triangles)>();
+        for(var first=0;first<indices.Length;first+=126)
+        {
+            var length=Math.Min(126,indices.Length-first);
+            var vertices=new List<Gen5NggSourceVertex>();var localBySource=new Dictionary<uint,uint>();
+            var localIndices=new uint[length];
+            for(var i=0;i<length;i++)
+            {
+                var adjusted=(long)indices[first+i]+baseVertex;
+                if(adjusted<0 || adjusted>=vertexRecordCount)
+                    throw new ArgumentOutOfRangeException(nameof(indices),"Adjusted source index outside captured vertex records");
+                var source=(uint)adjusted;
+                if(!localBySource.TryGetValue(source,out var local))
+                {
+                    local=(uint)vertices.Count;localBySource.Add(source,local);
+                    vertices.Add(new(source,instanceId));
+                }
+                localIndices[i]=local;
+            }
+            var triangles=Enumerable.Range(0,length/3).Select(i=>new Gen5NggSourceTriangle((uint)(first/3+i),
+                localIndices[i*3],localIndices[i*3+1],localIndices[i*3+2])).ToArray();
+            groups.Add((new((uint)vertices.Count,(uint)triangles.Length,32,128,(uint)groups.Count),vertices.ToArray(),triangles));
+        }
+        return Create(groups);
+    }
+
     public static Gen5NggPassthroughBatch Create(IReadOnlyList<(Gen5NggMergedGroup Counts,
         Gen5NggSourceVertex[] Vertices, Gen5NggSourceTriangle[] Triangles)> groups)
     {

@@ -81,19 +81,67 @@ public static partial class AgcExports
     {
         error = string.Empty;
         var gpu = GuestGpu.Current;
-        if (gpu is not VulkanGuestGpuBackend || indexed || state.InstanceCount != 1 || GetBaseVertex(state) != 0 ||
+        var bsp = Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_BSP_NGG") == "1" && indexed &&
+            IsPinnedGearsProgram(exportState.Program, 288, "6B15DB4A9C9316F80D7DBDAB67DCB66D0FB9410CDA45C4E1608D62B668BE714E") &&
+            IsPinnedGearsProgram(pixelState.Program, 316, "B0079DE8518FD561DEE3FE3243C0F1D668FB69075855558C3C6254D0B4DD0351");
+        if (gpu is not VulkanGuestGpuBackend || (!bsp && (indexed || Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_GEARS_NGG") != "1")) || state.InstanceCount != 1 || GetBaseVertex(state) != 0 ||
             vertexCount == 0 || vertexCount > 2394 || vertexCount % 3 != 0 || targets.Length != 1 ||
             targets[0].Slot != 0 || targets[0].Format != 10 || targets[0].NumberType != 0 ||
             !state.UcRegisters.TryGetValue(VgtPrimitiveType, out var topology) || topology != 4 ||
-            exportState.UserDataScalarRegisterBase != 8 || pixelEvaluation.ImageBindings.Count != 0 ||
-            pixelEvaluation.GlobalMemoryBindings.Count != 0 || exportEvaluation.ImageBindings.Count != 0 ||
+            exportState.UserDataScalarRegisterBase != 8 || (!bsp && (pixelEvaluation.ImageBindings.Count != 0 ||
+            pixelEvaluation.GlobalMemoryBindings.Count != 0)) || exportEvaluation.ImageBindings.Count != 0 ||
             exportEvaluation.GlobalMemoryBindings.Any(b => b.Writable) ||
-            !IsPinnedGearsProgram(exportState.Program, 384, "79C8446ECA71AA98644D0C3D8B737875884F101E34EB308EC029CA1FCCB03492") ||
-            !IsPinnedGearsProgram(pixelState.Program, 160, "6C12F9DFD892AF78FF5DAE047EEFB02B4ED27C93FD20A87BA763ACC5F3BD2E6C")) return false;
+            (!bsp && (!IsPinnedGearsProgram(exportState.Program, 384, "79C8446ECA71AA98644D0C3D8B737875884F101E34EB308EC029CA1FCCB03492") ||
+            !IsPinnedGearsProgram(pixelState.Program, 160, "6C12F9DFD892AF78FF5DAE047EEFB02B4ED27C93FD20A87BA763ACC5F3BD2E6C")))) return false;
 
         var snapshot = Gen5ShaderReplaySnapshot.Create(exportState, exportEvaluation);
         var pixelSnapshot = Gen5ShaderReplaySnapshot.Create(pixelState, pixelEvaluation);
-        var batch = Gen5NggPassthroughBatch.CreateNonindexedTriangleList(vertexCount);
+        var textures = Array.Empty<GuestDrawTexture>();
+        uint bspVertexCount = 0;
+        Gen5NggPassthroughBatch batch;
+        if (bsp)
+        {
+            // First native BSP qualification: only the observed u16 clear/quad
+            // streams and two original RGBA8 resources. No general indexed
+            // scheduler, tiled/storage images or other shader is admitted.
+            if (vertexCount is not (3 or 6) || GetProsperoIndexType(state) != AgcIndexHelpers.ProsperoIndexType.Index16 ||
+                state.DrawIndexOffset != 0 || state.IndexBufferAddress == 0 ||
+                pixelSnapshot.ImageBindings.Length != 2 || pixelSnapshot.GlobalMemoryBindings.Length != 1 ||
+                pixelSnapshot.GlobalMemoryBindings.Any(b => b.Writable) ||
+                snapshot.VertexInputs.Length != 2 || snapshot.VertexInputs.Any(v => v.Stride != 32 || v.PerInstance)) return false;
+            var sourceIndices = new byte[checked((int)vertexCount * 2)];
+            if (!ctx.Memory.TryRead(state.IndexBufferAddress, sourceIndices)) return false;
+            var ids = Enumerable.Range(0, (int)vertexCount).Select(i => (uint)BinaryPrimitives.ReadUInt16LittleEndian(sourceIndices.AsSpan(i * 2))).ToArray();
+            bspVertexCount = vertexCount == 3 ? 3u : 4u;
+            if (!ids.SequenceEqual(vertexCount == 3 ? new uint[] {0,1,2} : new uint[] {0,1,2,0,2,3}) ||
+                snapshot.VertexInputs.Any(v => v.DataLength != bspVertexCount * 32)) return false;
+            var images = new List<TranslatedImageBinding>();
+            if (!TryAppendTranslatedImageBindings(pixelSnapshot.ImageBindings, pixelSnapshot.ImageBindings, images,
+                pixelState.Program.Address, exportState.Program.Address, out error)) return false;
+            if (images.Any(i => i.IsStorage || i.IsArrayed || i.Descriptor.Format != 10 || i.Descriptor.NumberType != 0 ||
+                i.Descriptor.TileMode != 0 || i.Descriptor.Type != 9 || i.Descriptor.Width != 64) ||
+                images[0].Descriptor.Height != 64 || images[0].Descriptor.ResourceMipLevels != 7 ||
+                images[1].Descriptor.Height != 7 || images[1].Descriptor.ResourceMipLevels != 1) return false;
+            textures = CreateGuestDrawTextures(ctx, images, out var fallbacks).ToArray();
+            if (fallbacks != 0 || textures.Length != 2 || textures.Any(t => t.IsFallback)) return false;
+            // This prototype always owns a fresh full-chain snapshot. The
+            // ordinary upload-known optimization may return an empty base view
+            // after the first frame; it cannot stand in for this mip contract.
+            var baseImage = images[0].Descriptor;
+            if (!TryReadLinearMipChain(ctx.Memory, baseImage.Address, 64, 64, 64, 7, 10, out var sourceMips)) return false;
+            textures[0] = textures[0] with { RgbaPixels=sourceMips[0].Pixels, Pitch=sourceMips[0].Pitch, AdditionalMips=sourceMips[1..] };
+            var lightBytes = new byte[64 * 7 * 4];
+            if (!ctx.Memory.TryRead(images[1].Descriptor.Address, lightBytes)) return false;
+            textures[1] = textures[1] with { RgbaPixels=lightBytes, Pitch=64 };
+            CaptureShaderReplayDraw(ctx,state,vertexCount,true,exportState,exportEvaluation,
+                new(0,snapshot.GlobalMemoryBindings.Length+snapshot.VertexInputs.Length+1,0,-1,2,_storageBufferOffsetAlignment),inputEnable,inputAddress,inputControl);
+            CaptureShaderReplayDraw(ctx,state,vertexCount,true,pixelState,pixelEvaluation,
+                new(0,pixelSnapshot.GlobalMemoryBindings.Length+1,0,pixelSnapshot.GlobalMemoryBindings.Length,0,_storageBufferOffsetAlignment),inputEnable,inputAddress,inputControl);
+            batch = Gen5NggPassthroughBatch.CreateIndexedTriangleList(ids, bspVertexCount);
+        }
+        else batch = Gen5NggPassthroughBatch.CreateNonindexedTriangleList(vertexCount);
+        var logTag = bsp ? "agc.experimental_bsp_ngg" : "agc.experimental_gears_ngg";
+        var countLabel = bsp ? "indices" : "vertices";
         var slots = batch.OutputSlotCapacity;
         var primitiveFirst = checked((int)slots * 12);
         var descriptorFirst = checked(primitiveFirst + (int)slots * 5);
@@ -128,7 +176,7 @@ public static partial class AgcExports
             bindings.Add(new(0, scratch.Address, [], auxiliary, auxiliary.Length, false) { Writable = true, WriteBackToGuest = true });
             var evaluation = new Gen5ShaderEvaluation(snapshot.InitialScalarRegisters, snapshot.ScalarRegisters, snapshot.ImageBindings,
                 bindings, snapshot.EvaluationComputeSystemRegisters, snapshot.RuntimeScalarRegisters?.ToHashSet(), snapshot.VertexInputs);
-            var runtimeScalars = Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_RUNTIME_SCALARS") == "1";
+            var runtimeScalars = !bsp && Environment.GetEnvironmentVariable("TOUCHEPX5_GEARS_RUNTIME_SCALARS") == "1";
             // This key is deliberately conservative: retain full binding addresses,
             // byte contents and layouts. Only initial SGPR VALUES are excluded,
             // because the runtime module loads those from the per-dispatch buffer.
@@ -174,7 +222,7 @@ public static partial class AgcExports
             }
             bool CompilePixel(out IGuestCompiledShader? compiled, out string reason) =>
                 gpu.TryCompilePixelShader(pixelState, pixelEvaluation, [new(0, 0, Gen5PixelOutputKind.Float)], out compiled, out reason,
-                totalGlobalBufferCount: 1, scalarRegisterBufferIndex: 0, pixelInputEnable: inputEnable,
+                totalGlobalBufferCount: pixelSnapshot.GlobalMemoryBindings.Length + 1, scalarRegisterBufferIndex: pixelSnapshot.GlobalMemoryBindings.Length, pixelInputEnable: inputEnable,
                 pixelInputAddress: inputAddress, pixelInputCntl: inputControl.ToArray());
             var pixelKey = runtimeScalars ? "ps:" + JsonSerializer.Serialize(new
                 { pixelState.Program.Address, InitialCount = pixelSnapshot.InitialScalarRegisters.Length, inputEnable, inputAddress, inputControl }) : null;
@@ -189,7 +237,7 @@ public static partial class AgcExports
             }
             void Export(uint pc, uint target, uint first, uint mask) => bridgeInstructions.Add(new(pc, Gen5ShaderEncoding.Exp, "Exp", [],
                 [Gen5Operand.Vector(first), Gen5Operand.Vector(first+1), Gen5Operand.Vector(first+2), Gen5Operand.Vector(first+3)], [], new Gen5ExportControl(target, mask, false, false, false)));
-            Export(12, 12, 0, 15); Export(16, 32, 4, 15); Export(20, 33, 8, 3);
+            Export(12, 12, 0, 15); Export(16, 32, 4, 15); Export(20, 33, 8, bsp ? 15u : 3u);
             bridgeInstructions.Add(new(24, Gen5ShaderEncoding.Sopp, "SEndpgm", [], [], [], null));
             bool CompileBridge(out IGuestCompiledShader? compiled, out string reason) =>
                 gpu.TryCompileVertexShader(new(new(0, bridgeInstructions), [], null),
@@ -221,6 +269,8 @@ public static partial class AgcExports
             submitted = true; // From here, never recycle scratch on enqueue failure.
             var readback = gpu.SubmitOrderedGuestBufferReadback(scratch.Address, (ulong)auxiliary.Length, "gears-ngg-native-export-readback");
             if (readback <= computeSequence) { error = "gears-ngg readback enqueue failed"; return false; }
+            var pixelBuffers = pixelSnapshot.GlobalMemoryBindings.Select(b => new GuestMemoryBuffer(b.BaseAddress,b.Data,b.DataLength,false)).ToList();
+            pixelBuffers.Add(new(scratch.Address+0x3FC00, scalarBytes, scalarBytes.Length, false));
             var consume = VulkanVideoPresenter.SubmitOrderedDrawPreparation(() =>
             {
                 try
@@ -231,8 +281,9 @@ public static partial class AgcExports
                     var indices = new byte[checked((int)vertexCount * 4)]; var nextIndex = 0;
                     for (uint first = 0; first < vertexCount; first += 126)
                     {
-                        var live = Math.Min(126u, vertexCount-first); var outputBase = first / 126 * 128;
-                        for (uint triangle = 0; triangle < live / 3; triangle++)
+                        var live = bsp ? bspVertexCount : Math.Min(126u, vertexCount-first); var outputBase = first / 126 * 128;
+                        var triangleCount = bsp ? vertexCount / 3 : live / 3;
+                        for (uint triangle = 0; triangle < triangleCount; triangle++)
                         {
                             var firstWord = primitiveFirst + (int)(outputBase+triangle) * 5;
                             var record = new uint[5];
@@ -242,19 +293,20 @@ public static partial class AgcExports
                             { BinaryPrimitives.WriteUInt32LittleEndian(indices.AsSpan(nextIndex * 4), id); nextIndex++; }
                         }
                     }
-                    CaptureCompletedGearsDraw((ulong)drawSequence, vertexCount, snapshot, pixelSnapshot,
+                    if (!bsp) CaptureCompletedGearsDraw((ulong)drawSequence, vertexCount, snapshot, pixelSnapshot,
                         auxiliary, result, indices, inputEnable, inputAddress, inputControl, renderState, guestTargets[0]);
-                    gpu.SubmitOffscreenTranslatedDraw(pixel!, [], [new(scratch.Address+0x3FC00, scalarBytes, scalarBytes.Length, false)], 2,
+                    else CaptureCompletedBspDraw((ulong)drawSequence,snapshot,pixelSnapshot,auxiliary,result,indices,renderState,guestTargets[0]);
+                    gpu.SubmitOffscreenTranslatedDraw(pixel!, textures, pixelBuffers, 2,
                         guestTargets, bridge!, vertexCount, 1, 4, new(indices, indices.Length, true, false),
                         views.Select(v => new GuestVertexBuffer(v.Location,v.ComponentCount,v.DataFormat,v.NumberFormat,v.BaseAddress,v.Stride,v.OffsetBytes,vertices,vertices.Length,false)).ToArray(),
                         renderState, depth, pixelState.Program.Address);
-                    Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg consumed seq={drawSequence} vertices={vertexCount} triangles={vertexCount/3} target=0x{target.Address:X} size={target.Width}x{target.Height}");
+                    Console.Error.WriteLine($"[LOADER][INFO] {logTag} consumed seq={drawSequence} {countLabel}={vertexCount} triangles={vertexCount/3} target=0x{target.Address:X} size={target.Width}x{target.Height}");
                 }
-                catch (Exception exception) { Console.Error.WriteLine($"[LOADER][ERROR] agc.experimental_gears_ngg consume failed seq={drawSequence}: {exception.Message}"); }
+                catch (Exception exception) { Console.Error.WriteLine($"[LOADER][ERROR] {logTag} consume failed seq={drawSequence}: {exception.Message}"); }
                 finally { lock (pool) scratch.InUse = false; }
             }, "gears-ngg-native-export-consume", guestTargets);
             if (consume <= readback) { error = "gears-ngg consume enqueue failed"; return false; }
-            Console.Error.WriteLine($"[LOADER][INFO] agc.experimental_gears_ngg queued seq={drawSequence} compute={computeSequence} readback={readback} consume={consume} translation_cache={(cacheHit ? "hit" : "miss")} pixel_cache={(pixelHit ? "hit" : "miss")} bridge_cache={(bridgeHit ? "hit" : "miss")}");
+            Console.Error.WriteLine($"[LOADER][INFO] {logTag} queued seq={drawSequence} compute={computeSequence} readback={readback} consume={consume} translation_cache={(cacheHit ? "hit" : "miss")} pixel_cache={(pixelHit ? "hit" : "miss")} bridge_cache={(bridgeHit ? "hit" : "miss")}");
             return true;
         }
         finally { if (!submitted) lock (pool) scratch.InUse = false; }

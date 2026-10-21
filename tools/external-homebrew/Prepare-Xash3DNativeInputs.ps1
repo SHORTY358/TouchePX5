@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param()
+param([switch]$LookDownCamera)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $source=Join-Path $repo 'artifacts/external-homebrew/ps5-xash3d-halflife'
@@ -28,7 +28,9 @@ foreach($name in $names) {
     foreach($stage in @('gs','ps')) { $assembly=$assembly.Replace("build/shaders/$name.$stage.bin",(Join-Path $out "shaders/$name.$stage.bin").Replace('\','/')) }
 }
 [IO.File]::WriteAllText("$out/shader_assets.S",$assembly,[Text.UTF8Encoding]::new($false))
-& $python "$PSScriptRoot/Make-Xash3DFixture.py" $source "$out/map"
+[string[]]$cameraArgs=@()
+if($LookDownCamera){$cameraArgs+=@('--look-down-camera')}
+& $python "$PSScriptRoot/Make-Xash3DFixture.py" $source "$out/map" @cameraArgs
 if($LASTEXITCODE -ne 0) { throw 'Synthetic upstream BSP preparation failed' }
 & $python "$source/tools/generate_bsp_build_metadata.py" --bundle "$out/map/map.ps5bsp" --output "$out/generated/bsp_build_metadata.h" > "$out/map-metadata.log" 2>&1
 if($LASTEXITCODE -ne 0) { throw 'Synthetic BSP metadata generation failed' }

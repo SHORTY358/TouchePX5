@@ -8231,7 +8231,8 @@ public static partial class AgcExports
         }
 
         var attributeCount = requiredVertexOutputCount;
-        if (Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_GEARS_NGG") == "1")
+        if (Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_GEARS_NGG") == "1" ||
+            Environment.GetEnvironmentVariable("TOUCHEPX5_EXPERIMENTAL_BSP_NGG") == "1")
         {
             if (TryScheduleGearsNgg(ctx, state, exportState, exportEvaluation, pixelState, pixelEvaluation,
                 renderTargets, pixelColorExportMasks, vertexCount, indexed, psInputEna, psInputAddr, psInputCntl,

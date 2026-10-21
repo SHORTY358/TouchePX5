@@ -42,6 +42,29 @@ public static class KernelElementaryMathExports
         return 0;
     }
 
+    [SysAbiExport(Nid = "-P6FNMzk2Kc", ExportName = "cosf", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Cosf(CpuContext ctx) => ReturnFloat(ctx, MathF.Cos);
+
+    [SysAbiExport(Nid = "GZWjF-YIFFk", ExportName = "asinf", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Asinf(CpuContext ctx) => ReturnFloat(ctx, MathF.Asin);
+
+    [SysAbiExport(Nid = "EH-x713A99c", ExportName = "atan2f", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libc")]
+    public static int Atan2f(CpuContext ctx)
+    {
+        ctx.GetXmmRegister(0, out var y, out _);
+        ctx.GetXmmRegister(1, out var x, out _);
+        var result = MathF.Atan2(BitConverter.UInt32BitsToSingle((uint)y), BitConverter.UInt32BitsToSingle((uint)x));
+        ctx.SetXmmRegister(0, BitConverter.SingleToUInt32Bits(result), 0);
+        return 0;
+    }
+
+    private static int ReturnFloat(CpuContext ctx, Func<float, float> function)
+    {
+        ctx.GetXmmRegister(0, out var bits, out _);
+        ctx.SetXmmRegister(0, BitConverter.SingleToUInt32Bits(function(BitConverter.UInt32BitsToSingle((uint)bits))), 0);
+        return 0;
+    }
+
     private static int ReturnDouble(CpuContext ctx, Func<double, double> function)
     {
         ctx.GetXmmRegister(0, out var bits, out _);

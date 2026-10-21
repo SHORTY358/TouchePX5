@@ -12,6 +12,28 @@ namespace SharpEmu.Libs.Agc;
 
 public static partial class AgcExports
 {
+    private static void CaptureCompletedBspDraw(ulong sequence,Gen5ShaderReplaySnapshot gs,Gen5ShaderReplaySnapshot ps,
+        byte[] initial,byte[] actual,byte[] indices,GuestRenderState? renderState,GuestRenderTarget target)
+    {
+        var root=Environment.GetEnvironmentVariable("TOUCHEPX5_BSP_NATIVE_AUDIT_DIR");
+        if(string.IsNullOrWhiteSpace(root) || sequence is <1 or >2) return;
+        var directory=Path.Combine(root,$"draw-{sequence:D6}");
+        if(Directory.Exists(directory)) throw new InvalidOperationException("Duplicate native BSP audit draw");
+        Directory.CreateDirectory(directory);
+        uint[] Words(byte[] b)
+        {
+            if(b.Length%4!=0) throw new InvalidOperationException("Unaligned native BSP audit");
+            var w=new uint[b.Length/4];for(var i=0;i<w.Length;i++)w[i]=BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(i*4));return w;
+        }
+        void Write(string f,object v)=>File.WriteAllText(Path.Combine(directory,f),JsonSerializer.Serialize(v));
+        Write("gs.replay.json",gs);Write("ps.replay.json",ps);Write("initial.json",Words(initial));
+        Write("actual.json",Words(actual));Write("indices.json",Words(indices));
+        Write("render.json",new{RenderState=renderState,Target=target});
+        Write("capture.json",new{Scope="Actual completed native BSP GPU exports before transport draw; independent numerical/pixel verification not implied",
+            DrawSequence=sequence,GpuReadbackCompleted=true});
+        var files=Directory.GetFiles(directory).OrderBy(f=>f,StringComparer.Ordinal).ToArray();
+        Write("hashes.json",files.ToDictionary(f=>Path.GetFileName(f),f=>Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f)))));
+    }
     private static void CaptureCompletedGearsDraw(ulong sequence, uint vertexCount,
         Gen5ShaderReplaySnapshot export, Gen5ShaderReplaySnapshot pixel,
         byte[] initial, byte[] actual, byte[] indices, uint inputEnable,

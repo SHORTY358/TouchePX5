@@ -10,6 +10,48 @@ using SharpEmu.ShaderCompiler.Vulkan;
 
 internal static class NativeBspCompute
 {
+    public static void VerifyCompleted(string nativeRun,string referenceRoot)
+    {
+        var cases=new List<object>();
+        for(var ordinal=1;ordinal<=2;ordinal++)
+        {
+            var directory=Path.Combine(nativeRun,$"ngg-audit/draw-{ordinal:D6}");
+            var reference=Path.Combine(referenceRoot,ordinal==1?"native-clear":"native-world");
+            using var hashes=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"hashes.json")));
+            foreach(var entry in hashes.RootElement.EnumerateObject()) if(Hash(Path.Combine(directory,entry.Name))!=entry.Value.GetString())
+                throw new InvalidOperationException("Completed native BSP capture changed");
+            using var capture=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"capture.json")));
+            if(!capture.RootElement.GetProperty("GpuReadbackCompleted").GetBoolean() || capture.RootElement.GetProperty("DrawSequence").GetInt32()!=ordinal)
+                throw new InvalidOperationException("Completed native draw identity differs");
+            using var replay=JsonDocument.Parse(File.ReadAllText(Path.Combine(nativeRun,$"replay/draw-{ordinal:D6}/0000000210001000.replay.json")));
+            var retained=JsonSerializer.Deserialize<Gen5ShaderReplaySnapshot>(File.ReadAllText(Path.Combine(directory,"gs.replay.json")))!;
+            var before=replay.RootElement.GetProperty("Snapshot").Deserialize<Gen5ShaderReplaySnapshot>()!;
+            if(JsonSerializer.Serialize(retained)!=JsonSerializer.Serialize(before)) throw new InvalidOperationException("Completed GS inputs differ from captured original native command");
+            uint[] Words(string root,string file)=>JsonSerializer.Deserialize<uint[]>(File.ReadAllText(Path.Combine(root,file)))!;
+            if(!Words(directory,"initial.json").SequenceEqual(Words(reference,"initial.json"))) throw new InvalidOperationException("Native transport differs from independent reference");
+            var actual=Words(directory,"actual.json");var expected=Words(reference,"expected.json");
+            using var fixture=JsonDocument.Parse(File.ReadAllText(Path.Combine(reference,"storage-fixture.json")));
+            var floatWords=fixture.RootElement.GetProperty("FloatWords").Deserialize<int[]>()!.ToHashSet();
+            if(actual.Length!=expected.Length) throw new InvalidOperationException("Native BSP export extent differs");
+            var mismatches=0;
+            for(var word=0;word<actual.Length;word++)
+            {
+                if(actual[word]==expected[word]) continue;
+                var a=Float(actual[word]);var b=Float(expected[word]);
+                if(!floatWords.Contains(word) || !float.IsFinite(a) || !float.IsFinite(b) || Math.Abs(a-b)>0.00002f) mismatches++;
+            }
+            using var meta=JsonDocument.Parse(File.ReadAllText(Path.Combine(reference,"fixture-report.json")));
+            var indices=meta.RootElement.GetProperty("OriginalIndices").Deserialize<uint[]>()!;
+            if(!Words(directory,"indices.json").SequenceEqual(indices)) throw new InvalidOperationException("Native consumed BSP indices differ");
+            if(mismatches!=0) throw new InvalidOperationException($"Native BSP export mismatches: {mismatches}");
+            cases.Add(new{Draw=ordinal,CheckedWords=actual.Length,Mismatches=mismatches,ConsumedIndices=indices.Length,
+                NativeActualSha256=Hash(Path.Combine(directory,"actual.json")),ReferenceSha256=Hash(Path.Combine(reference,"expected.json"))});
+        }
+        Write(referenceRoot,"native-execution-verification.json",new{
+            Scope="Actual completed native BSP compute exports and consumed indices match independent original GLSL reference for first clear/world draws; pixels not numerically verified",
+            NativeRun=Path.GetFullPath(nativeRun),NativeExportsAndIndicesVerified=true,NativeScenePixelFidelityVerified=false,Cases=cases});
+        Console.WriteLine("PASS actual completed native BSP GS exports and consumed indices");
+    }
     public static void Consume(string directory)
     {
         using var proof=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"gpu-result.json")));
@@ -105,9 +147,8 @@ internal static class NativeBspCompute
                 for(var i=0;i<16;i++) if(snapshot.InitialScalarRegisters[9+i]!=Bits(i%5==0?1:0))
                     throw new InvalidOperationException("Unexpected native clear matrix");
             }
-            var vertices=Enumerable.Range(0,vertexCount).Select(i=>new Gen5NggSourceVertex((uint)i,0)).ToArray();
-            var triangles=Enumerable.Range(0,indices.Length/3).Select(i=>new Gen5NggSourceTriangle((uint)i,indices[i*3],indices[i*3+1],indices[i*3+2])).ToArray();
-            var batch=Gen5NggPassthroughBatch.Create([(new((uint)vertexCount,(uint)triangles.Length,32,128,0),vertices,triangles)]);
+            var primitiveCount=indices.Length/3;
+            var batch=Gen5NggPassthroughBatch.CreateIndexedTriangleList(indices,(uint)vertexCount);
             var slots=batch.OutputSlotCapacity;
             var primitiveFirst=(int)slots*12;var descriptorFirst=primitiveFirst+(int)slots*5;
             var sourceFirst=descriptorFirst+4;
@@ -134,7 +175,7 @@ internal static class NativeBspCompute
                     expected[v*12+8+c]=snapshot.InitialScalarRegisters[25+c];
                 }
             }
-            for(var i=0;i<triangles.Length;i++)
+            for(var i=0;i<primitiveCount;i++)
             {
                 var a=indices[i*3];var b=indices[i*3+1];var c=indices[i*3+2];
                 new uint[]{a|(b<<10)|(c<<20),a,b,c,1}.CopyTo(expected,primitiveFirst+i*5);
@@ -164,10 +205,10 @@ internal static class NativeBspCompute
                 Scope="Captured original native indexed BSP inputs, independent GLSL export reference, explicit shared-vertex audit subgroup; no native rendering or hardware scheduler proof",
                 NativeRun=runRoot,ReplaySha256=Hash(replay),RunReportSha256=Hash(Path.Combine(runRoot,"execution-report.json")),
                 OriginalGsSha256=Convert.ToHexString(SHA256.HashData(original)),MapSha256=Hash(mapPath),DrawContext=draw,
-                UniqueVertexCount=vertexCount,PrimitiveCount=triangles.Length,OriginalIndices=indices,
+                UniqueVertexCount=vertexCount,PrimitiveCount=primitiveCount,OriginalIndices=indices,
                 OutputSlots=slots,PrimitiveFirstWord=primitiveFirst,SourceFirstWord=sourceFirst,OutputBinding=outputBinding,
                 CapturedOriginalInputs=true,GpuExecuted=false,NativeRenderingVerified=false});
-            Console.WriteLine($"Prepared captured indexed BSP GS: {dir}, {vertexCount} unique vertices / {triangles.Length} primitives");
+            Console.WriteLine($"Prepared captured indexed BSP GS: {dir}, {vertexCount} unique vertices / {primitiveCount} primitives");
         }
     }
     static ReadOnlySpan<byte> Chunk(byte[] map,string name,int stride)

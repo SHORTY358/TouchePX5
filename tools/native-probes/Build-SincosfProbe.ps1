@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Touche PX5 Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 [CmdletBinding()]
-param()
+param([switch]$CameraMath)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $deps=Join-Path $root 'artifacts/external-homebrew/gears-toolchain'
@@ -9,8 +9,10 @@ $deps=Join-Path $root 'artifacts/external-homebrew/gears-toolchain'
 $bin="$deps/clang18/llvm-mingw-20240619-ucrt-x86_64/bin"
 $sdk="$deps/sdk-v0.42/ps5-payload-sdk"
 $out="$root/artifacts/native-sincosf"
+if($CameraMath) { $out="$root/artifacts/native-camera-math" }
 New-Item -ItemType Directory -Path "$out/app/sce_module" -Force | Out-Null
 $source="$PSScriptRoot/fixtures/sincosf.c"
+if($CameraMath) { $source="$PSScriptRoot/fixtures/camera_math.c" }
 $converter="$deps/foundation-demo-windows/ps5-native-tool.exe"
 $converterReport=Get-Content "$deps/foundation-demo-windows/report.json" -Raw | ConvertFrom-Json
 if((Get-FileHash $converter).Hash -ne $converterReport.ConverterSha256) { throw 'Converter provenance changed' }
@@ -24,8 +26,8 @@ if($LASTEXITCODE) { throw 'Probe native conversion failed' }
 & $converter self --sign --in "$out/probe.elf" --out "$out/app/eboot.bin" --magic 0x1D3D154F > "$out/self.log"
 if($LASTEXITCODE) { throw 'Probe packaging failed' }
 Copy-Item -LiteralPath "$deps/runtime-windows/libc-a.prx" -Destination "$out/app/sce_module/libc.prx" -Force
-@{Scope='Standalone native sincosf numerical assertions with same companion libc as Gears; no graphics';
+@{Scope=$(if($CameraMath){'Standalone native atan2f/asinf/cosf numerical assertions with the same companion libc; no graphics'}else{'Standalone native sincosf numerical assertions with same companion libc as Gears; no graphics'});
  SourceSha256=(Get-FileHash $source).Hash; SelfSha256=(Get-FileHash "$out/app/eboot.bin").Hash;
  CompanionSha256=(Get-FileHash "$out/app/sce_module/libc.prx").Hash; ConverterSha256=$converterReport.ConverterSha256} |
  ConvertTo-Json | Set-Content "$out/build-report.json" -Encoding utf8
-Write-Output "Native sincosf probe built: $out"
+Write-Output "Native numerical probe built: $out"
