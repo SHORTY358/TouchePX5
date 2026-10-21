@@ -188,6 +188,14 @@ static const u32 vertex[] __attribute__((aligned(256))) = {
     0xbf810000
 };
 static const u32 pixel[] __attribute__((aligned(256))) = {
+#ifdef TEST_LATE_PIXEL_EXIT
+    0xbf068000, // s_cmp_eq_u32 s0,0: second submission chooses blue
+    0xbf850007, // s_cbranch_scc1 -> blue at byte 36, after first s_endpgm
+    0x7e0002f2,0x7e020280,0x7e040280,0x7e0602f2, // red
+    0xf800180f,0x03020100,0xbf810000,
+    0x7e000280,0x7e020280,0x7e0402f2,0x7e0602f2, // blue
+    0xf800180f,0x03020100,0xbf810000,
+#else
 #ifdef TEST_TEXTURE
 #ifdef TEST_TEXTURE_SELECT
 #ifdef TEST_TEXTURE_UV
@@ -213,6 +221,7 @@ static const u32 pixel[] __attribute__((aligned(256))) = {
 #else
     0x7e000200, 0x7e020280, 0x7e040201, 0x7e060202, // R=s0, G=0, B=s1, A=s2
     0xf800180f,0x03020100, 0xbf810000
+#endif
 #endif
 };
 static int n;

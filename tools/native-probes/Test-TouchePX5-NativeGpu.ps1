@@ -109,6 +109,7 @@ try {
         @{Name='triangle-mip-bc7-srgb'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-srgb-bc7\triangle.log'; Parameters=@{MipBc7=$true; MipSrgb=$true}},
         @{Name='triangle-mip-bc7-srgb-trilinear'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-srgb-bc7-trilinear\triangle.log'; Parameters=@{MipBc7=$true; MipSrgb=$true; MipTrilinear=$true}},
         @{Name='triangle-mip-bc1-srgb'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-srgb-bc1\triangle.log'; Parameters=@{MipBc1=$true; MipSrgb=$true}},
+        @{Name='triangle-late-pixel-exit'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-late-pixel-exit\triangle.log'; Parameters=@{LatePixelExit=$true}},
         @{Name='triangle-mip-bc3-srgb'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-texture-select-mip-srgb-bc3\triangle.log'; Parameters=@{MipBc3=$true; MipSrgb=$true}},
         @{Name='triangle-index16'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-index16\triangle.log'; Parameters=@{IndexBits=16}},
         @{Name='triangle-index32-scissor'; Script='Test-TouchePX5-Triangle.ps1'; Guest='smoke-triangle-scissor-index32\triangle.log'; Parameters=@{IndexBits=32; Scissor=$true}}

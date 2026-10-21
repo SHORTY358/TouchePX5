@@ -1,4 +1,4 @@
-# Local engineering checkpoint — 2026-10-19
+# Local engineering checkpoint — 2026-10-21
 
 ## Workspace relocation
 
@@ -22,6 +22,28 @@ playability have not been demonstrated. There is no supported whole-emulator com
 percentage or release-date estimate.
 
 ## Latest verified state
+
+- **Shader decoding now retains reachable exit blocks after the first s_endpgm.**
+  The original Xash3D textured PS exposed a missing 16-byte alpha-discard branch:
+  before audit decoded 300/316 bytes, after audit covers 316/316 (68 instructions).
+  Direct branch traversal uses existing IR target resolution, bounded visited
+  addresses, sorted output and instruction-word boundary rejection. Eight focused
+  cases pass (six fail before); shader suite 60/60, library suite 1419/1419.
+  Native `Test-TouchePX5-Triangle.ps1 -LatePixelExit` displays both red and blue
+  paths, including an exit after the first terminal. Report is under
+  `artifacts/smoke-triangle-late-pixel-exit`. Native Gears frame 100 still matches
+  independent exports/indices and 102325 interior pixels (maximum error 1) at
+  `artifacts/gears-native-numerical/20261021-032913-622`.
+  See `docs/shader-branch-traversal.md`; original Xash3D discard is not yet executed.
+
+- **Next independent 3D candidate is pinned Xash3D/Half-Life source.**
+  Clean top-level checkout `be0731b4fcc4233349bba5e0d3ff33c79428f695`; submodules
+  and game assets are not downloaded. Original textured BSP GS/PS compile to
+  GFX1013 PAL using the existing tools; no new system toolchain was installed.
+  Full upstream host checks fail on Cygwin's 8192-byte static object alignment
+  limit versus a required 16384-byte test object; no test was weakened.
+  Commands, hashes, exact blocker and next source-derived input/GPU gates are in
+  `docs/xash3d-preflight.md`. Native engine/title execution is not established.
 
 - **BC1 and BC3 sRGB CPU-authored linear mip chains now sample all levels correctly.**
   Formats 170/174 with NumberType 9 use the existing block-aware reader.

@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([switch]$DmaImageComputeStore, [switch]$DmaImageComputeRead, [switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$MipTrilinear, [switch]$MipBc7, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
+param([switch]$DmaImageComputeStore, [switch]$DmaImageComputeRead, [switch]$DmaImageSamplePreserved, [switch]$DmaImageSample, [switch]$DmaImageDraw, [switch]$DmaImageSpan, [switch]$DmaImagePrefix, [switch]$DmaImageCrossQueue, [switch]$DmaImage, [switch]$WindowRecovery, [switch]$CrossQueueDma, [switch]$CrossQueueWriteData, [switch]$CrossQueueReuse, [switch]$CrossQueue, [switch]$IndirectGpuArgs, [switch]$IndirectGpuCount, [switch]$IndirectMulti, [switch]$Indirect, [switch]$LatePixelExit, [switch]$MipTrilinear, [switch]$MipBc7, [switch]$MipBc3, [switch]$MipBc1, [switch]$MipSrgb, [switch]$MipOdd, [switch]$Mip2D, [switch]$MipCachePressure, [switch]$MipBaseOnly, [switch]$MipLowerView, [switch]$Mip, [switch]$LinearFilter, [switch]$Perspective, [switch]$TextureUv, [switch]$TextureSelect, [switch]$Texture, [switch]$Depth, [switch]$Scissor, [switch]$Blend, [ValidateSet(0,16,32)][int]$IndexBits=0)
 $ErrorActionPreference = 'Stop'
+if($LatePixelExit -and @($PSBoundParameters.Keys | Where-Object { $_ -ne 'LatePixelExit' }).Count -gt 0) { throw 'Late pixel exit requires its standalone layout.' }
 if($DmaImageComputeStore) { $DmaImageComputeRead=$true }
 if($DmaImageComputeRead) { $DmaImageSamplePreserved=$true }
 if($DmaImageSamplePreserved) { $DmaImageSample=$true }
@@ -31,6 +32,7 @@ if($Indirect) {
     $Depth=$true
 }
 $root = 'C:\Dev\TouchePX5\artifacts\smoke-triangle'
+if($LatePixelExit) { $root += '-late-pixel-exit' }
 if($DmaImage) { $root += '-dma-image' }
 if($DmaImageCrossQueue) { $root += '-cross-queue' }
 if($DmaImagePrefix) { $root += '-prefix' }
@@ -110,6 +112,7 @@ Remove-Item -LiteralPath (Join-Path $root 'verification.json') -Force -ErrorActi
 $fixture = Join-Path $PSScriptRoot 'fixtures\ps5-touche-compute'
 $clang = 'C:\BuildTools\VC\Tools\Llvm\x64\bin\clang.exe'
 $defines=@()
+if($LatePixelExit) { $defines += '-DTEST_LATE_PIXEL_EXIT=1' }
 if($WindowRecovery) { $defines += '-DFRAME_PAUSE_US=20000000' }
 if($Texture) { $defines += '-DTEST_TEXTURE=1' }
 if($TextureSelect) { $defines += '-DTEST_TEXTURE_SELECT=1' }
@@ -726,6 +729,7 @@ public static class TextureUvVerifierV3 {
         MipBc3=[bool]$MipBc3
         MipBc7=[bool]$MipBc7
         MipTrilinear=[bool]$MipTrilinear
+        LatePixelExit=[bool]$LatePixelExit
         EncodedSpaceFilteringRejected=[bool]$MipTrilinear
         NearestMipFilteringRejected=[bool]$MipTrilinear
         StaleLowerMipRejected=[bool]$MipTrilinear

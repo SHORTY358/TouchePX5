@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using SharpEmu.ShaderCompiler.Ir;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -437,61 +438,118 @@ public static class Gen5ShaderTranslator
             return false;
         }
 
-        var instructions = new List<Gen5ShaderInstruction>();
+        // A compiler may place a second exit block after the first s_endpgm
+        // (for example, an alpha-discard path). Follow direct branch targets
+        // instead of treating the first terminal as the whole program extent.
+        var decoded = new SortedDictionary<uint, Gen5ShaderInstruction>();
+        var wordOwners = new Dictionary<uint, uint>();
+        var pending = new SortedSet<uint> { 0 };
         var instructionCount = 0;
-        for (uint pc = 0; instructionCount < MaxInstructions;)
+        var hasTerminal = false;
+        while (pending.Count != 0)
         {
-            if (!TryReadUInt32(ctx, address + pc, out var word))
+            var pc = pending.Min;
+            pending.Remove(pc);
+            while (!decoded.ContainsKey(pc))
             {
-                error = $"read-failed pc=0x{pc:X}";
-                return false;
-            }
-
-            if (!TryDecodeInstruction(
-                    ctx,
-                    address,
-                    pc,
-                    word,
-                    out var encoding,
-                    out var name,
-                    out var sizeDwords,
-                    out error))
-            {
-                return false;
-            }
-
-            var words = new uint[sizeDwords];
-            words[0] = word;
-            for (uint wordIndex = 1; wordIndex < sizeDwords; wordIndex++)
-            {
-                if (!TryReadUInt32(ctx, address + pc + wordIndex * sizeof(uint), out words[wordIndex]))
+                if (instructionCount >= MaxInstructions)
                 {
-                    error = $"read-failed pc=0x{pc + wordIndex * sizeof(uint):X}";
+                    error = "unterminated";
                     return false;
                 }
-            }
-
-            var instruction = CreateInstruction(pc, encoding, name, words);
-            if (instruction.Control is Gen5GlobalMemoryControl
+                if (wordOwners.ContainsKey(pc))
                 {
-                    UsesFlatAddress: true,
-                })
-            {
-                instruction = ResolveFlatAddressBase(instructions, instruction);
-            }
-            instructions.Add(instruction);
-            instructionCount++;
+                    error = $"branch-into-instruction pc=0x{pc:X}";
+                    return false;
+                }
+                if (address > ulong.MaxValue - pc)
+                {
+                    error = $"address-overflow pc=0x{pc:X}";
+                    return false;
+                }
+                if (!TryReadUInt32(ctx, address + pc, out var word))
+                {
+                    error = $"read-failed pc=0x{pc:X}";
+                    return false;
+                }
 
-            pc += sizeDwords * sizeof(uint);
-            if (string.Equals(name, "SEndpgm", StringComparison.Ordinal))
-            {
-                program = new Gen5ShaderProgram(address, instructions);
-                return true;
+                if (!TryDecodeInstruction(
+                        ctx,
+                        address,
+                        pc,
+                        word,
+                        out var encoding,
+                        out var name,
+                        out var sizeDwords,
+                        out error))
+                {
+                    return false;
+                }
+
+                var words = new uint[sizeDwords];
+                words[0] = word;
+                for (uint wordIndex = 1; wordIndex < sizeDwords; wordIndex++)
+                {
+                    if (address + pc > ulong.MaxValue - wordIndex * sizeof(uint) ||
+                        !TryReadUInt32(ctx, address + pc + wordIndex * sizeof(uint), out words[wordIndex]))
+                    {
+                        error = $"read-failed pc=0x{pc + wordIndex * sizeof(uint):X}";
+                        return false;
+                    }
+                }
+
+                for (uint wordIndex = 0; wordIndex < sizeDwords; wordIndex++)
+                {
+                    var wordPc = pc + wordIndex * sizeof(uint);
+                    if (!wordOwners.TryAdd(wordPc, pc))
+                    {
+                        error = $"overlapping-instruction pc=0x{pc:X}";
+                        return false;
+                    }
+                }
+                var instruction = CreateInstruction(pc, encoding, name, words);
+                decoded.Add(pc, instruction);
+                instructionCount++;
+
+                var isBranch = Gen5IrBranchResolver.IsUnconditionalBranch(instruction) ||
+                    Gen5IrBranchResolver.Instance.IsConditional(instruction);
+                if (isBranch)
+                {
+                    if (!Gen5IrBranchResolver.Instance.TryGetBranchTarget(instruction, out var target) ||
+                        address > ulong.MaxValue - target)
+                    {
+                        error = $"invalid-branch-target pc=0x{pc:X}";
+                        return false;
+                    }
+                    pending.Add(target);
+                    if (Gen5IrBranchResolver.IsUnconditionalBranch(instruction)) break;
+                }
+                if (Gen5IrBranchResolver.IsTerminator(instruction))
+                {
+                    hasTerminal = true;
+                    break;
+                }
+                pc += sizeDwords * sizeof(uint);
             }
         }
 
-        error = "unterminated";
-        return false;
+        if (!hasTerminal)
+        {
+            error = "unterminated";
+            return false;
+        }
+        // Preserve address ordering for consumers and existing flat-address
+        // inference, independent of the order in which blocks were discovered.
+        var instructions = new List<Gen5ShaderInstruction>(decoded.Count);
+        foreach (var decodedInstruction in decoded.Values)
+        {
+            var instruction = decodedInstruction;
+            if (instruction.Control is Gen5GlobalMemoryControl { UsesFlatAddress: true })
+                instruction = ResolveFlatAddressBase(instructions, instruction);
+            instructions.Add(instruction);
+        }
+        program = new Gen5ShaderProgram(address, instructions);
+        return true;
     }
 
     [Conditional("DEBUG")]
