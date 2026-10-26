@@ -1,5 +1,25 @@
 # Local engineering checkpoint — 2026-10-21
 
+## GitHub publication — 2026-10-26
+
+The user authorized publication under **SHORTY358** after the authenticated Git
+account lacked write access to the earlier `Techx3/TouchePX5` destination.
+Created the fork **https://github.com/SHORTY358/TouchePX5** and published the
+development history through `c3eb43c` to both `main` and
+`codex/validate-ngs2-outputs`. The original main was an ancestor; no force push
+or history rewrite was needed. Subsequent publication notes follow that commit.
+Use the **shorty** remote for publication; **origin** retains the original URL
+as a reference. The active development branch tracks the fork's matching branch.
+
+Pre-publication checks covered 888 tracked files (27,822,671 bytes) and 1,146
+unpublished historical blobs: no files over 50 MiB, no matched secret patterns,
+and no tracked firmware/game-package/private-key credential paths in the checked
+set. This is a bounded pattern check, not a guarantee that every possible secret
+format can be detected. Generated builds, caches, dumps and ignored local
+research artifacts stay local. A verified full-history Git bundle is saved
+under `D:\Dev\TouchePX5-backups`; it contains tracked Git history, not all
+ignored files or downloaded external tools.
+
 ## Workspace relocation
 
 Canonical active checkout is now **D:\Dev\TouchePX5**. All 160200 files,
