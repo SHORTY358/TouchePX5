@@ -23,6 +23,25 @@ percentage or release-date estimate.
 
 ## Latest verified state
 
+- **2026-10-26 upstream research refresh:** see
+  `docs/research-2026-10-26-upstream-updates.md`. Latest primary Kyty release
+  is `KytyPS5-2026-10-25-b2c9ec7` (109 commits after installed `4644c52`),
+  chenxiao07 has `v20261026`, while SharpEmu's published `v0.0.6-mono` and
+  AnyPS5's `v0.1.3` remain unchanged; their main branches have newer work.
+  Do not claim installed runtimes were updated. Found the previously missed
+  open `sharpemu/sharpemu-demo` Breakout package, release `49e6b3b` from Oct 10.
+  Its 3.65 MB archive was downloaded to `artifacts/research-20261026/`, verified
+  against GitHub SHA-256, inspected as x86-64 PS5-marked ELF plus metadata,
+  NOT extracted/executed. It supplies a basic no-console/no-retail-dump input,
+  not Hollow Knight or a general RDNA2 graphics test. Next useful bounded
+  check can use this package before waiting for retail game files. Checked
+  sources still offer no verified full-console PS Store purchase/download
+  route on Windows. Existing barycentrics fallback already exists in our
+  installed Kyty revision; do not market it as a new Oct 21-26 fix. Local NGG
+  index mask is already 9 bits. Avoid issue #1908's unofficial hotfix link;
+  discussion participants report malicious behavior, not independently
+  reverse-engineered here. No unsolicited binaries or external scripts ran.
+
 - **Hollow Knight upstream playtest setup (2026-10-21):** the user confirmed
   they do not currently have PS5 game files. Prepared the official Windows
   `KytyPS5-2026-10-21-4644c52` release in the separate sibling directory
